@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "llmeter"
-version = "0.1.0"
+version = "0.1.1"
 description = "A lightweight, cross-platform latency and throughput profiler for LLMs"
 authors = ["Amazon Web Services"]
 readme = "README.md"
