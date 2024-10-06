@@ -1,5 +1,5 @@
 <div align="center">
-<img alt="LLMeter (Logo)" src="docs/llmeter-logotype-192px.png" height="96px" width="396px"/>
+<img alt="LLMeter (Logo)" src="https://github.com/awslabs/llmeter/blob/main/docs/llmeter-logotype-192px.png?raw=true" height="96px" width="396px"/>
 
 **Measuring large language models latency and throughput**
 
@@ -11,8 +11,7 @@
 
 LLMeter is a pure-python library for simple latency and throughput testing of large language models (LLMs). It's designed to be lightweight to install; straightforward to run standard tests; and versatile to integrate - whether in notebooks, CI/CD, or other workflows.
 
-
-## :hammer_and_wrench: Installation
+## 🛠️ Installation
 
 LLMeter requires `python>=3.10`, please make sure your current version of python is compatible.
 
@@ -34,7 +33,7 @@ You can install one or more of these extra options using pip:
 pip install llmeter[plotting, openai, litellm]
 ```
 
-## :rocket: Quick-start
+## 🚀 Quick-start
 
 At a high level, you'll start by configuring an LLMeter "Endpoint" for whatever type of LLM you're connecting to:
 
@@ -82,13 +81,11 @@ sweep_test.plot_sweep_results()
 Alternatively, you can use the low-level `llmeter.runner.Runner` class to run and analyze request
 batches - and build your own custom experiments.
 
-For more details, check out our selection of end-to-end code examples in the [examples](examples) folder!
-
+For more details, check out our selection of end-to-end code examples in the [examples](https://github.com/awslabs/llmeter/tree/main/examples) folder!
 
 ## Security
 
-See [CONTRIBUTING](CONTRIBUTING.md#security-issue-notifications) for more information.
-
+See [CONTRIBUTING](https://github.com/awslabs/llmeter/tree/main/CONTRIBUTING.md#security-issue-notifications) for more information.
 
 ## License
 
