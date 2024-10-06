@@ -7,6 +7,7 @@ readme = "README.md"
 keywords = ["llm", "genai", "testing", "performance"]
 license = "Apache-2.0"
 maintainers = ["llmeter-maintainers <llmeter-maintainers@amazon.com>"]
+repository = "https://github.com/awslabs/llmeter"
 
 [tool.poetry.dependencies]
 python = ">=3.10, <3.13"
