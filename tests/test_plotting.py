@@ -4,7 +4,7 @@ import pytest
 import pandas as pd
 import numpy as np
 from unittest.mock import patch, MagicMock
-from llmeter.plotting import binning, plot_heatmap, plot_sweep_results
+from llmeter.plotting import _draw_heatmap, binning, plot_heatmap, plot_sweep_results
 from llmeter.runner import Result
 
 
@@ -87,7 +87,7 @@ def test_binning_edge_cases():
     # Test with single value
     result = binning([1])
     assert len(result) == 1
-    assert result[0] == "1"
+    assert result[0] == 1
 
     # Test with large range of values
     large_vector = list(range(1000))
@@ -165,3 +165,72 @@ def mock_results():
         )
         for i in range(5)
     ]
+
+
+@pytest.fixture
+def sample_data():
+    return pd.DataFrame(
+        {
+            "x": [1, 2, 3, 1, 2, 3],
+            "y": [1, 1, 1, 2, 2, 2],
+            "value": [10, 20, 30, 40, 50, 60],
+        }
+    )
+
+
+def test_draw_heatmap_formats_index_and_columns(sample_data):
+    with patch("seaborn.heatmap") as mock_heatmap:
+        _draw_heatmap("x", "y", "value", data=sample_data)
+
+        # Get the first positional argument passed to sns.heatmap
+        called_data = mock_heatmap.call_args[0][0]
+
+        # Check that index and columns are formatted as strings
+        assert all(isinstance(col, str) for col in called_data.columns)
+
+        # Check formatting
+        assert list(called_data.index) == ["1", "2"]
+
+
+def test_draw_hatmap_calls_seaborn_heatmap(sample_data):
+    with patch("seaborn.heatmap") as mock_heatmap:
+        _draw_heatmap("x", "y", "value", data=sample_data, cmap="coolwarm")
+        mock_heatmap.assert_called_once()
+
+        # Check that the cmap argument was passed to sns.heatmap
+        assert mock_heatmap.call_args[1]["cmap"] == "coolwarm"
+
+
+def test_draw_heatmap_sorts_columns(sample_data):
+    unsorted_data = pd.DataFrame(
+        {
+            "x": [3, 1, 2, 3, 1, 2],
+            "y": [1, 1, 1, 2, 2, 2],
+            "value": [30, 10, 20, 60, 40, 50],
+        }
+    )
+
+    with patch("seaborn.heatmap") as mock_heatmap:
+        _draw_heatmap("x", "y", "value", data=unsorted_data)
+
+        # Get the first positional argument passed to sns.heatmap
+        called_data = mock_heatmap.call_args[0][0]
+
+        # Check that columns are sorted
+        assert list(called_data.columns) == ["1", "2", "3"]
+
+
+def test_draw_heatmap_handles_missing_values():
+    data_with_missing = pd.DataFrame(
+        {
+            "x": [1, 2, 3, 1, 2, 3],
+            "y": [1, 1, 1, 2, 2, 2],
+            "value": [10, np.nan, 30, 40, 50, np.nan],
+        }
+    )
+
+    with patch("seaborn.heatmap") as mock_heatmap:
+        _draw_heatmap("x", "y", "value", data=data_with_missing)
+
+        # Check that the function doesn't raise an exception
+        assert mock_heatmap.called

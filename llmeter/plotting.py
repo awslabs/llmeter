@@ -42,9 +42,9 @@ def binning(vector, bins: int | None = None) -> list[str]:
                 m = int((max(vector) - min(vector)) // h) + 1
             except StatisticsError:
                 m = cardinality // 4 + 1
-        return [f"{x.mid:.0f}" for x in pd.cut(vector, bins=m)]
+        return [x.mid for x in pd.cut(vector, bins=m)]
 
-    return [f"{x.mid:.0f}" for x in pd.cut(vector, bins=bins)]
+    return [x.mid for x in pd.cut(vector, bins=bins)]
 
 
 def plot_heatmap(
@@ -115,6 +115,9 @@ _p99.__name__ = "p99"  # type: ignore
 def _draw_heatmap(*args, **kwargs):
     data = kwargs.pop("data")
     d = data.pivot(index=args[1], columns=args[0], values=args[2])
+    d.reindex(sorted(d.columns), axis=1)
+    d.index = d.index.map("{:.0f}".format)
+    d.columns = d.columns.map("{:.0f}".format)
     sns.heatmap(d, **kwargs)
 
 
