@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import logging
+from math import ceil
 import os
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -30,7 +31,8 @@ class LoadTest:
     endpoint: Endpoint
     payload: dict | list[dict]
     sequence_of_clients: list[int]
-    n_requests: int = 30
+    min_requests_per_client: int = 1
+    min_requests_per_run: int = 10
     output_path: os.PathLike | str | None = None
     tokenizer: Tokenizer | None = None
     test_name: str | None = None
@@ -38,6 +40,11 @@ class LoadTest:
     def __post_init__(self) -> None:
         self._runner = Runner(endpoint=self.endpoint, tokenizer=self.tokenizer)  # type: ignore
         self._test_name = self.test_name or f"{datetime.now():%Y%m%d-%H%M}"
+
+    def _get_n_requests(self, clients):
+        if clients * self.min_requests_per_client < self.min_requests_per_run:
+            return int(ceil(self.min_requests_per_run / clients))
+        return int(self.min_requests_per_client)
 
     async def run(self, output_path: os.PathLike | None = None):
         try:
@@ -48,7 +55,7 @@ class LoadTest:
             await self._runner.run(
                 self.payload,
                 clients=c,
-                n_requests=self.n_requests,
+                n_requests=self._get_n_requests(c),
                 output_path=output_path,
                 run_name=f"{c:05.0f}-clients",
             )

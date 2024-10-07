@@ -1,6 +1,7 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from math import ceil
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from llmeter.experiments import LoadTest, LatencyHeatmap
@@ -23,7 +24,6 @@ def test_load_test_post_init(mock_endpoint):
             endpoint=mock_endpoint,
             payload={"input": "test"},
             sequence_of_clients=[1, 2, 3],
-            n_requests=10,
         )
         mock_runner_class.assert_called_once_with(
             endpoint=mock_endpoint, tokenizer=None
@@ -39,7 +39,6 @@ async def test_load_test_run(mock_endpoint, mock_runner):
             endpoint=mock_endpoint,
             payload={"input": "test"},
             sequence_of_clients=[1, 2, 3],
-            n_requests=10,
         )
 
         results = await load_test.run()
@@ -54,11 +53,13 @@ def test_load_test_with_different_params(mock_endpoint):
         endpoint=mock_endpoint,
         payload=[{"input": "test1"}, {"input": "test2"}],
         sequence_of_clients=[1, 5, 10],
-        n_requests=50,
+        min_requests_per_client=20,
+        min_requests_per_run=100,
         output_path="test_output.json",
         tokenizer=MagicMock(),
     )
-    assert load_test.n_requests == 50
+    assert load_test.min_requests_per_client == 20
+    assert load_test.min_requests_per_run == 100
     assert load_test.output_path == "test_output.json"
     assert load_test.tokenizer is not None
 
@@ -134,7 +135,6 @@ def test_load_test_plot_sweep_results(mock_endpoint):
         endpoint=mock_endpoint,
         payload={"input": "test"},
         sequence_of_clients=[1, 2, 3],
-        n_requests=10,
     )
 
     with pytest.raises(AttributeError):
@@ -154,3 +154,86 @@ async def test_latency_heatmap_plot_heatmap(mock_endpoint, tmp_path):
 
     with pytest.raises(AttributeError):
         heatmap.plot_heatmap()
+
+
+@pytest.fixture
+def experiment_runner():
+    # Create an ExperimentRunner instance with some default values
+    return LoadTest(
+        endpoint=mock_endpoint, # type: ignore
+        payload={"input": "test"},
+        sequence_of_clients=[1, 2, 3],
+        min_requests_per_client=10,
+        min_requests_per_run=50,
+    )
+
+
+def test_get_n_requests_below_min_requests_per_run(experiment_runner):
+    # Test when clients * min_requests_per_client < min_requests_per_run
+    clients = 4  # 4 * 10 = 40, which is less than min_requests_per_run (50)
+    result = experiment_runner._get_n_requests(clients)
+    expected = ceil(experiment_runner.min_requests_per_run / clients)
+    assert result == expected, f"Expected {expected}, but got {result}"
+
+
+def test_get_n_requests_above_min_requests_per_run(experiment_runner):
+    # Test when clients * min_requests_per_client >= min_requests_per_run
+    clients = 6  # 6 * 10 = 60, which is more than min_requests_per_run (50)
+    result = experiment_runner._get_n_requests(clients)
+    expected = experiment_runner.min_requests_per_client
+    assert result == expected, f"Expected {expected}, but got {result}"
+
+
+def test_get_n_requests_exact_min_requests_per_run(experiment_runner):
+    # Test when clients * min_requests_per_client == min_requests_per_run
+    clients = 5  # 5 * 10 = 50, which is equal to min_requests_per_run (50)
+    result = experiment_runner._get_n_requests(clients)
+    expected = experiment_runner.min_requests_per_client
+    assert result == expected, f"Expected {expected}, but got {result}"
+
+
+def test_get_n_requests_single_client(experiment_runner):
+    # Test with a single client
+    clients = 1
+    result = experiment_runner._get_n_requests(clients)
+    expected = experiment_runner.min_requests_per_run
+    assert result == expected, f"Expected {expected}, but got {result}"
+
+
+def test_get_n_requests_large_number_of_clients(experiment_runner):
+    # Test with a large number of clients
+    clients = 1000
+    result = experiment_runner._get_n_requests(clients)
+    expected = experiment_runner.min_requests_per_client
+    assert result == expected, f"Expected {expected}, but got {result}"
+
+
+def test_get_n_requests_returns_integer(experiment_runner):
+    # Test that the function always returns an integer
+    clients = 7  # This will cause a division that's not a whole number
+    result = experiment_runner._get_n_requests(clients)
+    assert isinstance(result, int), f"Expected an integer, but got {type(result)}"
+
+
+@pytest.mark.parametrize(
+    "min_requests_per_client, min_requests_per_run, clients, expected",
+    [
+        (10, 50, 4, 13),
+        (10, 50, 6, 10),
+        (5, 100, 10, 10),
+        (20, 50, 2, 25),
+    ],
+)
+def test_get_n_requests_parametrized(
+    min_requests_per_client, min_requests_per_run, clients, expected
+):
+    # Parametrized test to cover multiple scenarios
+    runner = LoadTest(
+        endpoint=mock_endpoint, # type: ignore
+        payload={"input": "test"},
+        sequence_of_clients=[1, 2, 3],
+        min_requests_per_client=min_requests_per_client,
+        min_requests_per_run=min_requests_per_run,
+    )
+    result = runner._get_n_requests(clients)
+    assert result == expected, f"Expected {expected}, but got {result}"
