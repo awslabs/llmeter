@@ -1,6 +1,7 @@
 [tool.poetry]
 name = "llmeter"
-version = "0.1.1"
+# Note: version is automatically set from tag name in our GitHub CD release workflow
+version = "0.0.0"
 description = "A lightweight, cross-platform latency and throughput profiler for LLMs"
 authors = ["Amazon Web Services"]
 readme = "README.md"
