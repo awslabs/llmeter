@@ -2,8 +2,10 @@ name: Publish to PyPI
 
 on:
   push:
+    # New major & minor releases are disabled here by default for safety. To support new release
+    # lines, add them to the workflow filters:
     tags:
-      - '*.*.*'
+      - 'v0.1.*'
 
 permissions:
   contents: read
@@ -35,6 +37,17 @@ jobs:
 
       - name: Update Poetry configuration
         run: poetry config virtualenvs.create false
+
+      - name: Configure pyproject version
+        run: |
+          if [[ $GITHUB_REF_TYPE == "tag" ]] && [[ $GITHUB_REF_NAME == v* ]]
+          then
+            # Drop leading 'v'
+            poetry version ${GITHUB_REF_NAME:1}
+          else
+            echo "Invalid tag trigger\nGITHUB_REF_TYPE=${GITHUB_REF_TYPE}\nGITHUB_REF_NAME=${GITHUB_REF_NAME}"
+            exit 1
+          fi
 
       - name: Install dependencies
         run: poetry install --sync --no-interaction
