@@ -28,29 +28,33 @@ def test_binning():
     vector = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 
     # Test with default bins
-    result = binning(vector)
+    result, is_binned = binning(vector)
     assert len(result) == len(vector)
+    assert is_binned is True
     assert isinstance(result, list)
 
     # Test with specified bins
-    result = binning(vector, bins=5)
+    result, is_binned = binning(vector, bins=5)
     assert len(result) == len(vector)
+    assert is_binned is True
     assert len(set(result)) <= 5
 
 
 def test_binning_with_repeated_values():
     vector = [1, 1, 1, 2, 2, 3, 3, 3, 3]
-    result = binning(vector)
+    result, is_binned = binning(vector)
     assert len(result) == len(vector)
+    assert is_binned is True
     assert len(set(result)) <= len(set(vector))
 
 
 def test_binning_preserves_matching_cardinality():
     # A vector with cardinality 4 but very skewed distribution:
     vector = ([1] * 100) + ([2] * 50) + [3] + [10000]
-    result = binning(vector, 4)
+    result, is_binned = binning(vector, 4)
     # Result should keep same cardinality and exact values:
     assert len(result) == len(vector)
+    assert is_binned is False
     assert len(set(result)) == len(set(vector))
     assert result == vector
 
@@ -92,17 +96,19 @@ def test_plot_sweep_results(mock_subplots, mock_dataframe):
 
 def test_binning_edge_cases():
     # Test with empty vector
-    assert binning([]) == []
+    assert binning([]) == ([], False)
 
     # Test with single value
-    result = binning([1])
+    result, is_binned = binning([1])
     assert len(result) == 1
+    assert is_binned is True
     assert result[0] == 1
 
     # Test with large range of values
     large_vector = list(range(1000))
-    result = binning(large_vector)
+    result, is_binned = binning(large_vector)
     assert len(result) == len(large_vector)
+    assert is_binned is True
     assert len(set(result)) < len(large_vector)
 
 
@@ -111,8 +117,9 @@ def test_binning_with_different_bin_sizes(
     bins: None | Literal[5] | Literal[10] | Literal[20],
 ):
     vector = list(range(100))
-    result = binning(vector, bins=bins)
+    result, is_binned = binning(vector, bins=bins)
     assert len(result) == len(vector)
+    assert is_binned is True
     if bins is not None:
         assert len(set(result)) <= bins
 
