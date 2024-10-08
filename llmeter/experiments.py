@@ -1,16 +1,22 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from collections import defaultdict
 import logging
-from math import ceil
 import os
 from dataclasses import dataclass, field
 from datetime import datetime
+from functools import partial
+from math import ceil
+from statistics import StatisticsError, quantiles
 from typing import Callable
 
+import jmespath
 from tokenizers import Tokenizer
 from tqdm.auto import tqdm
 from upath import UPath as Path
+
+from llmeter.results import _get_stats_from_results
 
 from .endpoints.base import Endpoint
 from .plotting import plot_heatmap, plot_sweep_results
@@ -159,6 +165,15 @@ class LatencyHeatmap:
         self._results = heatmap_results
         return heatmap_results
 
+    def get_heatmaps(self):
+        if not self._results:
+            raise ValueError("No results to map")
+        return heatmaps_from_responses(
+            self._results,
+            bins_input_tokens=len(self.input_lengths),
+            bins_output_tokens=len(self.output_lengths),
+        )
+
     def plot_heatmap(self):
         if not self._results:
             raise ValueError("No results to plot")
@@ -168,3 +183,119 @@ class LatencyHeatmap:
             bins_output_tokens=len(self.output_lengths),
             output_path=self._results.output_path,
         )
+
+
+def _map_nested_dicts(ob, func):
+    if isinstance(ob, dict):
+        return {k: _map_nested_dicts(v, func) for k, v in ob.items()}
+    else:
+        return func(ob)
+
+
+def _cut(arr, bins: int):
+    assert bins > 0
+    min_val = min(arr)
+    max_val = max(arr)
+
+    width = (max_val - min_val) / bins  # Bin width
+    binned = [
+        (min(bins - 1, (k - min_val) // width)) * width + min_val + width / 2
+        for k in arr
+    ]
+    return binned
+
+
+def _binning(vector, bins: int | None = None) -> list:
+    if not vector:
+        return []
+
+    if bins is None:
+        bins = _calculate_optimal_bins(vector)
+
+    return [x for x in _cut(vector, bins=bins)]
+
+
+def _calculate_optimal_bins(vector: list) -> int:
+    cardinality = len(set(vector))
+
+    if cardinality < len(vector) / 20:
+        return cardinality
+
+    try:
+        return _calculate_bins_with_iqr(vector, cardinality)
+    except StatisticsError:
+        return cardinality // 4 + 1
+
+
+def _calculate_bins_with_iqr(vector: list, cardinality: int) -> int:
+    q1, _, q3, _ = quantiles(vector, n=5)
+    iqr = q3 - q1
+    h = 2 * iqr / (cardinality ** (1 / 3))
+    return int((max(vector) - min(vector)) // h) + 1
+
+
+def heatmaps_from_responses(
+    responses,
+    metrics: list[str] = ["time_to_last_token", "time_to_first_token"],
+    bins_output_tokens: int | None = None,
+    bins_input_tokens: int | None = None,
+):
+    successful_responses = [r for r in responses if not r.error]
+    binned_data = _bin_responses_by_tokens(
+        successful_responses,
+        bins_output_tokens=bins_output_tokens,
+        bins_input_tokens=bins_input_tokens,
+    )
+    heatmaps = _calculate_maps(binned_data, metrics)
+    return _add_counts_and_errors(heatmaps, binned_data)
+
+
+def _bin_responses_by_tokens(
+    responses,
+    bins_output_tokens: int | None = None,
+    bins_input_tokens: int | None = None,
+):
+    n_input = [r.num_tokens_input for r in responses]
+    n_output = [r.num_tokens_output for r in responses]
+    bins_input = [f"{k:.0f}" for k in _binning(n_input, bins_input_tokens)]
+    bins_output = [f"{k:.0f}" for k in _binning(n_output, bins_output_tokens)]
+
+    binned = defaultdict(lambda: defaultdict(list))
+    for bi, bo, r in zip(bins_input, bins_output, responses):
+        binned[bi][bo].append(r)
+
+    return binned
+
+
+def _calculate_maps(binned_data, metrics):
+    heatmaps = _map_nested_dicts(
+        binned_data, partial(_get_stats_from_results, metrics=metrics)
+    )
+    return _sort_map_labels(heatmaps)
+
+
+def _sort_map_labels(heatmaps):
+    sorted_heatmaps = dict(sorted(heatmaps.items()))
+    return {k: dict(sorted(v.items())) for k, v in sorted_heatmaps.items()}
+
+
+def _add_counts_and_errors(heatmaps, binned_data):
+    for input_bin, output_bins in binned_data.items():
+        for output_bin, responses in output_bins.items():
+            heatmaps[input_bin][output_bin].update(
+                {
+                    "counts": len(responses),
+                    "errors": sum(1 for r in responses if r.error),
+                }
+            )
+    return heatmaps
+
+
+def get_heatmap_stats(
+    heatmaps,
+    search_expression: str,
+):
+    return {
+        ok: {ik: jmespath.search(search_expression, iv) for ik, iv in ov.items()}
+        for ok, ov in heatmaps.items()
+    }
