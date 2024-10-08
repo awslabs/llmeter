@@ -1,0 +1,77 @@
+site_name: LLMeter
+copyright: Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+theme:
+  name: material
+  custom_dir: docs/overrides
+  icon:
+    annotation: material/plus-circle-outline
+    repo: material/github
+  logo: llmeter-sq-dark-192px.png
+  favicon: favicon.svg
+  font:
+    text: Inter
+    code:  Roboto Mono
+  palette:
+  - media: "(prefers-color-scheme: light)"
+    scheme: llmeter-light
+    toggle:
+      icon: material/weather-night
+      name: "Switch to dark mode"
+  - media: "(prefers-color-scheme: dark)"
+    scheme: llmeter-dark
+    toggle:
+      icon: material/weather-sunny
+      name: "Switch to light mode"
+  features:
+    - header.autohide
+    - content.code.copy
+    - content.code.annotate
+    - navigation.indexes
+    - navigation.footer
+    - navigation.top
+    - navigation.tabs
+nav:
+  - index.md
+  - User Guide:
+    - Installation: user_guide/installation.md
+    - Key Concepts: user_guide/key_concepts.md
+    - Connect to Endpoints:
+      - user_guide/connect_endpoints/index.md
+    - Run Experiments:
+      - user_guide/run_experiments/index.md
+    - Customize Analytics:
+      - user_guide/custom_analytics/index.md
+  - API Reference:
+    - endpoints:
+      - reference/endpoints/index.md
+      - base: reference/endpoints/base.md
+      - bedrock: reference/endpoints/bedrock.md
+      - litellm: reference/endpoints/litellm.md
+      - openai: reference/endpoints/openai.md
+      - sagemaker: reference/endpoints/sagemaker.md
+    - experiments: reference/experiments.md
+    - results: reference/results.md
+    - runner: reference/runner.md
+repo_url: https://github.com/awslabs/llmeter
+repo_name: awslabs/llmeter
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.snippets
+  - attr_list
+  - md_in_html
+extra:
+  generator: false
+extra_css:
+  - stylesheets/extra.css
+plugins:
+- search
+- mkdocstrings
