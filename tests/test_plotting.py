@@ -45,6 +45,16 @@ def test_binning_with_repeated_values():
     assert len(set(result)) <= len(set(vector))
 
 
+def test_binning_preserves_matching_cardinality():
+    # A vector with cardinality 4 but very skewed distribution:
+    vector = ([1] * 100) + ([2] * 50) + [3] + [10000]
+    result = binning(vector, 4)
+    # Result should keep same cardinality and exact values:
+    assert len(result) == len(vector)
+    assert len(set(result)) == len(set(vector))
+    assert result == vector
+
+
 @patch("llmeter.plotting.sns")
 def test_plot_heatmap(mock_sns, sample_result: Result):
     fig, ax = plot_heatmap(sample_result)

@@ -27,11 +27,17 @@ except ModuleNotFoundError:
 
 
 def binning(vector, bins: int | None = None) -> list[str]:
+    """Map the elements of `vector` to a discrete set of `bins` representative values for plotting
+
+    If the cardinality of `vector` already exactly matches the number of `bins`, the same values
+    will be returned. If the number of `bins` is not specified, a heuristic is used to select one.
+    """
     if len(vector) == 0:
         return []
-    # https://stats.stackexchange.com/a/114497
+    cardinality = len(set(vector))
+
     if bins is None:
-        cardinality = len(set(vector))
+        # https://stats.stackexchange.com/a/114497
         if cardinality < len(vector) / 20:
             m = cardinality
         else:
@@ -43,6 +49,9 @@ def binning(vector, bins: int | None = None) -> list[str]:
             except StatisticsError:
                 m = cardinality // 4 + 1
         return [x.mid for x in pd.cut(vector, bins=m)]
+
+    if cardinality == bins:
+        return [x for x in vector]
 
     return [x.mid for x in pd.cut(vector, bins=bins)]
 
