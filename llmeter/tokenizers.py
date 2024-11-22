@@ -2,16 +2,15 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from abc import ABC, abstractmethod
-from typing import Any
+from importlib import import_module
+from typing import Dict, TypeVar
 
-from upath import UPath
-import json
+from .serde import JSONableBase
+
+TTokenizer = TypeVar("TTokenizer", bound="Tokenizer")
 
 
-class Tokenizer(ABC):
-    def __init__(self, *args, **kwargs):
-        pass
-
+class Tokenizer(JSONableBase, ABC):
     @abstractmethod
     def encode(self, text: str):
         raise NotImplementedError
@@ -40,118 +39,31 @@ class Tokenizer(ABC):
             return False
         return True
 
-    @staticmethod
-    def load_from_file(tokenizer_path: UPath | None):
-        """
-        Loads a tokenizer from a file.
+    # Load any built-in Endpoint type (or custom ones) from a plain JSON dictionary
+
+    @classmethod
+    def from_dict(
+        cls, raw: dict, alt_classes: Dict[str, TTokenizer] = {}, **kwargs
+    ) -> TTokenizer:
+        """Load any built-in Tokenizer type (or custom ones) from a plain JSON dictionary
 
         Args:
-            tokenizer_path (UPath): The path to the serialized tokenizer file.
+            raw: A plain Tokenizer config dictionary, as created with `to_dict()`, `to_json`, etc.
+            alt_classes (Dict[str, type[Endpoint]]): A dictionary mapping additional custom type
+                names (beyond those in `llmeter.tokenizers`, which are included automatically), to
+                corresponding classes for loading custom endpoint types.
+            **kwargs: Optional extra keyword arguments to pass to the constructor
 
         Returns:
-            Tokenizer: The loaded tokenizer.
+            endpoint: An instance of the appropriate endpoint class, initialized with the
+                configuration from the file.
         """
-        if tokenizer_path is None:
-            return DummyTokenizer()
-        with open(tokenizer_path, "r") as f:
-            tokenizer_info = json.load(f)
-
-        return _load_tokenizer_from_info(tokenizer_info)
-
-    @staticmethod
-    def load(tokenizer_info: dict):
-        """
-        Loads a tokenizer from a dictionary.
-
-        Args:
-            tokenizer_info (Dict): The tokenizer information to load.
-
-        Returns:
-            Tokenizer: The loaded tokenizer.
-        """
-        return _load_tokenizer_from_info(tokenizer_info)
-
-    @staticmethod
-    def to_dict(tokenizer: Any) -> dict:
-        """
-        Serializes a tokenizer to a dictionary.
-
-        Args:
-            tokenizer (Tokenizer): The tokenizer to serialize.
-
-        Returns:
-            Dict: The serialized tokenizer.
-        """
-        return _to_dict(tokenizer)
-
-
-def _to_dict(tokenizer: Any) -> dict:
-    """
-    Serializes a tokenizer to a dictionary.
-
-    Args:
-        tokenizer (Tokenizer): The tokenizer to serialize.
-
-    Returns:
-        Dict: The serialized tokenizer.
-    """
-    if tokenizer.__module__.split(".")[0] == "transformers":
-        return {"tokenizer_module": "transformers", "name": tokenizer.name_or_path}
-
-    if tokenizer.__module__.split(".")[0] == "tiktoken":
-        return {"tokenizer_module": "tiktoken", "name": tokenizer.name}
-
-    if tokenizer.__module__.split(".")[0] == "llmeter":
-        return {"tokenizer_module": "llmeter"}
-
-    raise ValueError(f"Unknown tokenizer module: {tokenizer.__module__}")
-
-
-def save_tokenizer(tokenizer: Any, output_path: UPath | str):
-    """
-    Save a tokenizer information to a file.
-
-    Args:
-        tokenizer (Tokenizer): The tokenizer to serialize.
-        output_path (UPath): The path to save the serialized tokenizer to.
-
-    Returns:
-        UPath: The path to the serialized tokenizer file.
-    """
-    tokenizer_info = _to_dict(tokenizer)
-
-    output_path = UPath(output_path)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(output_path, "w") as f:
-        json.dump(tokenizer_info, f)
-
-    return output_path
-
-
-def _load_tokenizer_from_info(tokenizer_info: dict) -> Tokenizer:
-    """
-    Loads a tokenizer from a file.
-
-    Args:
-        tokenizer_info (Dict): The tokenizer information to load.
-
-    Returns:
-        Tokenizer: The loaded tokenizer.
-    """
-    if tokenizer_info["tokenizer_module"] == "transformers":
-        from transformers import AutoTokenizer
-
-        return AutoTokenizer.from_pretrained(tokenizer_info["name"])  # type: ignore
-
-    if tokenizer_info["tokenizer_module"] == "tiktoken":
-        from tiktoken import get_encoding
-
-        return get_encoding(tokenizer_info["name"])  # type: ignore
-
-    if tokenizer_info["tokenizer_module"] == "llmeter":
-        return DummyTokenizer()
-
-    raise ValueError(f"Unknown tokenizer module: {tokenizer_info['tokenizer_module']}")
+        builtin_endpoint_types = import_module("llmeter.tokenizers")
+        class_map = {
+            **builtin_endpoint_types,
+            **alt_classes,
+        }
+        return super().from_dict(raw, alt_classes=class_map, **kwargs)
 
 
 class DummyTokenizer(Tokenizer):
@@ -173,3 +85,43 @@ class DummyTokenizer(Tokenizer):
 
     def decode(self, tokens: list[str]):
         return " ".join(k for k in tokens)
+
+
+class TikTokenTokenizer(Tokenizer):
+    """A tokenizer based on TikToken get_encoding
+
+    (Note: You must have the `tiktoken` library installed to use this in LLMeter)
+    """
+
+    name: str
+
+    def __init__(self, name: str):
+        from tiktoken import get_encoding
+
+        self._tokenizer = get_encoding(name)
+
+    def encode(self, text: str):
+        return self._tokenizer.encode(text)
+
+    def decode(self, tokens: list[str]):
+        return self._tokenizer.decode(tokens)
+
+
+class TransformersAutoTokenizer(Tokenizer):
+    """A tokenizer based on Hugging Face Transformers' AutoTokenizer
+
+    (Note: You must have the `transformers` library installed to use this in LLMeter)
+    """
+
+    name_or_path: str
+
+    def __init__(self, name_or_path: str):
+        from transformers import AutoTokenizer
+
+        self._tokenizer = AutoTokenizer.from_pretrained(name_or_path)
+
+    def encode(self, text: str):
+        return self._tokenizer.encode(text)
+
+    def decode(self, tokens: list[str]):
+        return self._tokenizer.decode(tokens)
