@@ -8,10 +8,10 @@ import os
 import random
 import time
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import InitVar, asdict, dataclass, replace
+from dataclasses import InitVar, dataclass, replace
 from datetime import datetime
 from itertools import cycle
-from typing import Any
+from typing import Any, Dict, TypeVar
 from uuid import uuid4
 
 from tqdm.auto import tqdm, trange
@@ -20,6 +20,7 @@ from upath import UPath as Path
 from .endpoints.base import Endpoint, InvocationResponse
 from .prompt_utils import load_payloads, save_payloads
 from .results import Result
+from .serde import JSONableBase
 from .tokenizers import DummyTokenizer, Tokenizer
 
 logger = logging.getLogger(__name__)
@@ -31,8 +32,11 @@ if os.getenv("LLMETER_DISABLE_ALL_PROGRESS_BARS") == "1":
     _disable_tqdm = True
 
 
+TRunConfig = TypeVar("TRunConfig", bound="_RunConfig")
+
+
 @dataclass
-class _RunConfig:
+class _RunConfig(JSONableBase):
     """A class to store the configuration for a test run."""
 
     endpoint: Endpoint | dict
@@ -72,42 +76,70 @@ class _RunConfig:
         else:
             self._tokenizer = self.tokenizer
 
-    def save(
-        self,
-        output_path: os.PathLike | str | None = None,
-        file_name: str = "run_config.json",
-    ):
-        """Save the configuration to a disk or could storage."""
-        output_path = Path(output_path or self.output_path)
-        output_path.mkdir(parents=True, exist_ok=True)
-        if self.run_name:
-            output_path = output_path / self.run_name
-        run_config_path = output_path / file_name
+    @classmethod
+    def from_dict(
+        cls, raw: dict, alt_classes: Dict[str, TRunConfig] = {}, **kwargs
+    ) -> TRunConfig:
+        """Load a Run Configuration from a plain JSON-compatible dictionary.
 
-        config_copy = replace(self)
-
-        if self.payload and (not isinstance(self.payload, (os.PathLike, str))):
-            payload_path = save_payloads(self.payload, output_path)
-            config_copy.payload = payload_path
-
-        if not isinstance(self.endpoint, dict):
-            config_copy.endpoint = self.endpoint.to_dict()
-
-        if not isinstance(self.tokenizer, dict):
-            config_copy.tokenizer = Tokenizer.to_dict(self.tokenizer)
-
-        with run_config_path.open("w") as f:
-            f.write(json.dumps(asdict(config_copy), default=str, indent=4))
+        Args:
+            raw: A plain Python dict, for example loaded from a JSON file
+            alt_classes: Optional mapping from raw dictionary `_type` field to additional custom
+                classes to support during loading (for example if using custom Endpoint or
+                Tokenizer classes). Format like: `{cls.__name__: cls}`.
+            **kwargs: Optional extra keyword arguments to pass to the RunConfig constructor
+        """
+        data = {**raw}
+        data["endpoint"] = Endpoint.from_dict(raw["endpoint"], alt_classes=alt_classes)
+        data["tokenizer"] = Tokenizer.from_dict(
+            raw["tokenizer"], alt_classes=alt_classes
+        )
+        return super().from_dict(data, alt_classes, **kwargs)
 
     @classmethod
-    def load(cls, load_path: Path | str, file_name: str = "run_config.json"):
-        """Load a configuration from a JSON file."""
-        load_path = Path(load_path)
-        with open(load_path / file_name) as f:
-            config = json.load(f)
-        config["endpoint"] = Endpoint.load(config["endpoint"])
-        config["tokenizer"] = Tokenizer.load(config["tokenizer"])
-        return cls(**config)
+    def from_file(
+        cls: TRunConfig,
+        input_path: os.PathLike,
+        file_name: str = "run_config.json",
+        **kwargs,
+    ) -> TRunConfig:
+        """Load a Run Configuration from a (local or Cloud) JSON file
+
+        Args:
+            input_path: The base path where the file is stored.
+            file_name: The base name of the target file within `input_path`
+            **kwargs: Optional extra keyword arguments to pass to `from_dict()`
+        """
+        # Superclass expects input_path to be the actual final JSON file path:
+        input_path = Path(input_path)
+        return super().from_file(input_path / file_name, **kwargs)
+
+    def to_file(
+        self,
+        output_path: os.PathLike | None = None,
+        file_name: str = "run_config.json",
+        **kwargs,
+    ) -> Path:
+        """Save the Run Configuration to a (local or Cloud) JSON file
+
+        Args:
+            output_path: The base folder where files should be stored. If `self.run_name` is set,
+                this will be appended as a subfolder.
+            file_name: The base name of the file to save the configuration to.
+            **kwargs: Optional extra keyword arguments to pass to `to_json()`
+
+        Returns:
+            output_path: Universal Path representation of the target file.
+        """
+        # Superclass expects output_path to be the actual final JSON file path:
+        if not output_path and not self.output_path:
+            raise ValueError(
+                "Can't save RunConfig: No output_path provided in to_file() or in config"
+            )
+        output_path = Path(self.output_path)
+        if self.run_name:
+            output_path = output_path / self.run_name
+        return super().to_file(output_path / file_name, **kwargs)
 
 
 @dataclass
@@ -397,7 +429,7 @@ class Runner(_RunConfig):
         assert isinstance(run_config.payload, list)
         assert isinstance(run_config.run_name, str)
         if run_config.output_path:
-            run_config.save()
+            run_config.to_file()
 
         result = self._initialize_result(run_config)
 

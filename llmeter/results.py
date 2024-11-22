@@ -9,18 +9,22 @@ from itertools import filterfalse
 from math import isnan
 import os
 from statistics import StatisticsError, mean, median, quantiles
-from typing import Dict, Sequence
+from typing import Any, Callable, Dict, Sequence, TypeVar
 
 import jmespath
 from upath import UPath as Path
 
 from .endpoints import InvocationResponse
+from .serde import from_dict_with_class_map, JSONableBase
 
 logger = logging.getLogger(__name__)
 
 
+TResult = TypeVar("TResult", bound="Result")
+
+
 @dataclass
-class Result:
+class Result(JSONableBase):
     """Results of an experiment run."""
 
     responses: list[InvocationResponse]
@@ -65,40 +69,108 @@ class Result:
             The method uses the Universal Path (UPath) library for file operations,
             which provides a unified interface for working with different file systems.
         """
-
         try:
             output_path = Path(self.output_path or output_path)
         except TypeError:
             raise ValueError("No output path provided")
 
-        output_path.mkdir(parents=True, exist_ok=True)
-
-        summary_path = output_path / "summary.json"
+        self.to_file(
+            output_path / "summary.json",
+            include_responses=False,
+        )  # Already creates output_path folders if needed
         stats_path = output_path / "stats.json"
-        with summary_path.open("w") as f, stats_path.open("w") as s:
-            f.write(self.to_json(indent=4))
+        with stats_path.open("w") as s:
             s.write(json.dumps(self.stats, indent=4, default=str))
 
         responses_path = output_path / "responses.jsonl"
-        if not responses_path.exists():
-            with responses_path.open("w") as f:
-                for response in self.responses:
-                    f.write(json.dumps(asdict(response)) + "\n")
+        with responses_path.open("w") as f:
+            for response in self.responses:
+                f.write(json.dumps(asdict(response)) + "\n")
 
-    def to_json(self, **kwargs):
-        """Return the results as a JSON string."""
-        summary = {
-            k: o for k, o in asdict(self).items() if k not in ["responses", "stats"]
-        }
-        return json.dumps(summary, default=str, **kwargs)
+    @classmethod
+    def from_dict(
+        cls, raw: dict, alt_classes: dict[str, TResult] = {}, **kwargs
+    ) -> TResult:
+        """Load a run Result from a plain dict (with optional extra kwargs)
 
-    def to_dict(self, include_responses: bool = False):
-        """Return the results as a dictionary."""
-        if include_responses:
-            return asdict(self)
-        return {
-            k: o for k, o in asdict(self).items() if k not in ["responses", "stats"]
-        }
+        Args:
+            raw: A plain Python dict, for example loaded from a JSON file
+            alt_classes: By default, this method will only use the class of the current object
+                (i.e. `cls`). If you want to support loading of subclasses, provide a mapping
+                from your raw dict's `_type` field to class, for example `{cls.__name__: cls}`.
+            **kwargs: Optional extra keyword arguments to pass to the constructor
+        """
+        data = {**raw}
+        if "responses" in data:
+            data["responses"] = [
+                # Just in case users wanted to override InvocationResponse itself...
+                from_dict_with_class_map(
+                    resp,
+                    alt_classes={
+                        InvocationResponse.__name__: InvocationResponse,
+                        **alt_classes,
+                    },
+                )
+                for resp in data["responses"]
+            ]
+        else:
+            data["responses"] = []
+        data.pop("stats", None)  # Calculated property should be omitted
+        return super().from_dict(data, alt_classes, **kwargs)
+
+    def to_dict(self, include_responses: bool = False, **kwargs) -> dict:
+        """Save the results to a JSON-dumpable dictionary (with optional extra kwargs)
+
+        Args:
+            include_responses: Set `True` to include the `responses` and `stats` in the output.
+                By default, these will be omitted.
+            **kwargs: Additional fields to save in the output dictionary.
+        """
+        result = super().to_dict(**kwargs)
+        if not include_responses:
+            result.pop("responses", None)
+            result.pop("stats", None)
+        return result
+
+    def to_file(
+        self,
+        output_path: os.PathLike,
+        include_responses: bool = False,
+        indent: int | str | None = 4,
+        default: Callable[[Any], Any] | None = {},
+        **kwargs,
+    ) -> Path:
+        """Save the Run Result to a (local or Cloud) JSON file
+
+        Args:
+            output_path: The path where the file will be saved.
+            include_responses: Set `True` to include the `responses` and `stats` in the output.
+                By default, these will be omitted.
+            indent: Optional indentation passed through to `to_json()` and therefore `json.dumps()`
+            default: Optional function to convert non-JSON-serializable objects to strings, passed
+                through to `to_json()` and therefore to `json.dumps()`
+            **kwargs: Optional extra keyword arguments to pass to `to_json()`
+
+        Returns:
+            output_path: Universal Path representation of the target file.
+        """
+        return super().to_file(
+            output_path,
+            include_responses=include_responses,
+            indent=indent,
+            default=default,
+            **kwargs,
+        )
+
+    def to_json(self, include_responses: bool = False, **kwargs) -> str:
+        """Serialize the results to JSON, with optional kwargs passed through to `json.dumps()`
+
+        Args:
+            include_responses: Set `True` to include the `responses` and `stats` in the output.
+                By default, these will be omitted.
+            **kwargs: Optional arguments to pass to `json.dumps()`.
+        """
+        return json.dumps(self.to_dict(include_responses=include_responses), **kwargs)
 
     @classmethod
     def load(cls, result_path: os.PathLike | str):
@@ -126,12 +198,20 @@ class Result:
 
         """
         result_path = Path(result_path)
-        responses_path = result_path / "responses.jsonl"
         summary_path = result_path / "summary.json"
-        with open(responses_path, "r") as f, summary_path.open("r") as g:
-            responses = [InvocationResponse(**json.loads(line)) for line in f if line]
-            summary = json.load(g)
-        return cls(responses=responses, **summary)
+        with summary_path.open("r") as f:
+            raw = json.load(f)
+
+        responses_path = result_path / "responses.jsonl"
+        try:
+            with responses_path.open("r") as f:
+                raw["responses"] = [
+                    InvocationResponse.from_json(line) for line in f if line
+                ]
+        except FileNotFoundError:
+            logger.info("Result.load: No responses data found at %s", responses_path)
+
+        return cls.from_dict(raw)
 
     @cached_property
     def stats(self) -> Dict:

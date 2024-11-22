@@ -2,14 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import importlib
-import json
-import os
 from abc import ABC, abstractmethod
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from typing import Dict, TypeVar
 from uuid import uuid4
 
-from upath import UPath as Path
+from llmeter.serde import JSONableBase
 
 Self = TypeVar(
     "Self", bound="Endpoint"
@@ -17,7 +15,7 @@ Self = TypeVar(
 
 
 @dataclass
-class InvocationResponse:
+class InvocationResponse(JSONableBase):
     """
     A class representing a invocation result.
 
@@ -43,9 +41,6 @@ class InvocationResponse:
     time_per_output_token: float | None = None
     error: str | None = None
 
-    def to_json(self, **kwargs) -> str:
-        return json.dumps(self.__dict__, **kwargs)
-
     @staticmethod
     def error_output(
         input_prompt: str | None = None, error=None, id: str | None = None
@@ -64,11 +59,8 @@ class InvocationResponse:
     def __str__(self):
         return self.to_json(indent=4, default=str)
 
-    def to_dict(self):
-        return asdict(self)
 
-
-class Endpoint(ABC):
+class Endpoint(JSONableBase, ABC):
     """
     An abstract base class for endpoint implementations.
 
@@ -154,79 +146,26 @@ class Endpoint(ABC):
                 return True
         return NotImplemented
 
-    def save(self, output_path: os.PathLike) -> os.PathLike:
-        """
-        Save the endpoint configuration to a JSON file.
-
-        This method serializes the endpoint's configuration (excluding private attributes)
-        to a JSON file at the specified path.
-
-        Args:
-            output_path (str | UPath): The path where the configuration file will be saved.
-
-        Returns:
-            None
-        """
-        output_path = Path(output_path)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        with output_path.open("w") as f:
-            endpoint_conf = self.to_dict()
-            json.dump(endpoint_conf, f, indent=4, default=str)
-        return output_path
-
-    def to_dict(self) -> Dict:
-        """
-        Convert the endpoint configuration to a dictionary.
-
-        Returns:
-            Dict: A dictionary representation of the endpoint configuration.
-        """
-        endpoint_conf = {k: v for k, v in vars(self).items() if not k.startswith("_")}
-        endpoint_conf["endpoint_type"] = self.__class__.__name__
-        return endpoint_conf
-
     @classmethod
-    def load_from_file(cls, input_path: os.PathLike) -> Self:
-        """
-        Load an endpoint configuration from a JSON file.
-
-        This class method reads a JSON file containing an endpoint configuration,
-        determines the appropriate endpoint class, and instantiates it with the
-        loaded configuration.
+    def from_dict(
+        cls: Self, raw: Dict, alt_classes: Dict[str, Self] = {}, **kwargs
+    ) -> Self:
+        """Load any built-in Endpoint type (or custom ones) from a plain JSON dictionary
 
         Args:
-            input_path (str|UPath): The path to the JSON configuration file.
+            raw: A plain Endpoint config dictionary, as created with `to_dict()`, `to_json`, etc.
+            alt_classes (Dict[str, type[Endpoint]]): A dictionary mapping additional custom type
+                names (beyond those in `llmeter.endpoints`, which are included automatically), to
+                corresponding classes for loading custom endpoint types.
+            **kwargs: Optional extra keyword arguments to pass to the constructor
 
         Returns:
-            Endpoint: An instance of the appropriate endpoint class, initialized
-                      with the configuration from the file.
+            endpoint: An instance of the appropriate endpoint class, initialized with the
+                configuration from the file.
         """
-
-        input_path = Path(input_path)
-        with input_path.open("r") as f:
-            data = json.load(f)
-        endpoint_type = data.pop("endpoint_type")
-        endpoint_module = importlib.import_module("llmeter.endpoints")
-        endpoint_class = getattr(endpoint_module, endpoint_type)
-        return endpoint_class(**data)
-
-    @classmethod
-    def load(cls, endpoint_config: Dict) -> Self:  # type: ignore
-        """
-        Load an endpoint configuration from a dictionary.
-
-        This class method reads a dictionary containing an endpoint configuration,
-        determines the appropriate endpoint class, and instantiates it with the
-        loaded configuration.
-
-        Args:
-            data (Dict): A dictionary containing the endpoint configuration.
-
-        Returns:
-            Endpoint: An instance of the appropriate endpoint class, initialized
-                      with the configuration from the dictionary.
-        """
-        endpoint_type = endpoint_config.pop("endpoint_type")
-        endpoint_module = importlib.import_module("llmeter.endpoints")
-        endpoint_class = getattr(endpoint_module, endpoint_type)
-        return endpoint_class(**endpoint_config)
+        builtin_endpoint_types = importlib.import_module("llmeter.endpoints")
+        class_map = {
+            **builtin_endpoint_types,
+            **alt_classes,
+        }
+        return super().from_dict(raw, alt_classes=class_map, **kwargs)
