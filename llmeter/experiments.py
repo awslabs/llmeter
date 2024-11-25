@@ -169,7 +169,7 @@ class LatencyHeatmap:
         if not self._results:
             raise ValueError("No results to map")
         return heatmaps_from_responses(
-            self._results,
+            self._results.responses,
             bins_input_tokens=len(self.input_lengths),
             bins_output_tokens=len(self.output_lengths),
         )
@@ -205,12 +205,25 @@ def _cut(arr, bins: int):
     return binned
 
 
-def _binning(vector, bins: int | None = None) -> list:
+def _binning(vector, bins: int | list | None = None) -> list:
+    """Map the elements of `vector` to a discrete set of `bins` representative values for plotting
+    If the cardinality of `vector` already exactly matches the number of `bins`, the same values
+    will be returned. If the number of `bins` is not specified, a heuristic is used to select one.
+    Returns:
+        result: Elements of `vector` mapped to the mid-points of the calculated bins
+        binned: Truthy if the data was binned, falsy if it was left as-is
+    TODO: Possibly extend `binned` to return the actual bin intervals instead of just True?
+    """
+    if isinstance(bins, list):
+        return []
     if not vector:
         return []
 
     if bins is None:
         bins = _calculate_optimal_bins(vector)
+
+    if len(set(vector)) == bins:
+        return vector
 
     return [x for x in _cut(vector, bins=bins)]
 
@@ -275,7 +288,7 @@ def _calculate_maps(binned_data, metrics):
 
 
 def _sort_map_labels(heatmaps):
-    sorted_heatmaps = dict(sorted(heatmaps.items()))
+    sorted_heatmaps = dict(sorted(heatmaps.items(), reverse=True))
     return {k: dict(sorted(v.items())) for k, v in sorted_heatmaps.items()}
 
 
