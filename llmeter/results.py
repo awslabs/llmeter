@@ -34,6 +34,8 @@ class Result:
     provider: str | None = None
     run_name: str | None = None
     run_description: str | None = None
+    start_time: float | None = None
+    end_time: float | None = None
 
     def __str__(self):
         return json.dumps(self.stats, indent=4, default=str)

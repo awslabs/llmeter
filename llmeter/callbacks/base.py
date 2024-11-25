@@ -1,21 +1,21 @@
 from abc import ABC, abstractmethod
 
-from llmeter.endpoints.base import InvocationResponse
-from llmeter.results import Result
-from llmeter.runner import Runner
+from ..endpoints.base import InvocationResponse
+from ..results import Result
+# from ..runner import Runner
 
 class Callback(ABC):
 
-    def before_invoke(self, payload: dict):
+    async def before_invoke(self, payload: dict):
         pass
 
-    def after_invoke(self, response: InvocationResponse):
+    async def after_invoke(self, response: InvocationResponse):
         pass
 
-    def before_run(self, runner: Runner):
+    async def before_run(self, runner: 'llmeter.runner.Runner'):
         pass
 
-    def after_run(self, result: Result):
+    async def after_run(self, result: Result):
         pass
 
     @abstractmethod
@@ -23,7 +23,7 @@ class Callback(ABC):
         pass
 
     @staticmethod
-    def load_from_file(path: str)->'Callback':
+    def load_from_file(path: str):
         # check if it's one of built-in modules
         # use the _load_from_file method to load the configuration
         pass

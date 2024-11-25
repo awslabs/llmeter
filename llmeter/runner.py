@@ -17,6 +17,8 @@ from uuid import uuid4
 from tqdm.auto import tqdm, trange
 from upath import UPath as Path
 
+from llmeter.callbacks.base import Callback
+
 from .endpoints.base import Endpoint, InvocationResponse
 from .prompt_utils import load_payloads, save_payloads
 from .results import Result
@@ -46,6 +48,7 @@ class _RunConfig:
     timeout: int | float = 60
     disable_per_client_progress_bar: InitVar[bool] = True
     disable_clients_progress_bar: InitVar[bool] = True
+    callbacks: list[Callback] | None = None
 
     def __post_init__(self, disable_client_progress_bar, disable_clients_progress_bar):
         self._disable_per_client_progress_bar = disable_client_progress_bar
@@ -122,46 +125,40 @@ class Runner(_RunConfig):
         Inherits all attributes from _RunConfig.
     """
 
-    def _count_tokens_no_wait(self, text: str | Any) -> int:
+    async def _update_token_counts(self, response: InvocationResponse):
         """
-        Count the number of tokens in the given text.
+        Update the token counts for the given response.
 
         Args:
-            text (Any): The input text to count tokens for.
-
-        Returns:
-            int: The number of tokens in the input text.
-
-        Raises:
-            ValueError: If the input text cannot be converted to a string.
+            response (InvocationResponse): The response to update token counts for.
         """
-        if text is None:
-            return 0
-        if not isinstance(text, str):
-            try:
-                text = str(text)
-            except Exception:
-                raise ValueError("provided input can't be converted to string")
+        if response.num_tokens_input is None:
+            text = response.input_prompt
+            if text is None:
+                response.num_tokens_input = 0
+            if not isinstance(text, str):
+                try:
+                    text = str(text)
+                except Exception:
+                    raise ValueError("provided input can't be converted to string")
+            response.num_tokens_input = len(self._tokenizer.encode(text))
 
-        return len(self._tokenizer.encode(text))
+        if response.num_tokens_output is None:
+            text = response.response_text
+            if text is None:
+                response.num_tokens_output = 0
+            if not isinstance(text, str):
+                try:
+                    text = str(text)
+                except Exception:
+                    raise ValueError("generated output can't be converted to string")
+            response.num_tokens_output = len(self._tokenizer.encode(text))
 
-    async def _count_tokens_from_q(self, output_path: Path | None = None):
-        """
-        Asynchronously counts tokens for responses in a queue.
-
-        Args:
-            output_path (PathLike | None, optional): The path to write processed EndpointResponse objects to. If None, responses are not persisted.
-
-        Returns:
-            None
-
-        Raises:
-            TimeoutError: If no response is available within the specified timeout it will terminate the process.
-        """
+    async def _process_results_from_q(self, output_path: Path | None = None):
         logger.info("Starting token counting from queue")
         while True:
             try:
-                response: InvocationResponse = await asyncio.wait_for(
+                response: InvocationResponse | None = await asyncio.wait_for(
                     self._queue.get(), timeout=self.timeout
                 )
             except asyncio.TimeoutError:
@@ -176,16 +173,10 @@ class Runner(_RunConfig):
                 break
 
             logger.debug(f"Got {response.id} from queue")
-            if response.num_tokens_input is None:
-                response.num_tokens_input = await asyncio.to_thread(
-                    self._count_tokens_no_wait, response.input_prompt
-                )
-                logger.debug(f"Counted input tokens for {response.id}")
-            if response.num_tokens_output is None:
-                response.num_tokens_output = await asyncio.to_thread(
-                    self._count_tokens_no_wait, response.response_text
-                )
-                logger.debug(f"Counted output tokens for {response.id}")
+
+            await self._update_token_counts(response)
+            if self.callbacks is not None:
+                [await cb.after_invoke(response) for cb in self.callbacks]
 
             self._responses.append(response)
             if self._progress_bar:
@@ -194,6 +185,7 @@ class Runner(_RunConfig):
             if output_path:
                 with output_path.open("a") as f:
                     f.write(response.to_json() + "\n")
+
             self._queue.task_done()
 
     def _invoke_n_no_wait(
@@ -349,6 +341,7 @@ class Runner(_RunConfig):
         output_path: os.PathLike | str | None = None,
         run_name: str | None = None,
         run_description: str | None = None,
+        # callbacks: list[Callback] | None = None,
     ) -> Result:
         """
         Tests the the endpoint latency and throughput for a fixed payload.
@@ -421,6 +414,9 @@ class Runner(_RunConfig):
             run_description=run_config.run_description,
         )
 
+        if self.callbacks is not None:
+            [await cb.before_run(self) for cb in self.callbacks]
+
         # Address default threads limit in asyncio
         # https://stackoverflow.com/questions/75885213/how-to-increase-asyncio-thread-limits-in-an-existing-co-routine)
         loop = asyncio.get_running_loop()
@@ -438,7 +434,7 @@ class Runner(_RunConfig):
 
         try:
             _, total_test_time = await asyncio.gather(
-                self._count_tokens_from_q(
+                self._process_results_from_q(
                     output_path=result.output_path / "responses.jsonl"
                     if isinstance(result.output_path, Path)
                     else None,
@@ -464,6 +460,9 @@ class Runner(_RunConfig):
             responses=self._responses,
             total_test_time=total_test_time,
         )
+
+        if self.callbacks is not None:
+            [await cb.after_run(result) for cb in self.callbacks]
 
         if result.output_path:
             result.save()

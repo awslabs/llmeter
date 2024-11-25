@@ -77,7 +77,7 @@ async def test_count_tokens_from_q(runner: Runner):
     runner._queue.task_done = MagicMock()
     runner._count_tokens_no_wait = AsyncMock(return_value=5)
 
-    await runner._count_tokens_from_q()
+    await runner._process_results_from_q()
 
     assert len(runner._responses) == 1
     assert runner._responses[0].num_tokens_input == 5
@@ -105,7 +105,7 @@ async def test_invoke_n(runner: Runner):
 @pytest.mark.asyncio
 async def test_run(runner: Runner):
     runner._invoke_n_c = AsyncMock(return_value=1.0)
-    runner._count_tokens_from_q = AsyncMock()
+    runner._process_results_from_q = AsyncMock()
 
     result = await runner.run(payload={"prompt": "test"}, n_requests=1, clients=1)
 
@@ -157,7 +157,7 @@ async def test_run_with_file_payload(runner: Runner, tmp_path: Path):
     payload_file.write_text('{"prompt": "test1"}\n{"prompt": "test2"}')
 
     runner._invoke_n_c = AsyncMock(return_value=1.0)
-    runner._count_tokens_from_q = AsyncMock()
+    runner._process_results_from_q = AsyncMock()
 
     result = await runner.run(payload=str(payload_file), n_requests=2, clients=1)
 
@@ -172,7 +172,7 @@ async def test_run_with_output_path(runner: Runner, tmp_path: Path):
     output_path = tmp_path / "output"
 
     runner._invoke_n_c = AsyncMock(return_value=1.0)
-    runner._count_tokens_from_q = AsyncMock()
+    runner._process_results_from_q = AsyncMock()
 
     result = await runner.run(
         payload={"prompt": "test"},
@@ -188,7 +188,7 @@ async def test_run_with_output_path(runner: Runner, tmp_path: Path):
 @pytest.mark.asyncio
 async def test_run_error_handling(runner: Runner):
     runner._invoke_n_c = AsyncMock(side_effect=Exception("Test error"))
-    runner._count_tokens_from_q = AsyncMock()
+    runner._process_results_from_q = AsyncMock()
 
     with pytest.raises(Exception, match="Test error"):
         await runner.run(payload={"prompt": "test"}, n_requests=1, clients=1)
@@ -297,7 +297,7 @@ async def test_invoke_n_edge_cases(runner: Runner):
 @pytest.mark.asyncio
 async def test_run_with_sequence_payload(runner: Runner):
     runner._invoke_n_c = AsyncMock(return_value=1.0)
-    runner._count_tokens_from_q = AsyncMock()
+    runner._process_results_from_q = AsyncMock()
 
     result = await runner.run(
         payload=[{"prompt": "test1"}, {"prompt": "test2"}], n_requests=2, clients=1
@@ -333,7 +333,7 @@ async def test_count_tokens_from_q_timeout(runner: Runner):
     runner._queue = AsyncMock()
     runner._queue.get.side_effect = asyncio.TimeoutError()
 
-    await runner._count_tokens_from_q()
+    await runner._process_results_from_q()
 
     runner._queue.assert_awaited_once
     runner._queue.task_done = MagicMock()
@@ -418,7 +418,7 @@ async def test_run_with_different_payloads(
         payload = str(payload_file)  # type: ignore
 
     runner._invoke_n_c = AsyncMock(return_value=1.0)
-    runner._count_tokens_from_q = AsyncMock()
+    runner._process_results_from_q = AsyncMock()
 
     result = await runner.run(payload=payload, n_requests=2, clients=1)
 
@@ -514,7 +514,7 @@ async def test_count_tokens_from_q_different_scenarios(runner: Runner):
     ]
     runner._count_tokens_no_wait = AsyncMock(return_value=5)
 
-    await runner._count_tokens_from_q()
+    await runner._process_results_from_q()
 
     assert len(runner._responses) == 2
     assert runner._responses[0].num_tokens_input == 5
@@ -528,7 +528,7 @@ async def test_count_tokens_from_q_different_scenarios(runner: Runner):
     runner._queue.get.side_effect = Exception("Test exception")
     runner._queue.task_done = MagicMock()
 
-    await runner._count_tokens_from_q()
+    await runner._process_results_from_q()
 
     # assert len(runner._responses) == 0
     assert not runner._responses
@@ -647,7 +647,7 @@ async def test_run_with_optional_parameters(
     run_description: None | Literal["Custom description"],
 ):
     runner._invoke_n_c = AsyncMock(return_value=1.0)
-    runner._count_tokens_from_q = AsyncMock()
+    runner._process_results_from_q = AsyncMock()
 
     result = await runner.run(
         payload={"prompt": "test"},
@@ -859,7 +859,7 @@ async def test_count_tokens_from_q_with_custom_output_path(
     runner._queue.task_done = MagicMock()
     runner._count_tokens_no_wait = MagicMock(return_value=5)
 
-    await runner._count_tokens_from_q(
+    await runner._process_results_from_q(
         output_path=custom_output_path / "responses.jsonl"
     )
 
