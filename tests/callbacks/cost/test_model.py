@@ -1,4 +1,4 @@
-from unittest.mock import Mock, NonCallableMock
+from unittest.mock import AsyncMock, Mock, NonCallableMock
 
 import pytest
 
@@ -44,7 +44,7 @@ async def test_cost_model_callback_saves_request_costs():
     """By default, CostModel callbacks save request cost calculations to InvocationResponse"""
     dummy_req_dim = Mock()
     dummy_req_dim.name = "MockDimension"
-    dummy_req_dim.calculate = Mock(return_value=42)
+    dummy_req_dim.calculate = AsyncMock(return_value=42)
 
     model = CostModel(
         request_dims=[dummy_req_dim],
@@ -67,7 +67,7 @@ async def test_cost_model_callback_saves_run_costs():
     """By default, CostModel callbacks save run cost calculations to Result"""
     dummy_run_dim = Mock()
     dummy_run_dim.name = "MockDimension"
-    dummy_run_dim.calculate = Mock(return_value=5000)
+    dummy_run_dim.calculate = AsyncMock(return_value=5000)
 
     model = CostModel(
         request_dims=[],
@@ -93,16 +93,16 @@ async def test_cost_model_callback_saves_run_costs():
 async def test_cost_model_combines_req_and_run_dims():
     dummy_req_dim = Mock()
     dummy_req_dim.name = "MockByRequest"
-    dummy_req_dim.calculate = Mock(return_value=1)
+    dummy_req_dim.calculate = AsyncMock(return_value=1)
     dummy_shared_dim_req = Mock()
     dummy_shared_dim_req.name = "SharedDim"
-    dummy_shared_dim_req.calculate = Mock(return_value=10)
+    dummy_shared_dim_req.calculate = AsyncMock(return_value=10)
     dummy_run_dim = Mock()
     dummy_run_dim.name = "MockByRun"
-    dummy_run_dim.calculate = Mock(return_value=5000)
+    dummy_run_dim.calculate = AsyncMock(return_value=5000)
     dummy_shared_dim_run = Mock()
     dummy_shared_dim_run.name = "SharedDim"
-    dummy_shared_dim_run.calculate = Mock(return_value=100)
+    dummy_shared_dim_run.calculate = AsyncMock(return_value=100)
 
     model = CostModel(
         request_dims=[dummy_req_dim, dummy_shared_dim_req],
@@ -130,8 +130,8 @@ async def test_cost_model_combines_req_and_run_dims():
     assert results_mock.cost.total == 5133
 
     # Check recalculating with an adjusted model works correctly:
-    dummy_req_dim.calculate = Mock(return_value=2)
-    dummy_run_dim.calculate = Mock(return_value=6000)
+    dummy_req_dim.calculate = AsyncMock(return_value=2)
+    dummy_run_dim.calculate = AsyncMock(return_value=6000)
     new_costs = await model.calculate_run_cost(
         results_mock, include_request_costs="recalculate"
     )

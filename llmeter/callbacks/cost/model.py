@@ -58,7 +58,7 @@ class CostModel(JSONableBase, Callback):
             [
                 CalculatedCostDimension(
                     name=dim.name,
-                    cost=dim.calculate(response),
+                    cost=await dim.calculate(response),
                 )
                 for dim in self.request_dims
             ]
@@ -91,7 +91,7 @@ class CostModel(JSONableBase, Callback):
             [
                 CalculatedCostDimension(
                     name=dim.name,
-                    cost=dim.calculate(result),
+                    cost=await dim.calculate(result),
                 )
                 for dim in self.run_dims
             ]
