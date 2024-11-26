@@ -118,16 +118,22 @@ class CostPerInputToken(RequestCostDimensionBase):
     """Request cost dimension to model per-input-token costs with a flat charge rate
 
     Args:
-        rate: Charge applied per input (prompt) token to the Foundation Model
+        rate_per_million: Charge applied per million input (prompt) token to the Foundation Model
+        granularity_tokens: Minimum number of tokens billed per increment (Default 1)
     """
 
     name: str
-    rate: float
+    rate_per_million: float
+    granularity_tokens: int = 1
 
     async def calculate(self, req: InvocationResponse) -> Optional[float]:
         if req.num_tokens_input is None:
             return None
-        return req.num_tokens_input * self.rate
+        billable_tokens = (
+            ceil(req.num_tokens_input / self.granularity_tokens)
+            * self.granularity_tokens
+        )
+        return billable_tokens * self.rate_per_million / 1000000
 
 
 @dataclass
@@ -135,16 +141,22 @@ class CostPerOutputToken(RequestCostDimensionBase):
     """Request cost dimension to model per-output-token costs with a flat charge rate
 
     Args:
-        rate: Charge applied per output (completion) token from the Foundation Model
+        rate_per_million: Charge per million output (completion) token from the Foundation Model
+        granularity_tokens: Minimum number of tokens billed per increment (Default 1)
     """
 
     name: str
-    rate: float
+    rate_per_million: float
+    granularity_tokens: int = 1
 
     async def calculate(self, req: InvocationResponse) -> Optional[float]:
         if req.num_tokens_output is None:
             return None
-        return req.num_tokens_output * self.rate
+        billable_tokens = (
+            ceil(req.num_tokens_output / self.granularity_tokens)
+            * self.granularity_tokens
+        )
+        return billable_tokens * self.rate_per_million / 1000000
 
 
 @dataclass

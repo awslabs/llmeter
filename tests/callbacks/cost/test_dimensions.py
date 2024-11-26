@@ -14,14 +14,17 @@ async def test_cost_per_input_token():
     spec = {
         "_type": "CostPerInputToken",
         "name": "TestCostDim",
-        "rate": 30,
+        "rate_per_million": 30,
+        "granularity_tokens": 10,
     }
     dim_valid = CostPerInputToken.from_dict(spec)
 
-    success_response = InvocationResponse(response_text="hi", num_tokens_input=20)
-    assert await dim_valid.calculate(success_response) == 600
+    success_response = InvocationResponse(response_text="hi", num_tokens_input=199999)
+    assert await dim_valid.calculate(success_response) == 6
 
-    unk_tokens_response = InvocationResponse(response_text="hi", num_tokens_output=20)
+    unk_tokens_response = InvocationResponse(
+        response_text="hi", num_tokens_output=199999
+    )
     assert await dim_valid.calculate(unk_tokens_response) is None
 
     err_response = InvocationResponse.error_output()
@@ -30,7 +33,8 @@ async def test_cost_per_input_token():
     assert dim_valid.to_dict() == {
         "_type": "CostPerInputToken",
         "name": "TestCostDim",
-        "rate": 30,
+        "rate_per_million": 30,
+        "granularity_tokens": 10,
     }
 
 
@@ -39,14 +43,17 @@ async def test_cost_per_output_token():
     spec = {
         "_type": "CostPerOutputToken",
         "name": "TestCostDim",
-        "rate": 40,
+        "rate_per_million": 40,
+        "granularity_tokens": 10,
     }
     dim_valid = CostPerOutputToken.from_dict(spec)
 
-    success_response = InvocationResponse(response_text="hi", num_tokens_output=20)
-    assert await dim_valid.calculate(success_response) == 800
+    success_response = InvocationResponse(response_text="hi", num_tokens_output=199999)
+    assert await dim_valid.calculate(success_response) == 8
 
-    unk_tokens_response = InvocationResponse(response_text="hi", num_tokens_input=20)
+    unk_tokens_response = InvocationResponse(
+        response_text="hi", num_tokens_input=199999
+    )
     assert await dim_valid.calculate(unk_tokens_response) is None
 
     err_response = InvocationResponse.error_output()
@@ -55,7 +62,8 @@ async def test_cost_per_output_token():
     assert dim_valid.to_dict() == {
         "_type": "CostPerOutputToken",
         "name": "TestCostDim",
-        "rate": 40,
+        "rate_per_million": 40,
+        "granularity_tokens": 10,
     }
 
 

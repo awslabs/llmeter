@@ -11,17 +11,22 @@ def test_cost_model_serialization():
     spec = {
         "_type": "CostModel",
         "request_dims": [
-            {"_type": "CostPerInputToken", "name": "TokensIn", "rate": 30}
+            {"_type": "CostPerInputToken", "name": "TokensIn", "rate_per_million": 30}
         ],
         "run_dims": [{"_type": "CostPerHour", "name": "ComputeSeconds", "rate": 50}],
     }
     model = CostModel.from_dict(spec)
-    assert model.request_dims[0].rate == 30
+    assert model.request_dims[0].rate_per_million == 30
     assert model.run_dims[0].rate == 50
     assert model.to_dict() == {
         "_type": "CostModel",
         "request_dims": [
-            {"_type": "CostPerInputToken", "name": "TokensIn", "rate": 30}
+            {
+                "_type": "CostPerInputToken",
+                "name": "TokensIn",
+                "rate_per_million": 30,
+                "granularity_tokens": 1,
+            }
         ],
         "run_dims": [
             {
