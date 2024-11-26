@@ -3,13 +3,11 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
 import os
-from typing import final, TYPE_CHECKING
+from typing import final
 
 from ..endpoints.base import InvocationResponse
 from ..results import Result
-
-if TYPE_CHECKING:
-    from ..runner import Runner
+from ..runner import Runner
 
 
 class Callback(ABC):

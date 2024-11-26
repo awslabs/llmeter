@@ -1,6 +1,6 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
-
+from __future__ import annotations
 import asyncio
 import json
 import logging
@@ -11,13 +11,15 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import InitVar, asdict, dataclass, replace
 from datetime import datetime
 from itertools import cycle
-from typing import Any
+from typing import Any, TYPE_CHECKING
 from uuid import uuid4
 
 from tqdm.auto import tqdm, trange
 from upath import UPath as Path
 
-from llmeter.callbacks.base import Callback
+if TYPE_CHECKING:
+    # Avoid circular import: We only need typing for Callback
+    from .callbacks.base import Callback
 
 from .endpoints.base import Endpoint, InvocationResponse
 from .prompt_utils import load_payloads, save_payloads
