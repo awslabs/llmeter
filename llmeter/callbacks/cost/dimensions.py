@@ -131,6 +131,23 @@ class CostPerInputToken(RequestCostDimensionBase):
 
 
 @dataclass
+class CostPerOutputToken(RequestCostDimensionBase):
+    """Request cost dimension to model per-output-token costs with a flat charge rate
+
+    Args:
+        rate: Charge applied per output (completion) token from the Foundation Model
+    """
+
+    name: str
+    rate: float
+
+    async def calculate(self, req: InvocationResponse) -> Optional[float]:
+        if req.num_tokens_output is None:
+            return None
+        return req.num_tokens_output * self.rate
+
+
+@dataclass
 class CostPerHour(RunCostDimensionBase):
     """Run cost dimension to model per-deployment-hour costs with a flat charge rate
 

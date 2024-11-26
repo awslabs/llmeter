@@ -29,7 +29,6 @@ def test_calculated_cost_merge():
         dims=[
             CalculatedCostDimension(name="bar", cost=4),
             CalculatedCostDimension(name="baz", cost=9),
-            CalculatedCostDimension(name="baz", cost=100),
         ],
     )
     cost2_copy = CalculatedCostWithDimensions(

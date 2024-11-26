@@ -1,6 +1,10 @@
 import pytest
 
-from llmeter.callbacks.cost.dimensions import CostPerInputToken, CostPerHour
+from llmeter.callbacks.cost.dimensions import (
+    CostPerInputToken,
+    CostPerHour,
+    CostPerOutputToken,
+)
 from llmeter.endpoints.base import InvocationResponse
 from llmeter.results import Result
 
@@ -27,6 +31,31 @@ async def test_cost_per_input_token():
         "_type": "CostPerInputToken",
         "name": "TestCostDim",
         "rate": 30,
+    }
+
+
+@pytest.mark.asyncio
+async def test_cost_per_output_token():
+    spec = {
+        "_type": "CostPerOutputToken",
+        "name": "TestCostDim",
+        "rate": 40,
+    }
+    dim_valid = CostPerOutputToken.from_dict(spec)
+
+    success_response = InvocationResponse(response_text="hi", num_tokens_output=20)
+    assert await dim_valid.calculate(success_response) == 800
+
+    unk_tokens_response = InvocationResponse(response_text="hi", num_tokens_input=20)
+    assert await dim_valid.calculate(unk_tokens_response) is None
+
+    err_response = InvocationResponse.error_output()
+    assert await dim_valid.calculate(err_response) is None
+
+    assert dim_valid.to_dict() == {
+        "_type": "CostPerOutputToken",
+        "name": "TestCostDim",
+        "rate": 40,
     }
 
 
