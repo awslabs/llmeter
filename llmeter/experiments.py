@@ -2,15 +2,17 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import logging
-from math import ceil
 import os
 from dataclasses import dataclass, field
 from datetime import datetime
+from math import ceil
 from typing import Callable
 
 from tokenizers import Tokenizer
 from tqdm.auto import tqdm
 from upath import UPath as Path
+
+from llmeter.callbacks.base import Callback
 
 from .endpoints.base import Endpoint
 from .plotting import plot_heatmap, plot_sweep_results
@@ -36,6 +38,7 @@ class LoadTest:
     output_path: os.PathLike | str | None = None
     tokenizer: Tokenizer | None = None
     test_name: str | None = None
+    callbacks: list[Callback] | None = None
 
     def __post_init__(self) -> None:
         self._runner = Runner(endpoint=self.endpoint, tokenizer=self.tokenizer)  # type: ignore
@@ -58,6 +61,7 @@ class LoadTest:
                 n_requests=self._get_n_requests(c),
                 output_path=output_path,
                 run_name=f"{c:05.0f}-clients",
+                callbacks=self.callbacks,
             )
             for c in tqdm(
                 self.sequence_of_clients, desc="Configurations", disable=_disable_tqdm

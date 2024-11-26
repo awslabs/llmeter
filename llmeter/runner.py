@@ -296,7 +296,7 @@ class Runner(_RunConfig):
         payload: list[dict],
         n_requests: int | None = None,
         clients: int = 1,
-    ) -> float:
+    ) -> tuple[float, float, float]:
         """
         Asynchronously generates multiple invocations for a given payload.
 
@@ -322,7 +322,8 @@ class Runner(_RunConfig):
             desc="Clients",
             disable=_disable_tqdm or self._disable_clients_progress_bar,
         )
-        total_test_time = time.perf_counter() - start_t
+        end_t = time.perf_counter()
+        total_test_time = end_t - start_t
         logger.info(
             f"Generated {clients} connections with {n_requests} invocations each in {total_test_time*1000:.2f} seconds"
         )
@@ -331,7 +332,7 @@ class Runner(_RunConfig):
         if self._queue:
             await self._queue.put(None)
             logger.debug("Signaling token counting task to exit")
-        return total_test_time
+        return total_test_time, start_t, end_t
 
     async def run(
         self,
@@ -341,7 +342,7 @@ class Runner(_RunConfig):
         output_path: os.PathLike | str | None = None,
         run_name: str | None = None,
         run_description: str | None = None,
-        # callbacks: list[Callback] | None = None,
+        callbacks: list[Callback] | None = None,
     ) -> Result:
         """
         Tests the the endpoint latency and throughput for a fixed payload.
@@ -385,7 +386,13 @@ class Runner(_RunConfig):
         """
 
         run_config = self._prepare_run_config(
-            payload, n_requests, clients, output_path, run_name, run_description
+            payload,
+            n_requests,
+            clients,
+            output_path,
+            run_name,
+            run_description,
+            callbacks,
         )
         assert isinstance(run_config.payload, list)
         assert isinstance(run_config.run_name, str)
@@ -414,8 +421,8 @@ class Runner(_RunConfig):
             run_description=run_config.run_description,
         )
 
-        if self.callbacks is not None:
-            [await cb.before_run(self) for cb in self.callbacks]
+        if run_config.callbacks is not None:
+            [await cb.before_run(self) for cb in run_config.callbacks]
 
         # Address default threads limit in asyncio
         # https://stackoverflow.com/questions/75885213/how-to-increase-asyncio-thread-limits-in-an-existing-co-routine)
@@ -433,7 +440,7 @@ class Runner(_RunConfig):
         )
 
         try:
-            _, total_test_time = await asyncio.gather(
+            _, (total_test_time, start_time, end_time) = await asyncio.gather(
                 self._process_results_from_q(
                     output_path=result.output_path / "responses.jsonl"
                     if isinstance(result.output_path, Path)
@@ -459,10 +466,12 @@ class Runner(_RunConfig):
             result,
             responses=self._responses,
             total_test_time=total_test_time,
+            start_time=start_time,
+            end_time=end_time,
         )
 
-        if self.callbacks is not None:
-            [await cb.after_run(result) for cb in self.callbacks]
+        if run_config.callbacks is not None:
+            [await cb.after_run(result) for cb in run_config.callbacks]
 
         if result.output_path:
             result.save()
@@ -470,13 +479,22 @@ class Runner(_RunConfig):
         return result
 
     def _prepare_run_config(
-        self, payload, n_requests, clients, output_path, run_name, run_description
+        self,
+        payload,
+        n_requests,
+        clients,
+        output_path,
+        run_name,
+        run_description,
+        callbacks,
     ):
         run_config = replace(
             self, **{k: v for k, v in locals().items() if k != "self" if v is not None}
         )
         self._validate_and_prepare_payload(run_config)
         self._prepare_output_path(run_config)
+        if callbacks is not None:
+            run_config.callbacks = callbacks
         return run_config
 
     def _validate_and_prepare_payload(self, run_config):
