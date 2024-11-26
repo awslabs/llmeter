@@ -175,7 +175,7 @@ class Result:
         )
         return {
             **self.to_dict(),
-            **_get_test_stats(self),
+            **_get_run_stats(self),
             **{f"{k}-{j}": v for k, o in results_stats.items() for j, v in o.items()},
         }
 
@@ -186,6 +186,25 @@ class Result:
 def _get_stats_from_results(
     results: Result | Sequence[InvocationResponse], metrics: Sequence[str]
 ):
+    """
+    Calculate statistics for specified metrics from a collection of experiment results.
+
+    Args:
+        results (Result | Sequence[InvocationResponse]): Either a Result object containing
+            a run Result or a sequence of InvocationResponse objects.
+        metrics (Sequence[str]): A sequence of metric names to calculate statistics for.
+            These metrics should be attributes available in the InvocationResponse objects.
+
+    Returns:
+        dict: A dictionary containing calculated statistics for each specified metric.
+            The dictionary is structured as {metric_name: metric_statistics}.
+
+    Example:
+        >>> results = Result(responses=[...])  # Result object with responses
+        >>> metrics = ["time_to_first_token", "time_to_last_token"]
+        >>> stats = _get_stats_from_results(results, metrics)
+    """
+
     stats = {}
     data = [
         (p if isinstance(p, dict) else p.to_dict())
@@ -193,11 +212,36 @@ def _get_stats_from_results(
     ]
     for metric in metrics:
         metric_data = jmespath.search(f"[:].{metric}", data=data)
-        stats[metric] = _get_stats_from_list(metric_data)
+        stats[metric] = _get_aggregation_stats_from_list(metric_data)
     return stats
 
 
-def _get_test_stats(results: Result):
+def _get_run_stats(results: Result):
+    """
+    Calculate key performance statistics from a test run Result object.
+
+    This function processes the test results to compute various performance metrics
+    including failure rates and throughput measurements.
+
+    Args:
+        results (Result): A Result object containing test responses and metadata.
+            Expected to have the following attributes:
+            - responses: List of response objects with error information
+            - total_requests: Total number of requests made
+            - total_test_time: Total duration of the test run
+
+    Returns:
+        Dict[str, float]: A dictionary containing the following statistics:
+            - 'failed_requests': Number of failed requests
+            - 'failed_requests_rate': Ratio of failed requests to total requests
+            - 'requests_per_minute': Average number of requests processed per minute
+
+    Note:
+        - Failed requests are determined by the presence of an error field in responses
+        - If total_requests or total_test_time is zero, related rates will be None
+        - Uses jmespath for JSON path searching in response data
+    """
+
     stats = {}
     data = [p.to_dict() for p in results.responses]
     stats["failed_requests"] = len(jmespath.search("[:].error", data=data))
@@ -211,7 +255,35 @@ def _get_test_stats(results: Result):
     return stats
 
 
-def _get_stats_from_list(data: Sequence[int | float]):
+def _get_aggregation_stats_from_list(data: Sequence[int | float]):
+    """
+    Calculate statistical aggregations from a sequence of numeric data.
+
+    This function computes various statistical metrics (median, 90th percentile,
+    99th percentile, and mean) from the input data, filtering out any NaN values.
+
+    Args:
+        data (Sequence[int | float]): A sequence of numeric values to analyze.
+            Can contain integers or floating point numbers, including NaN values
+            which will be filtered out.
+
+    Returns:
+        Dict[str, float]: A dictionary containing the following statistics:
+            - 'p50': The median (50th percentile) of the data
+            - 'p90': The 90th percentile of the data
+            - 'p99': The 99th percentile of the data
+            - 'average': The arithmetic mean of the data
+            Returns an empty dictionary if the input data is empty or invalid.
+
+    Raises:
+        StatisticsError: Handled internally - occurs when statistics cannot be
+            computed (e.g., empty sequence after filtering NaN values).
+
+    Note:
+        - For single-element sequences, p90 and p99 will be equal to that element
+        - NaN values are filtered out before computing statistics
+    """
+
     clean_data = list(filterfalse(isnan, data))
     try:
         return dict(
