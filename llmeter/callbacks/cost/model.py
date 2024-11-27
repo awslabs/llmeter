@@ -128,6 +128,7 @@ class CostModel(JSONableBase, Callback):
             **{name: await dim.calculate(result) for name, dim in self.run_dims.items()}
         )
 
+        resp_costs: list[CalculatedCostWithDimensions] | None = None
         if include_request_costs == True:
             resp_costs = list(
                 filter(
@@ -140,19 +141,19 @@ class CostModel(JSONableBase, Callback):
                     ),
                 ),
             )
-            # Need to check because sum([]) = 0, which is not what we want:
-            if len(resp_costs):
+            if len(
+                resp_costs
+            ):  # Need to check because sum([]) = 0, which is not what we want
                 run_cost.merge(sum(resp_costs))
         elif include_request_costs == "recalculate":
-            run_cost.merge(
-                # Surrounding [] needed because async generator is not iterable for sum():
-                sum(
-                    [
-                        await self.calculate_request_cost(r, save=save)
-                        for r in result.responses
-                    ]
-                )
-            )
+            resp_costs = [
+                await self.calculate_request_cost(r, save=save)
+                for r in result.responses
+            ]
+            if len(
+                resp_costs
+            ):  # Need to check because sum([]) = 0, which is not what we want
+                run_cost.merge(sum(resp_costs))
         elif include_request_costs != False:
             raise ValueError(
                 "Invalid value for include_request_costs: Must be True (to include request-level "
@@ -160,7 +161,23 @@ class CostModel(JSONableBase, Callback):
                 "and include request-level costs)"
             )
         if save:
+            # Save the overall run cost and breakdown:
             run_cost.save_on_namespace(result, key_prefix="cost_")
+            # Also save summary statistics for per-request cost elements if they're present:
+            if resp_costs is not None:
+                dim_summary_stats = CalculatedCostWithDimensions.summary_statistics(
+                    resp_costs
+                )
+                for dim_name, dim_summary_stats in dim_summary_stats.items():
+                    for stat_name, val in dim_summary_stats.items():
+                        # "total_per_request" could be confusing, so we omit 'total' here:
+                        target_attr = (
+                            f"cost_per_request-{stat_name}"
+                            if dim_name == "total"
+                            else f"cost_{dim_name}_per_request-{stat_name}"
+                        )
+                        setattr(result, target_attr, val)
+
         return run_cost
 
     async def after_invoke(self, response: InvocationResponse) -> None:

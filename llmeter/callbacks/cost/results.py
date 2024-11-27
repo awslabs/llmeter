@@ -2,8 +2,12 @@
 
 # Python Built-Ins:
 from __future__ import annotations
+from itertools import chain
 from numbers import Number
-from typing import Literal
+from typing import Literal, Sequence
+
+# Local Dependencies:
+from ...utils import summary_stats_from_list
 
 
 class CalculatedCostWithDimensions(dict):
@@ -63,6 +67,33 @@ class CalculatedCostWithDimensions(dict):
                 self[k] += v
             else:
                 self[k] = v
+
+    @staticmethod
+    def summary_statistics(
+        calculated_costs: Sequence[CalculatedCostWithDimensions],
+    ) -> dict[str, dict[str, Number]]:
+        """Utility function to calculate summary statistics for a sequence of cost results
+
+        For example, you can use this to calculate average/p50/p90/etc of costs over a list of runs
+        or invocations.
+
+        Args:
+            calculated_costs: Sequence of CalculatedCostWithDimensions results to summarize
+        Returns:
+            stats: A dictionary keyed by dimension name (plus "total"), where each entry is a
+                dictionary keyed by statistic name (e.g. "average", "p90", etc).
+        """
+        vals_by_dimension: dict[str, list[Number]] = {}
+        for c in calculated_costs:
+            for dim_name, dim_cost in chain(c.items(), (("total", c.total),)):
+                if dim_name not in vals_by_dimension:
+                    vals_by_dimension[dim_name] = []
+                vals_by_dimension[dim_name].append(dim_cost)
+
+        return {
+            name: summary_stats_from_list(vals)
+            for name, vals in vals_by_dimension.items()
+        }
 
     @classmethod
     def load_from_namespace(

@@ -105,7 +105,6 @@ async def test_cost_model_combines_req_and_run_dims():
     run_dim_2.calculate = AsyncMock(return_value=100)
     run_dim_1.before_run_start = AsyncMock()
     run_dim_2.before_run_start = AsyncMock()
-    
 
     model = CostModel(
         request_dims={"Req1": req_dim_1, "Req2": req_dim_2},

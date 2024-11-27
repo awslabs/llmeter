@@ -6,15 +6,13 @@ import logging
 import os
 from dataclasses import asdict, dataclass
 from functools import cached_property
-from itertools import filterfalse
-from math import isnan
-from statistics import StatisticsError, mean, median, quantiles
 from typing import Dict, Sequence
 
 import jmespath
 from upath import UPath as Path
 
 from .endpoints import InvocationResponse
+from .utils import summary_stats_from_list
 
 logger = logging.getLogger(__name__)
 
@@ -198,7 +196,7 @@ def _get_stats_from_results(
     ]
     for metric in metrics:
         metric_data = jmespath.search(f"[:].{metric}", data=data)
-        stats[metric] = _get_stats_from_list(metric_data)
+        stats[metric] = summary_stats_from_list(metric_data)
     return stats
 
 
@@ -214,20 +212,3 @@ def _get_test_stats(results: Result):
         and results.total_requests / results.total_test_time * 60
     )
     return stats
-
-
-def _get_stats_from_list(data: Sequence[int | float]):
-    clean_data = list(filterfalse(isnan, data))
-    try:
-        return dict(
-            p50=median(clean_data),
-            p90=clean_data[0]
-            if len(clean_data) == 1
-            else quantiles(clean_data, n=10)[-1],
-            p99=clean_data[0]
-            if len(clean_data) == 1
-            else quantiles(clean_data, n=100)[-1],
-            average=mean(clean_data),
-        )
-    except StatisticsError:
-        return {}
