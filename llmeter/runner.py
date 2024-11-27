@@ -1,6 +1,6 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
-
+from __future__ import annotations
 import asyncio
 import json
 import logging
@@ -11,11 +11,15 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import InitVar, asdict, dataclass, replace
 from datetime import datetime
 from itertools import cycle
-from typing import Any
+from typing import Any, TYPE_CHECKING
 from uuid import uuid4
 
 from tqdm.auto import tqdm, trange
 from upath import UPath as Path
+
+if TYPE_CHECKING:
+    # Avoid circular import: We only need typing for Callback
+    from .callbacks.base import Callback
 
 from .endpoints.base import Endpoint, InvocationResponse
 from .prompt_utils import load_payloads, save_payloads
@@ -46,6 +50,7 @@ class _RunConfig:
     timeout: int | float = 60
     disable_per_client_progress_bar: InitVar[bool] = True
     disable_clients_progress_bar: InitVar[bool] = True
+    callbacks: list[Callback] | None = None
 
     def __post_init__(self, disable_client_progress_bar, disable_clients_progress_bar):
         self._disable_per_client_progress_bar = disable_client_progress_bar
@@ -122,46 +127,40 @@ class Runner(_RunConfig):
         Inherits all attributes from _RunConfig.
     """
 
-    def _count_tokens_no_wait(self, text: str | Any) -> int:
+    async def _update_token_counts(self, response: InvocationResponse):
         """
-        Count the number of tokens in the given text.
+        Update the token counts for the given response.
 
         Args:
-            text (Any): The input text to count tokens for.
-
-        Returns:
-            int: The number of tokens in the input text.
-
-        Raises:
-            ValueError: If the input text cannot be converted to a string.
+            response (InvocationResponse): The response to update token counts for.
         """
-        if text is None:
-            return 0
-        if not isinstance(text, str):
-            try:
-                text = str(text)
-            except Exception:
-                raise ValueError("provided input can't be converted to string")
+        if response.num_tokens_input is None:
+            text = response.input_prompt
+            if text is None:
+                response.num_tokens_input = 0
+            if not isinstance(text, str):
+                try:
+                    text = str(text)
+                except Exception:
+                    raise ValueError("provided input can't be converted to string")
+            response.num_tokens_input = len(self._tokenizer.encode(text))
 
-        return len(self._tokenizer.encode(text))
+        if response.num_tokens_output is None:
+            text = response.response_text
+            if text is None:
+                response.num_tokens_output = 0
+            if not isinstance(text, str):
+                try:
+                    text = str(text)
+                except Exception:
+                    raise ValueError("generated output can't be converted to string")
+            response.num_tokens_output = len(self._tokenizer.encode(text))
 
-    async def _count_tokens_from_q(self, output_path: Path | None = None):
-        """
-        Asynchronously counts tokens for responses in a queue.
-
-        Args:
-            output_path (PathLike | None, optional): The path to write processed EndpointResponse objects to. If None, responses are not persisted.
-
-        Returns:
-            None
-
-        Raises:
-            TimeoutError: If no response is available within the specified timeout it will terminate the process.
-        """
+    async def _process_results_from_q(self, output_path: Path | None = None):
         logger.info("Starting token counting from queue")
         while True:
             try:
-                response: InvocationResponse = await asyncio.wait_for(
+                response: InvocationResponse | None = await asyncio.wait_for(
                     self._queue.get(), timeout=self.timeout
                 )
             except asyncio.TimeoutError:
@@ -176,16 +175,10 @@ class Runner(_RunConfig):
                 break
 
             logger.debug(f"Got {response.id} from queue")
-            if response.num_tokens_input is None:
-                response.num_tokens_input = await asyncio.to_thread(
-                    self._count_tokens_no_wait, response.input_prompt
-                )
-                logger.debug(f"Counted input tokens for {response.id}")
-            if response.num_tokens_output is None:
-                response.num_tokens_output = await asyncio.to_thread(
-                    self._count_tokens_no_wait, response.response_text
-                )
-                logger.debug(f"Counted output tokens for {response.id}")
+
+            await self._update_token_counts(response)
+            if self.callbacks is not None:
+                [await cb.after_invoke(response) for cb in self.callbacks]
 
             self._responses.append(response)
             if self._progress_bar:
@@ -194,6 +187,7 @@ class Runner(_RunConfig):
             if output_path:
                 with output_path.open("a") as f:
                     f.write(response.to_json() + "\n")
+
             self._queue.task_done()
 
     def _invoke_n_no_wait(
@@ -304,7 +298,7 @@ class Runner(_RunConfig):
         payload: list[dict],
         n_requests: int | None = None,
         clients: int = 1,
-    ) -> float:
+    ) -> tuple[float, float, float]:
         """
         Asynchronously generates multiple invocations for a given payload.
 
@@ -330,7 +324,8 @@ class Runner(_RunConfig):
             desc="Clients",
             disable=_disable_tqdm or self._disable_clients_progress_bar,
         )
-        total_test_time = time.perf_counter() - start_t
+        end_t = time.perf_counter()
+        total_test_time = end_t - start_t
         logger.info(
             f"Generated {clients} connections with {n_requests} invocations each in {total_test_time*1000:.2f} seconds"
         )
@@ -339,7 +334,7 @@ class Runner(_RunConfig):
         if self._queue:
             await self._queue.put(None)
             logger.debug("Signaling token counting task to exit")
-        return total_test_time
+        return total_test_time, start_t, end_t
 
     async def run(
         self,
@@ -349,6 +344,7 @@ class Runner(_RunConfig):
         output_path: os.PathLike | str | None = None,
         run_name: str | None = None,
         run_description: str | None = None,
+        callbacks: list[Callback] | None = None,
     ) -> Result:
         """
         Tests the the endpoint latency and throughput for a fixed payload.
@@ -392,7 +388,13 @@ class Runner(_RunConfig):
         """
 
         run_config = self._prepare_run_config(
-            payload, n_requests, clients, output_path, run_name, run_description
+            payload,
+            n_requests,
+            clients,
+            output_path,
+            run_name,
+            run_description,
+            callbacks,
         )
         assert isinstance(run_config.payload, list)
         assert isinstance(run_config.run_name, str)
@@ -421,6 +423,9 @@ class Runner(_RunConfig):
             run_description=run_config.run_description,
         )
 
+        if run_config.callbacks is not None:
+            [await cb.before_run(run_config) for cb in run_config.callbacks]
+
         # Address default threads limit in asyncio
         # https://stackoverflow.com/questions/75885213/how-to-increase-asyncio-thread-limits-in-an-existing-co-routine)
         loop = asyncio.get_running_loop()
@@ -437,8 +442,8 @@ class Runner(_RunConfig):
         )
 
         try:
-            _, total_test_time = await asyncio.gather(
-                self._count_tokens_from_q(
+            _, (total_test_time, start_time, end_time) = await asyncio.gather(
+                self._process_results_from_q(
                     output_path=result.output_path / "responses.jsonl"
                     if isinstance(result.output_path, Path)
                     else None,
@@ -463,7 +468,12 @@ class Runner(_RunConfig):
             result,
             responses=self._responses,
             total_test_time=total_test_time,
+            start_time=start_time,
+            end_time=end_time,
         )
+
+        if run_config.callbacks is not None:
+            [await cb.after_run(result) for cb in run_config.callbacks]
 
         if result.output_path:
             result.save()
@@ -471,13 +481,22 @@ class Runner(_RunConfig):
         return result
 
     def _prepare_run_config(
-        self, payload, n_requests, clients, output_path, run_name, run_description
+        self,
+        payload,
+        n_requests,
+        clients,
+        output_path,
+        run_name,
+        run_description,
+        callbacks,
     ):
         run_config = replace(
             self, **{k: v for k, v in locals().items() if k != "self" if v is not None}
         )
         self._validate_and_prepare_payload(run_config)
         self._prepare_output_path(run_config)
+        if callbacks is not None:
+            run_config.callbacks = callbacks
         return run_config
 
     def _validate_and_prepare_payload(self, run_config):
