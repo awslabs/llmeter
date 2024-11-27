@@ -37,6 +37,10 @@ class Result:
 
     def __str__(self):
         return json.dumps(self.stats, indent=4, default=str)
+    
+    def __post_init__(self):
+        """Initialize the Result instance."""
+        self._contributed_stats = {}
 
     def save(self, output_path: os.PathLike | str | None = None):
         """
@@ -133,7 +137,8 @@ class Result:
             summary = json.load(g)
         return cls(responses=responses, **summary)
 
-    def calculate_stats(self) -> dict:
+    @cached_property
+    def _calculate_stats(self) -> dict:
         """
         Calculate and return the overall run statistics.
 
@@ -176,17 +181,20 @@ class Result:
             self,
             aggregation_metrics,
         )
-        print(results_stats)
         return {
             **self.to_dict(),
             **_get_test_stats(self),
             **{f"{k}-{j}": v for k, o in results_stats.items() for j, v in o.items()},
         }
 
-    @cached_property
+    @property
     def stats(self) -> dict:
         """Overall run statistics (calculated on first access and cached thereafter)"""
-        return self.calculate_stats()
+        stats = self._calculate_stats
+
+        if self._contributed_stats:
+            stats.update(self._contributed_stats)
+        return stats
 
     def __repr__(self) -> str:
         return self.to_json()

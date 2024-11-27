@@ -89,10 +89,11 @@ class CalculatedCostWithDimensions(dict):
                 if dim_name not in vals_by_dimension:
                     vals_by_dimension[dim_name] = []
                 vals_by_dimension[dim_name].append(dim_cost)
-
         return {
-            name: summary_stats_from_list(vals)
+            name: summary_stats_from_list(vals) # type: ignore
             for name, vals in vals_by_dimension.items()
+            # if name.startswith("cost")
+            if isinstance(vals[0], Number)
         }
 
     @classmethod

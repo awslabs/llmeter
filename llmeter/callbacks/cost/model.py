@@ -104,26 +104,26 @@ class CostModel(JSONableBase, Callback):
 
         return dim_costs
 
-    @staticmethod
-    def wrap_result_stat_calculator(result: Result) -> None:
-        """Patch the calculate_stats() method on a Result to include cost summary stats"""
-        super_method = result.calculate_stats
-        def calculate_stats(result: Result):
-            stats = super_method()
-            dim_summary_stats = CalculatedCostWithDimensions.summary_statistics([
-                CalculatedCostWithDimensions.load_from_namespace(resp) for resp in result.responses
-            ])
-            for dim_name, dim_summary_stats in dim_summary_stats.items():
-                for stat_name, val in dim_summary_stats.items():
-                    # "total_per_request" could be confusing, so we omit 'total' here:
-                    target_attr = (
-                        f"cost_per_request-{stat_name}"
-                        if dim_name == "total"
-                        else f"cost_{dim_name}_per_request-{stat_name}"
-                    )
-                    stats[target_attr] = val
-            return stats
-        result.calculate_stats = calculate_stats
+    # @staticmethod
+    # def wrap_result_stat_calculator(result: Result) -> None:
+    #     """Patch the calculate_stats() method on a Result to include cost summary stats"""
+    #     super_method = result.calculate_stats
+    #     def calculate_stats(result: Result):
+    #         stats = super_method()
+    #         dim_summary_stats = CalculatedCostWithDimensions.summary_statistics([
+    #             CalculatedCostWithDimensions.load_from_namespace(resp) for resp in result.responses
+    #         ])
+    #         for dim_name, dim_summary_stats in dim_summary_stats.items():
+    #             for stat_name, val in dim_summary_stats.items():
+    #                 # "total_per_request" could be confusing, so we omit 'total' here:
+    #                 target_attr = (
+    #                     f"cost_per_request-{stat_name}"
+    #                     if dim_name == "total"
+    #                     else f"cost_{dim_name}_per_request-{stat_name}"
+    #                 )
+    #                 stats[target_attr] = val
+    #         return stats
+    #     result.calculate_stats = calculate_stats
 
     async def calculate_run_cost(
         self,
@@ -150,7 +150,7 @@ class CostModel(JSONableBase, Callback):
         )
 
         resp_costs: list[CalculatedCostWithDimensions] | None = None
-        if include_request_costs == True:
+        if include_request_costs == True:  # noqa: E712
             resp_costs = list(
                 filter(
                     lambda c: c,  # Skip responses where no cost data was found at all
@@ -165,7 +165,7 @@ class CostModel(JSONableBase, Callback):
             if len(
                 resp_costs
             ):  # Need to check because sum([]) = 0, which is not what we want
-                run_cost.merge(sum(resp_costs))
+                run_cost.merge(sum(resp_costs))  # type: ignore
         elif include_request_costs == "recalculate":
             resp_costs = [
                 await self.calculate_request_cost(r, save=save)
@@ -174,8 +174,8 @@ class CostModel(JSONableBase, Callback):
             if len(
                 resp_costs
             ):  # Need to check because sum([]) = 0, which is not what we want
-                run_cost.merge(sum(resp_costs))
-        elif include_request_costs != False:
+                run_cost.merge(sum(resp_costs))  # type: ignore
+        elif include_request_costs != False:  # noqa: E712
             raise ValueError(
                 "Invalid value for include_request_costs: Must be True (to include request-level "
                 "costs in the total), False (to exclude them), or 'recalculate' (to re-calculate "
@@ -190,7 +190,7 @@ class CostModel(JSONableBase, Callback):
     async def after_invoke(self, response: InvocationResponse) -> None:
         """LLMeter Callback.after_invoke hook
 
-        Calls calculate_request_cost() with `save=True` to save the cost on the InvocationRespnose.
+        Calls calculate_request_cost() with `save=True` to save the cost on the InvocationResponse.
         """
         await self.calculate_request_cost(response, save=True)
 
@@ -200,7 +200,32 @@ class CostModel(JSONableBase, Callback):
         Calls calculate_run_cost() with `save=True` to save the cost on the Result.
         """
         await self.calculate_run_cost(result, save=True)
-        self.wrap_result_stat_calculator(result)
+        result._contributed_stats.update(self.calculate_stats(result))
+        result._contributed_stats.update(
+            {k: v for k, v in result.__dict__.items() if k.startswith("cost")}
+        )
+
+    def calculate_stats(self, result: Result):
+        stats = {}
+        dim_summary_stats = CalculatedCostWithDimensions.summary_statistics(
+            [
+                CalculatedCostWithDimensions.load_from_namespace(
+                    resp, key_prefix="cost"
+                )
+                for resp in result.responses
+            ]
+        )
+        for dim_name, dim_summary_stats in dim_summary_stats.items():
+            for stat_name, val in dim_summary_stats.items():
+                # "total_per_request" could be confusing, so we omit 'total' here:
+                target_attr = (
+                    f"cost_per_request-{stat_name}"
+                    if dim_name == "total"
+                    else f"cost{dim_name}_per_request-{stat_name}"
+                    # else f"{dim_name}_per_request-{stat_name}"
+                )
+                stats[target_attr] = val
+        return stats
 
     def save_to_file(self, path: str) -> None:
         """Save the cost model (including all dimensions) to a JSON file"""
