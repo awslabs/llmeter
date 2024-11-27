@@ -129,6 +129,9 @@ async def test_cost_model_combines_req_and_run_dims():
     assert results_mock.cost_Req2 == 30
     assert results_mock.cost_total == 5133
 
+    # And the summaries:
+    # TODO: Need to extend the results_mock for this??
+
     # Check recalculating with an adjusted model works correctly:
     req_dim_1.calculate = AsyncMock(return_value=2)
     run_dim_1.calculate = AsyncMock(return_value=6000)

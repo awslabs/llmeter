@@ -133,12 +133,13 @@ class Result:
             summary = json.load(g)
         return cls(responses=responses, **summary)
 
-    @cached_property
-    def stats(self) -> Dict:
+    def calculate_stats(self) -> dict:
         """
         Calculate and return the overall run statistics.
 
-        This property method computes various statistics based on the run results.
+        For a cached view of these stats, use the `.stats` property instead!
+
+        This method computes various statistics based on the run results.
         It combines information from the instance's dictionary representation,
         test-specific statistics, and aggregated statistics from individual results.
 
@@ -181,6 +182,11 @@ class Result:
             **_get_test_stats(self),
             **{f"{k}-{j}": v for k, o in results_stats.items() for j, v in o.items()},
         }
+
+    @cached_property
+    def stats(self) -> dict:
+        """Overall run statistics (calculated on first access and cached thereafter)"""
+        return self.calculate_stats()
 
     def __repr__(self) -> str:
         return self.to_json()
