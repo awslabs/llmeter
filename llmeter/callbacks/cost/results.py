@@ -1,58 +1,34 @@
-"""Output / result structure definitions for cost modelling
-
-These structures represent the *outputs* of cost estimates, and are referenced by low-level LLMeter
-classes like `InvocationResponse` and `Result`.
-"""
+"""Output / result structure definitions for cost modelling"""
 
 # Python Built-Ins:
 from __future__ import annotations
-from dataclasses import dataclass, field
+from numbers import Number
 from typing import Literal
 
-# Local Dependencies:
-from .serde import JSONableBase
 
-
-@dataclass
-class CalculatedCostDimension(JSONableBase):
-    """Result of one component of a cost estimate
-
-    Attributes:
-        name (str): The name of the dimension. For example, "CostPerInputToken"
-        cost (float): The cost incurred in this dimension (which may be `None` if the source cost
-            model was unable to calculate it)
-    """
-
-    name: str
-    cost: float | None
-
-
-@dataclass
-class CalculatedCostWithDimensions(JSONableBase):
+class CalculatedCostWithDimensions(dict):
     """Result of a cost estimate (composed of multiple cost dimensions)
 
-    Attributes:
-        cost (float): The total/overall cost calculated
-        dims: (list[CalculatedCostDimension]): The underlying dimensions that make up the total
-            cost (for example, the costs for input tokens vs for output tokens).
+    This class is a dictionary of costs keyed by dimension name, but provides additional
+    convenience methods including a `.total` property; ability to add multiple cost estimates
+    together; and functions to save to or load from a namespace including other information (such
+    as an `InvocationResponse` or `Result`)
     """
 
-    dims: list[CalculatedCostDimension] = field(default_factory=list)
-
     @property
-    def total(self) -> float:
+    def total(self) -> Number:
         """The total/overall cost over all dimensions"""
-        if any(d.cost is None for d in self.dims):
+        try:
+            return sum(v for v in self.values())
+        except TypeError:  # Usually in case of None + int/float
             return None
-        else:
-            return sum(d.cost for d in self.dims)
 
     def __add__(
-        self, other: CalculatedCostDimension | CalculatedCostWithDimensions | Literal[0]
+        self, other: dict[str, Number] | CalculatedCostWithDimensions | Literal[0]
     ) -> CalculatedCostWithDimensions:
         """Add two cost estimates together, or add a dimension to a cost estimate
 
-        Dimensions present (by `name`) in both `self` and `other` will be merged together.
+        Dimensions present by name in both `self` and `other` will be summed together.
         """
         result = CalculatedCostWithDimensions()  # Work from a copy
         result.merge(self)
@@ -62,7 +38,7 @@ class CalculatedCostWithDimensions(JSONableBase):
         return result
 
     def __radd__(
-        self, other: CalculatedCostDimension | CalculatedCostWithDimensions | Literal[0]
+        self, other: dict[str, Number] | CalculatedCostWithDimensions | Literal[0]
     ) -> CalculatedCostWithDimensions:
         """Our __add__ operator is commutative, so __radd__ just calls __add__
 
@@ -71,30 +47,72 @@ class CalculatedCostWithDimensions(JSONableBase):
         """
         return self.__add__(other)
 
-    def merge(
-        self, other: CalculatedCostDimension | CalculatedCostWithDimensions
-    ) -> None:
-        """Merge a cost dimension or another cost estimate into this one
+    def merge(self, other: dict[str, Number] | CalculatedCostWithDimensions) -> None:
+        """Merge another cost estimate into this one
 
-        Dimensions present (by `name`) in both `self` and `other` will be merged together.
+        Dimensions present in both `self` and `other` will be summed together.
         """
-        if isinstance(other, CalculatedCostDimension):
-            other = CalculatedCostWithDimensions(dims=[other])
-        if not isinstance(other, CalculatedCostWithDimensions):
+        if not isinstance(other, (CalculatedCostWithDimensions, dict)):
             raise TypeError(
-                "Can only merge a CalculatedCostWithDimensions to a CalculatedCostDimension or another "
+                "Can only merge a CalculatedCostWithDimensions to a dictionary or another "
                 "CalculatedCostWithDimensions (got %s)" % (other,)
             )
         # Merge dimensions from other:
-        for dim in other.dims:
-            try:
-                target_dim = next(d for d in self.dims if d.name == dim.name)
-            except StopIteration:
-                target_dim = None
-            if target_dim:
-                if target_dim.cost is None or dim.cost is None:
-                    target_dim.cost = None
-                else:
-                    target_dim.cost += dim.cost
+        for k, v in other.items():
+            if k in self:
+                self[k] += v
             else:
-                self.dims.append(CalculatedCostDimension(name=dim.name, cost=dim.cost))
+                self[k] = v
+
+    @classmethod
+    def load_from_namespace(
+        cls,
+        raw: object,
+        key_prefix: str = "",
+        ignore_total: bool = True,
+    ) -> CalculatedCostWithDimensions:
+        """Load a `CalculatedCostWithDimensions` from a (potentially shared) namespace/object
+
+        Args:
+            raw: The namespace (dataclass, etc) containing cost data
+            key_prefix: If specified, only keys starting with this prefix will be included, and the
+                prefix will be removed from the generated cost dimension names. Use this for
+                loading cost results from classes like InvocationResponse or Result, which may
+                contain other information.
+            ignore_total: If True [default], the `{key_prefix}total` key will be ignored if
+                present. This is useful when working with results saved via `save_on_namespace()`
+                with `include_total=True`.
+        """
+        if hasattr(raw, "__dict__"):
+            dict_args = raw.__dict__
+        else:
+            dict_args = {k: getattr(raw, k) for k in dir(raw)}
+        if key_prefix:
+            dict_args = {
+                k[len(key_prefix) :]: v
+                for k, v in dict_args.items()
+                if k.startswith(key_prefix)
+            }
+        if ignore_total:
+            dict_args.pop("total", None)
+        return cls(**dict_args)
+
+    def save_on_namespace(
+        self,
+        raw: object,
+        key_prefix: str = "",
+        include_total: bool = True,
+    ) -> CalculatedCostWithDimensions:
+        """Create a `CalculatedCostWithDimensions` from a (potentially shared) namespace/object
+
+        Args:
+            raw: The namespace (dataclass, etc) containing cost data
+            key_prefix: If specified, only keys starting with this prefix will be included, and the
+                prefix will be removed from the generated cost dimension names. Use this for
+                loading cost results from classes like InvocationResponse or Result, which may
+                contain other information.
+        """
+        for name, value in self.items():
+            setattr(raw, f"{key_prefix}{name}", value)
+        if include_total:
+            setattr(raw, f"{key_prefix}total", self.total)

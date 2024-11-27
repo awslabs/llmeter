@@ -14,4 +14,4 @@ existing `InvocationResponse`s or `Result`s to explore different pricing scenari
 """
 
 from .model import CostModel  # noqa: F401
-from .results import CalculatedCostDimension, CalculatedCostWithDimensions  # noqa: F401
+from .results import CalculatedCostWithDimensions  # noqa: F401

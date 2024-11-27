@@ -42,8 +42,8 @@ def to_dict_recursive_generic(obj: object, **kwargs) -> dict:
         obj: The object to convert
         **kwargs: Optional extra parameters to insert in the output dictionary
     """
-
-    result = {"_type": obj.__class__.__name__}
+    obj_classname = obj.__class__.__name__
+    result = {} if obj_classname == "dict" else {"_type": obj.__class__.__name__}
     if hasattr(obj, "__dict__"):
         # We *don't* use dataclass asdict() here because we want our custom behaviour instead of its
         # recursion:
@@ -60,6 +60,8 @@ def to_dict_recursive_generic(obj: object, **kwargs) -> dict:
     for k, v in result.items():
         if hasattr(v, "to_dict"):
             result[k] = v.to_dict()
+        elif isinstance(v, dict):
+            result[k] = to_dict_recursive_generic(v)
         elif isinstance(v, (list, tuple)):
             result[k] = [to_dict_recursive_generic(item) for item in v]
         elif isinstance(v, (date, datetime, time)):

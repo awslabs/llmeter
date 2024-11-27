@@ -1,6 +1,7 @@
 # Python Built-Ins:
 from dataclasses import dataclass, field
 import importlib
+from itertools import chain
 from typing import Literal
 
 # Local Dependencies:
@@ -9,7 +10,7 @@ from ...results import Result
 from ...runner import Runner
 from ..base import Callback
 from .dimensions import IRequestCostDimension, IRunCostDimension
-from .results import CalculatedCostDimension, CalculatedCostWithDimensions
+from .results import CalculatedCostWithDimensions
 from .serde import from_dict_with_class_map, JSONableBase
 
 
@@ -26,20 +27,58 @@ class CostModel(JSONableBase, Callback):
     `InvocationResponse` to estimate costs for a specific request/response;
     `calculate_run_cost(...)` on a `Result` to estimate costs for a test run; or pass the model as
     a Callback when running an LLMeter Run or Experiment, to annotate the results automatically.
-
-    Args:
-        request_dims: Dimensions of request-level cost (for example, charges by number of input or
-            output tokens)
-        run_dims: Dimensions of run-level cost (for example, per-hour charges for an FM endpoint
-            being available and used in a run)
     """
 
-    request_dims: list[IRequestCostDimension] = field(default_factory=list)
-    run_dims: list[IRunCostDimension] = field(default_factory=list)
+    request_dims: dict[str, IRequestCostDimension] = field(default_factory=dict)
+    run_dims: dict[str, IRunCostDimension] = field(default_factory=dict)
+
+    def __init__(
+        self,
+        request_dims: dict[str, IRequestCostDimension]
+        | list[IRequestCostDimension]
+        | None = None,
+        run_dims: dict[str, IRunCostDimension] | list[IRunCostDimension] | None = None,
+    ):
+        """Create a CostModel
+
+        Args:
+            request_dims: Dimensions of request-level cost (for example, charges by number of input
+                or output tokens). If provided as a dict, the keys will be used as the name of each
+                dimension. If provided as a list, each dimension's class name will be used as its
+                default name. An error will be thrown if any two dimensions (including run_dims)
+                have the same name.
+            run_dims: Dimensions of run-level cost (for example, per-hour charges for an FM endpoint
+                being available and used in a run). If provided as a dict, the keys will be used as
+                the name of each dimension. If provided as a list, each dimension's class name will
+                be used as its default name. An error will be thrown if any two dimensions
+                (including request_dims) have the same name.
+        """
+        if request_dims is None:
+            self.request_dims = {}
+        elif not isinstance(request_dims, dict):
+            self.request_dims = {dim.__class__.__name__: dim for dim in request_dims}
+        else:
+            self.request_dims = request_dims
+
+        if run_dims is None:
+            self.run_dims = {}
+        elif not isinstance(run_dims, dict):
+            self.run_dims = {dim.__class__.__name__: dim for dim in run_dims}
+        else:
+            self.run_dims = run_dims
+
+        # Validate no overlapping names:
+        all_dims = {}
+        for name, dim in chain(self.request_dims.items(), self.run_dims.items()):
+            if name in all_dims:
+                raise ValueError(
+                    f"Duplicate cost dimension name '{name}': Got both {dim} and {all_dims[name]}"
+                )
+            all_dims[name] = dim
 
     async def before_run(self, runner: Runner) -> None:
         """Initialize state for all run-level cost dimensions in the model"""
-        for dim in self.run_dims:
+        for dim in self.run_dims.values():
             dim.before_run_start(runner)
 
     async def calculate_request_cost(
@@ -54,18 +93,16 @@ class CostModel(JSONableBase, Callback):
             save: Set `True` to also store the result in `response.cost`, in addition to returning
                 it. Defaults to `False`
         """
-        total = CalculatedCostWithDimensions(
-            [
-                CalculatedCostDimension(
-                    name=dim.name,
-                    cost=await dim.calculate(response),
-                )
-                for dim in self.request_dims
-            ]
+        dim_costs = CalculatedCostWithDimensions(
+            **{
+                name: await dim.calculate(response)
+                for name, dim in self.request_dims.items()
+            }
         )
         if save:
-            response.cost = total
-        return total
+            dim_costs.save_on_namespace(response, key_prefix="cost_")
+
+        return dim_costs
 
     async def calculate_run_cost(
         self,
@@ -88,20 +125,21 @@ class CostModel(JSONableBase, Callback):
                 it. Defaults to `False`.
         """
         run_cost = CalculatedCostWithDimensions(
-            [
-                CalculatedCostDimension(
-                    name=dim.name,
-                    cost=await dim.calculate(result),
-                )
-                for dim in self.run_dims
-            ]
+            **{name: await dim.calculate(result) for name, dim in self.run_dims.items()}
         )
+
         if include_request_costs == True:
-            resp_costs = [
-                r.cost
-                for r in result.responses
-                if hasattr(r, "cost") and r.cost is not None
-            ]
+            resp_costs = list(
+                filter(
+                    lambda c: c,  # Skip responses where no cost data was found at all
+                    (
+                        CalculatedCostWithDimensions.load_from_namespace(
+                            r, key_prefix="cost_"
+                        )
+                        for r in result.responses
+                    ),
+                ),
+            )
             # Need to check because sum([]) = 0, which is not what we want:
             if len(resp_costs):
                 run_cost.merge(sum(resp_costs))
@@ -122,7 +160,7 @@ class CostModel(JSONableBase, Callback):
                 "and include request-level costs)"
             )
         if save:
-            result.cost = run_cost
+            run_cost.save_on_namespace(result, key_prefix="cost_")
         return run_cost
 
     async def after_invoke(self, response: InvocationResponse) -> None:
@@ -153,10 +191,10 @@ class CostModel(JSONableBase, Callback):
         raw_args = {**raw}
         for key in ("request_dims", "run_dims"):
             if key in raw_args:
-                raw_args[key] = [
-                    from_dict_with_class_map(d, class_map=dim_classes)
-                    for d in raw_args[key]
-                ]
+                raw_args[key] = {
+                    name: from_dict_with_class_map(d, class_map=dim_classes)
+                    for name, d in raw_args[key].items()
+                }
         return super().from_dict(raw_args, alt_classes=alt_classes, **kwargs)
 
     @classmethod

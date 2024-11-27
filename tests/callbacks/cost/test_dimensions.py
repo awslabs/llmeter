@@ -13,7 +13,6 @@ from llmeter.results import Result
 async def test_cost_per_input_token():
     spec = {
         "_type": "CostPerInputToken",
-        "name": "TestCostDim",
         "rate_per_million": 30,
         "granularity_tokens": 10,
     }
@@ -32,7 +31,6 @@ async def test_cost_per_input_token():
 
     assert dim_valid.to_dict() == {
         "_type": "CostPerInputToken",
-        "name": "TestCostDim",
         "rate_per_million": 30,
         "granularity_tokens": 10,
     }
@@ -42,7 +40,6 @@ async def test_cost_per_input_token():
 async def test_cost_per_output_token():
     spec = {
         "_type": "CostPerOutputToken",
-        "name": "TestCostDim",
         "rate_per_million": 40,
         "granularity_tokens": 10,
     }
@@ -61,7 +58,6 @@ async def test_cost_per_output_token():
 
     assert dim_valid.to_dict() == {
         "_type": "CostPerOutputToken",
-        "name": "TestCostDim",
         "rate_per_million": 40,
         "granularity_tokens": 10,
     }
@@ -71,7 +67,6 @@ async def test_cost_per_output_token():
 async def test_cost_per_hour():
     spec = {
         "_type": "CostPerHour",
-        "name": "TestCostDim",
         "rate": 30,
         "granularity_secs": 60,
     }
@@ -94,7 +89,6 @@ async def test_cost_per_hour():
 
     assert dim_valid.to_dict() == {
         "_type": "CostPerHour",
-        "name": "TestCostDim",
         "rate": 30,
         "granularity_secs": 60,
     }

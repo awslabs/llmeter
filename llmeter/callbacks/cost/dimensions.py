@@ -20,8 +20,6 @@ class IRequestCostDimension(ISerializable):
     Amazon Bedrock, or estimating duration-based execution costs for AWS Lambda functions.
     """
 
-    name: str
-
     async def calculate(self, response: InvocationResponse) -> Optional[float]:
         """Calculate (this component of) the cost for an individual request/response"""
         ...
@@ -30,15 +28,10 @@ class IRequestCostDimension(ISerializable):
 class RequestCostDimensionBase(JSONableBase):
     """Optional base class for implementing per-request cost model dimensions
 
-    This class provides a default implementation of `ISerializable`, defaults `.name` to the
-    instantiated class name, and sets up an abstract method for `calculate()`. It's fine if you
-    don't want to use it - just be sure to fully implement `IRequestCostDimension`!
+    This class provides a default implementation of `ISerializable` and sets up an abstract method
+    for `calculate()`. It's fine if you don't want to use it - just be sure to fully implement
+    `IRequestCostDimension`!
     """
-
-    name: str
-
-    def __init__(self, name: str | None):
-        self.name = name or self.__class__.__name__
 
     @abstractmethod
     async def calculate(self, response: InvocationResponse) -> Optional[float]:
@@ -57,11 +50,6 @@ class IRunCostDimension(ISerializable):
     provisioned-infrastructure based deployments like Amazon SageMaker, where factors like a
     (request-independent) cost-per-hour are important.
     """
-
-    name: str
-
-    def __init__(self, name: str | None):
-        self.name = name or self.__class__.__name__
 
     async def before_run_start(self, runner: Runner) -> None:
         """Function called to notify the cost component that a test run is about to start
@@ -122,7 +110,6 @@ class CostPerInputToken(RequestCostDimensionBase):
         granularity_tokens: Minimum number of tokens billed per increment (Default 1)
     """
 
-    name: str
     rate_per_million: float
     granularity_tokens: int = 1
 
@@ -145,7 +132,6 @@ class CostPerOutputToken(RequestCostDimensionBase):
         granularity_tokens: Minimum number of tokens billed per increment (Default 1)
     """
 
-    name: str
     rate_per_million: float
     granularity_tokens: int = 1
 
@@ -168,7 +154,6 @@ class CostPerHour(RunCostDimensionBase):
         granularity_secs: Minimum number of seconds billed per increment (Default 1)
     """
 
-    name: str
     rate: float
     granularity_secs: float = 1
 
