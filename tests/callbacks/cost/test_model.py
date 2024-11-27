@@ -11,28 +11,28 @@ def test_cost_model_serialization():
     spec = {
         "_type": "CostModel",
         "request_dims": {
-            "TokensIn": {"_type": "CostPerInputToken", "rate_per_million": 30},
+            "TokensIn": {"_type": "InputTokens", "price_per_million": 30},
         },
         "run_dims": {
-            "ComputeSeconds": {"_type": "CostPerHour", "rate": 50},
+            "ComputeSeconds": {"_type": "EndpointTime", "price_per_hour": 50},
         },
     }
     model = CostModel.from_dict(spec)
-    assert model.request_dims["TokensIn"].rate_per_million == 30
-    assert model.run_dims["ComputeSeconds"].rate == 50
+    assert model.request_dims["TokensIn"].price_per_million == 30
+    assert model.run_dims["ComputeSeconds"].price_per_hour == 50
     assert model.to_dict() == {
         "_type": "CostModel",
         "request_dims": {
             "TokensIn": {
-                "_type": "CostPerInputToken",
-                "rate_per_million": 30,
-                "granularity_tokens": 1,
+                "_type": "InputTokens",
+                "price_per_million": 30,
+                "granularity": 1,
             },
         },
         "run_dims": {
             "ComputeSeconds": {
-                "_type": "CostPerHour",
-                "rate": 50,
+                "_type": "EndpointTime",
+                "price_per_hour": 50,
                 "granularity_secs": 1,
             },
         },
@@ -67,6 +67,7 @@ async def test_cost_model_callback_saves_request_costs():
 async def test_cost_model_callback_saves_run_costs():
     """By default, CostModel callbacks save run cost calculations to Result"""
     dummy_run_dim = Mock()
+    dummy_run_dim.before_run_start = AsyncMock()
     dummy_run_dim.calculate = AsyncMock(return_value=5000)
 
     model = CostModel(
@@ -77,6 +78,7 @@ async def test_cost_model_callback_saves_run_costs():
     runner_mock = NonCallableMock()
     assert await model.before_run(runner_mock) is None
     results_mock = NonCallableMock()
+    results_mock.additional_metrics_for_aggregation = None
     results_mock.responses = []
     assert await model.after_run(results_mock) is None
     assert results_mock.cost_total == 5000
@@ -101,6 +103,9 @@ async def test_cost_model_combines_req_and_run_dims():
     run_dim_1.calculate = AsyncMock(return_value=5000)
     run_dim_2 = Mock()
     run_dim_2.calculate = AsyncMock(return_value=100)
+    run_dim_1.before_run_start = AsyncMock()
+    run_dim_2.before_run_start = AsyncMock()
+    
 
     model = CostModel(
         request_dims={"Req1": req_dim_1, "Req2": req_dim_2},
@@ -115,6 +120,7 @@ async def test_cost_model_combines_req_and_run_dims():
         await model.after_invoke(r)
     results_mock = NonCallableMock()
     results_mock.responses = response_mocks
+    results_mock.additional_metrics_for_aggregation = None
     await model.after_run(results_mock)
 
     # Check the cost results:

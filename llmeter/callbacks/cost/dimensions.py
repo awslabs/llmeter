@@ -102,7 +102,7 @@ class RunCostDimensionBase(JSONableBase):
 
 
 @dataclass
-class CostPerInputToken(RequestCostDimensionBase):
+class InputTokens(RequestCostDimensionBase):
     """Request cost dimension to model per-input-token costs with a flat charge rate
 
     Args:
@@ -110,21 +110,20 @@ class CostPerInputToken(RequestCostDimensionBase):
         granularity_tokens: Minimum number of tokens billed per increment (Default 1)
     """
 
-    rate_per_million: float
-    granularity_tokens: int = 1
+    price_per_million: float
+    granularity: int = 1
 
     async def calculate(self, req: InvocationResponse) -> Optional[float]:
         if req.num_tokens_input is None:
             return None
         billable_tokens = (
-            ceil(req.num_tokens_input / self.granularity_tokens)
-            * self.granularity_tokens
+            ceil(req.num_tokens_input / self.granularity) * self.granularity
         )
-        return billable_tokens * self.rate_per_million / 1000000
+        return billable_tokens * self.price_per_million / 1000000
 
 
 @dataclass
-class CostPerOutputToken(RequestCostDimensionBase):
+class OutputTokens(RequestCostDimensionBase):
     """Request cost dimension to model per-output-token costs with a flat charge rate
 
     Args:
@@ -132,21 +131,20 @@ class CostPerOutputToken(RequestCostDimensionBase):
         granularity_tokens: Minimum number of tokens billed per increment (Default 1)
     """
 
-    rate_per_million: float
-    granularity_tokens: int = 1
+    price_per_million: float
+    granularity: int = 1
 
     async def calculate(self, req: InvocationResponse) -> Optional[float]:
         if req.num_tokens_output is None:
             return None
         billable_tokens = (
-            ceil(req.num_tokens_output / self.granularity_tokens)
-            * self.granularity_tokens
+            ceil(req.num_tokens_output / self.granularity) * self.granularity
         )
-        return billable_tokens * self.rate_per_million / 1000000
+        return billable_tokens * self.price_per_million / 1000000
 
 
 @dataclass
-class CostPerHour(RunCostDimensionBase):
+class EndpointTime(RunCostDimensionBase):
     """Run cost dimension to model per-deployment-hour costs with a flat charge rate
 
     Args:
@@ -154,7 +152,7 @@ class CostPerHour(RunCostDimensionBase):
         granularity_secs: Minimum number of seconds billed per increment (Default 1)
     """
 
-    rate: float
+    price_per_hour: float
     granularity_secs: float = 1
 
     async def calculate(self, result: Result) -> Optional[float]:
@@ -163,4 +161,4 @@ class CostPerHour(RunCostDimensionBase):
         billable_secs = (
             ceil(result.total_test_time / self.granularity_secs) * self.granularity_secs
         )
-        return billable_secs * self.rate / 3600
+        return billable_secs * self.price_per_hour / 3600

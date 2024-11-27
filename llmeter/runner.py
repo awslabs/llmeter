@@ -424,7 +424,7 @@ class Runner(_RunConfig):
         )
 
         if run_config.callbacks is not None:
-            [await cb.before_run(self) for cb in run_config.callbacks]
+            [await cb.before_run(run_config) for cb in run_config.callbacks]
 
         # Address default threads limit in asyncio
         # https://stackoverflow.com/questions/75885213/how-to-increase-asyncio-thread-limits-in-an-existing-co-routine)

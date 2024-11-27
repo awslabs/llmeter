@@ -3,11 +3,11 @@
 
 import json
 import logging
+import os
 from dataclasses import asdict, dataclass
 from functools import cached_property
 from itertools import filterfalse
 from math import isnan
-import os
 from statistics import StatisticsError, mean, median, quantiles
 from typing import Dict, Sequence
 
@@ -36,6 +36,7 @@ class Result:
     run_description: str | None = None
     start_time: float | None = None
     end_time: float | None = None
+    additional_metrics_for_aggregation: list[str] | None = None
 
     def __str__(self):
         return json.dumps(self.stats, indent=4, default=str)
@@ -166,15 +167,20 @@ class Result:
             performance for repeated calls.
         """
 
+        aggregation_metrics = [
+            "time_to_last_token",
+            "time_to_first_token",
+            "num_tokens_output",
+            "num_tokens_input",
+        ]
+        if (additional_metrics := self.additional_metrics_for_aggregation) is not None:
+            aggregation_metrics.extend(additional_metrics)
+        
         results_stats = _get_stats_from_results(
             self,
-            [
-                "time_to_last_token",
-                "time_to_first_token",
-                "num_tokens_output",
-                "num_tokens_input",
-            ],
+            aggregation_metrics,
         )
+        print(results_stats)
         return {
             **self.to_dict(),
             **_get_test_stats(self),

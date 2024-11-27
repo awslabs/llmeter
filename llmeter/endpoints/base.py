@@ -44,7 +44,13 @@ class InvocationResponse:
     error: str | None = None
 
     def to_json(self, **kwargs) -> str:
-        return json.dumps(self.__dict__, **kwargs)
+        def default_serializer(obj):
+            try:
+                return str(obj)
+            except Exception:
+                return None
+
+        return json.dumps(self.__dict__, default=default_serializer, **kwargs)
 
     @staticmethod
     def error_output(
@@ -59,10 +65,15 @@ class InvocationResponse:
         )
 
     def __repr__(self):
-        return self.to_json(default=str)
+        return self.to_json(
+            # default=str,
+        )
 
     def __str__(self):
-        return self.to_json(indent=4, default=str)
+        return self.to_json(
+            indent=4,
+            # default=str
+        )
 
     def to_dict(self):
         return asdict(self)

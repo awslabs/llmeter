@@ -79,7 +79,7 @@ class CostModel(JSONableBase, Callback):
     async def before_run(self, runner: Runner) -> None:
         """Initialize state for all run-level cost dimensions in the model"""
         for dim in self.run_dims.values():
-            dim.before_run_start(runner)
+            await dim.before_run_start(runner)
 
     async def calculate_request_cost(
         self,
@@ -176,6 +176,15 @@ class CostModel(JSONableBase, Callback):
         Calls calculate_run_cost() with `save=True` to save the cost on the Result.
         """
         await self.calculate_run_cost(result, save=True)
+
+        dimensions_to_add = list(self.request_dims.keys()) + list(self.run_dims.keys())
+        dimensions_to_add = [f"cost_{k}" for k in dimensions_to_add]
+        dimensions_to_add.extend(["cost_total"])
+
+        if result.additional_metrics_for_aggregation:
+            dimensions_to_add.extend(result.additional_metrics_for_aggregation)
+
+        result.additional_metrics_for_aggregation = dimensions_to_add
 
     def save_to_file(self, path: str) -> None:
         """Save the cost model (including all dimensions) to a JSON file"""
