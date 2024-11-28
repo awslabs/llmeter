@@ -118,6 +118,7 @@ async def test_cost_model_combines_req_and_run_dims():
     for r in response_mocks:
         await model.after_invoke(r)
     results_mock = NonCallableMock()
+    results_mock._contributed_stats = {}
     results_mock.responses = response_mocks
     results_mock.additional_metrics_for_aggregation = None
     await model.after_run(results_mock)
@@ -130,7 +131,29 @@ async def test_cost_model_combines_req_and_run_dims():
     assert results_mock.cost_total == 5133
 
     # And the summaries:
-    # TODO: Need to extend the results_mock for this??
+    expected_stats_subset = {
+        # Overall costs:
+        "cost_total": 5133,
+        "cost_Run1": 5000,
+        "cost_Run2": 100,
+        "cost_Req1": 3,
+        "cost_Req2": 30,
+        # Dimension-level per-request summary stats:
+        "cost_Req1_per_request-average": 1,
+        "cost_Req2_per_request-p90": 10,
+        # Total-cost-level per-request summary stats:
+        "cost_per_request-average": 11
+        # ...and etc
+    }
+    actual_stats_subset = {
+        k: v
+        for k, v in results_mock._contributed_stats.items()
+        if k in expected_stats_subset
+    }
+    assert actual_stats_subset == expected_stats_subset
+    # Stats include overall, plus 4 stats (avg, p50, p90, p99) for each request-level dimension and
+    # request totals:
+    assert len(results_mock._contributed_stats) == 5 + 4 * 3
 
     # Check recalculating with an adjusted model works correctly:
     req_dim_1.calculate = AsyncMock(return_value=2)

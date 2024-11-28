@@ -2,6 +2,7 @@
 from dataclasses import dataclass, field
 import importlib
 from itertools import chain
+from numbers import Number
 from typing import Literal
 
 # Local Dependencies:
@@ -104,27 +105,6 @@ class CostModel(JSONableBase, Callback):
 
         return dim_costs
 
-    # @staticmethod
-    # def wrap_result_stat_calculator(result: Result) -> None:
-    #     """Patch the calculate_stats() method on a Result to include cost summary stats"""
-    #     super_method = result.calculate_stats
-    #     def calculate_stats(result: Result):
-    #         stats = super_method()
-    #         dim_summary_stats = CalculatedCostWithDimensions.summary_statistics([
-    #             CalculatedCostWithDimensions.load_from_namespace(resp) for resp in result.responses
-    #         ])
-    #         for dim_name, dim_summary_stats in dim_summary_stats.items():
-    #             for stat_name, val in dim_summary_stats.items():
-    #                 # "total_per_request" could be confusing, so we omit 'total' here:
-    #                 target_attr = (
-    #                     f"cost_per_request-{stat_name}"
-    #                     if dim_name == "total"
-    #                     else f"cost_{dim_name}_per_request-{stat_name}"
-    #                 )
-    #                 stats[target_attr] = val
-    #         return stats
-    #     result.calculate_stats = calculate_stats
-
     async def calculate_run_cost(
         self,
         result: Result,
@@ -184,6 +164,16 @@ class CostModel(JSONableBase, Callback):
         if save:
             # Save the overall run cost and breakdown:
             run_cost.save_on_namespace(result, key_prefix="cost_")
+            run_cost.save_on_namespace(result._contributed_stats, key_prefix="cost_")
+            result._contributed_stats.update(
+                CalculatedCostWithDimensions.summary_statistics(
+                    resp_costs,
+                    key_prefix="cost_",
+                    key_dim_name_suffix="_per_request",
+                    # cost_total_per_request would be confusing, so skip 'total':
+                    key_total_name_and_suffix="per_request",
+                )
+            )
 
         return run_cost
 
@@ -200,32 +190,6 @@ class CostModel(JSONableBase, Callback):
         Calls calculate_run_cost() with `save=True` to save the cost on the Result.
         """
         await self.calculate_run_cost(result, save=True)
-        result._contributed_stats.update(self.calculate_stats(result))
-        result._contributed_stats.update(
-            {k: v for k, v in result.__dict__.items() if k.startswith("cost")}
-        )
-
-    def calculate_stats(self, result: Result):
-        stats = {}
-        dim_summary_stats = CalculatedCostWithDimensions.summary_statistics(
-            [
-                CalculatedCostWithDimensions.load_from_namespace(
-                    resp, key_prefix="cost"
-                )
-                for resp in result.responses
-            ]
-        )
-        for dim_name, dim_summary_stats in dim_summary_stats.items():
-            for stat_name, val in dim_summary_stats.items():
-                # "total_per_request" could be confusing, so we omit 'total' here:
-                target_attr = (
-                    f"cost_per_request-{stat_name}"
-                    if dim_name == "total"
-                    else f"cost{dim_name}_per_request-{stat_name}"
-                    # else f"{dim_name}_per_request-{stat_name}"
-                )
-                stats[target_attr] = val
-        return stats
 
     def save_to_file(self, path: str) -> None:
         """Save the cost model (including all dimensions) to a JSON file"""
