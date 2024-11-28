@@ -6,7 +6,8 @@ import logging
 import os
 from dataclasses import asdict, dataclass
 from functools import cached_property
-from typing import Dict, Sequence
+from numbers import Number
+from typing import Sequence
 
 import jmespath
 from upath import UPath as Path
@@ -37,10 +38,21 @@ class Result:
 
     def __str__(self):
         return json.dumps(self.stats, indent=4, default=str)
-    
+
     def __post_init__(self):
         """Initialize the Result instance."""
         self._contributed_stats = {}
+
+    def _update_contributed_stats(self, stats: dict[str, Number]):
+        """Update the contributed stats dictionary."""
+        if not isinstance(stats, dict):
+            raise ValueError("Stats must be a dictionary")
+        for key, value in stats.items():
+            if not isinstance(value, Number):
+                raise ValueError(
+                    f"Value for key {key} must be a number, got {type(value)}"
+                )
+        self._contributed_stats.update(stats)
 
     def save(self, output_path: os.PathLike | str | None = None):
         """
