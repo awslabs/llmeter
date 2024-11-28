@@ -146,13 +146,11 @@ async def test_cost_model_combines_req_and_run_dims():
         "cost_Req1_per_request-average": 1,
         "cost_Req2_per_request-p90": 10,
         # Total-cost-level per-request summary stats:
-        "cost_per_request-average": 11
+        "cost_per_request-average": 11,
         # ...and etc
     }
     actual_stats_subset = {
-        k: v
-        for k, v in actual_stats.items()
-        if k in expected_stats_subset
+        k: v for k, v in actual_stats.items() if k in expected_stats_subset
     }
     assert actual_stats_subset == expected_stats_subset
     # Stats include overall, plus 4 stats (avg, p50, p90, p99) for each request-level dimension and
@@ -162,9 +160,7 @@ async def test_cost_model_combines_req_and_run_dims():
     # Check recalculating with an adjusted model works correctly:
     req_dim_1.calculate = AsyncMock(return_value=2)
     run_dim_1.calculate = AsyncMock(return_value=6000)
-    new_costs = await model.calculate_run_cost(
-        results_mock, include_request_costs="recalculate"
-    )
+    new_costs = await model.calculate_run_cost(results_mock)
     assert new_costs["Run1"] == 6000
     assert new_costs["Run2"] == 100
     assert new_costs["Req1"] == 6

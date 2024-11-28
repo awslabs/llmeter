@@ -108,7 +108,7 @@ class CostModel(JSONableBase, Callback):
     async def calculate_run_cost(
         self,
         result: Result,
-        include_request_costs: bool | Literal["recalculate"] = True,
+        recalculate_request_costs: bool = True,
         save: bool = False,
     ) -> CalculatedCostWithDimensions:
         """Calculate the run-level costs of a test (including any request-level costs)
@@ -118,10 +118,9 @@ class CostModel(JSONableBase, Callback):
 
         Args:
             result: An LLMeter Run result
-            include_request_costs: Set `True` to include request-level costs in the total, `False`
-                to exclude them, or `'recalculate'` to re-calculate request-level costs (for
-                example when running a new cost model against a previous Run Result). Defaults
-                to `True`.
+            recalculate_request_costs: Set `False` if your `result.responses` have already been
+                annotated with costs in line with the current cost model. By default (`True`),
+                the costs for each response will be re-calculated.
             save: Set `True` to also store the result in `result.cost`, in addition to returning
                 it. Defaults to `False`.
         """
@@ -129,8 +128,12 @@ class CostModel(JSONableBase, Callback):
             **{name: await dim.calculate(result) for name, dim in self.run_dims.items()}
         )
 
-        resp_costs: list[CalculatedCostWithDimensions] | None = None
-        if include_request_costs == True:  # noqa: E712
+        if recalculate_request_costs:
+            resp_costs = [
+                await self.calculate_request_cost(r, save=save)
+                for r in result.responses
+            ]
+        else:
             resp_costs = list(
                 filter(
                     lambda c: c,  # Skip responses where no cost data was found at all
@@ -142,25 +145,11 @@ class CostModel(JSONableBase, Callback):
                     ),
                 ),
             )
-            if len(
-                resp_costs
-            ):  # Need to check because sum([]) = 0, which is not what we want
-                run_cost.merge(sum(resp_costs))  # type: ignore
-        elif include_request_costs == "recalculate":
-            resp_costs = [
-                await self.calculate_request_cost(r, save=save)
-                for r in result.responses
-            ]
-            if len(
-                resp_costs
-            ):  # Need to check because sum([]) = 0, which is not what we want
-                run_cost.merge(sum(resp_costs))  # type: ignore
-        elif include_request_costs != False:  # noqa: E712
-            raise ValueError(
-                "Invalid value for include_request_costs: Must be True (to include request-level "
-                "costs in the total), False (to exclude them), or 'recalculate' (to re-calculate "
-                "and include request-level costs)"
-            )
+        # Merge the total request-level costs into the run-level costs:
+        # (Unless requests is empty, because sum([]) = 0 and not a CalculatedCostWithDimensions)
+        if len(resp_costs):
+            run_cost.merge(sum(resp_costs))  # type: ignore
+
         if save:
             # Save the overall run cost and breakdown on the main result object:
             run_cost.save_on_namespace(result, key_prefix="cost_")
@@ -190,7 +179,9 @@ class CostModel(JSONableBase, Callback):
 
         Calls calculate_run_cost() with `save=True` to save the cost on the Result.
         """
-        await self.calculate_run_cost(result, save=True)
+        await self.calculate_run_cost(
+            result, recalculate_request_costs=False, save=True
+        )
 
     def save_to_file(self, path: str) -> None:
         """Save the cost model (including all dimensions) to a JSON file"""
