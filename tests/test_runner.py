@@ -56,11 +56,6 @@ def test_runner_initialization(runner: Runner):
     assert isinstance(runner, _RunConfig)
 
 
-def test_count_tokens_no_wait(runner: Runner):
-    runner._tokenizer.encode.return_value = [1, 2, 3]
-    assert runner._count_tokens_no_wait("test text") == 3
-
-
 @pytest.mark.asyncio
 async def test_count_tokens_from_q(runner: Runner):
     runner._queue = AsyncMock()
@@ -75,7 +70,6 @@ async def test_count_tokens_from_q(runner: Runner):
         None,
     ]
     runner._queue.task_done = MagicMock()
-    runner._count_tokens_no_wait = AsyncMock(return_value=5)
 
     await runner._process_results_from_q()
 
@@ -104,7 +98,7 @@ async def test_invoke_n(runner: Runner):
 
 @pytest.mark.asyncio
 async def test_run(runner: Runner):
-    runner._invoke_n_c = AsyncMock(return_value=1.0)
+    runner._invoke_n_c = AsyncMock(return_value=(1.0, None, None))
     runner._process_results_from_q = AsyncMock()
 
     result = await runner.run(payload={"prompt": "test"}, n_requests=1, clients=1)
@@ -143,7 +137,7 @@ async def test_invoke_n_c(runner: Runner):
         ]
     )
 
-    total_test_time = await runner._invoke_n_c(
+    total_test_time, _, _ = await runner._invoke_n_c(
         payload=[{"prompt": "test"}], n_requests=2, clients=1
     )
 
@@ -156,7 +150,7 @@ async def test_run_with_file_payload(runner: Runner, tmp_path: Path):
     payload_file = tmp_path / "payload.jsonl"
     payload_file.write_text('{"prompt": "test1"}\n{"prompt": "test2"}')
 
-    runner._invoke_n_c = AsyncMock(return_value=1.0)
+    runner._invoke_n_c = AsyncMock(return_value=(1.0, None, None))
     runner._process_results_from_q = AsyncMock()
 
     result = await runner.run(payload=str(payload_file), n_requests=2, clients=1)
@@ -171,7 +165,7 @@ async def test_run_with_file_payload(runner: Runner, tmp_path: Path):
 async def test_run_with_output_path(runner: Runner, tmp_path: Path):
     output_path = tmp_path / "output"
 
-    runner._invoke_n_c = AsyncMock(return_value=1.0)
+    runner._invoke_n_c = AsyncMock(return_value=(1.0, None, None))
     runner._process_results_from_q = AsyncMock()
 
     result = await runner.run(
@@ -202,9 +196,10 @@ async def test_prepare_run_config(runner: Runner):
     output_path = "/tmp/output"
     run_name = "test_run"
     run_description = "Test run description"
+    callbacks = []
 
     run_config = runner._prepare_run_config(
-        payload, n_requests, clients, output_path, run_name, run_description
+        payload, n_requests, clients, output_path, run_name, run_description, callbacks
     )
 
     assert run_config.payload == [payload]
@@ -262,19 +257,6 @@ def test_prepare_output_path(runner: Runner, tmp_path: Path, mock_endpoint: Endp
     assert isinstance(run_config.output_path, Path)
 
 
-def test_count_tokens_no_wait_edge_cases(runner: Runner):
-    # Test with None input
-    assert runner._count_tokens_no_wait(None) == 0
-
-    class NonStringableClass:
-        def __str__(self):
-            pass
-
-    # Test with non-string input
-    with pytest.raises(ValueError):
-        runner._count_tokens_no_wait(NonStringableClass())
-
-
 @pytest.mark.asyncio
 async def test_invoke_n_edge_cases(runner: Runner):
     # Test with empty payload
@@ -296,7 +278,7 @@ async def test_invoke_n_edge_cases(runner: Runner):
 
 @pytest.mark.asyncio
 async def test_run_with_sequence_payload(runner: Runner):
-    runner._invoke_n_c = AsyncMock(return_value=1.0)
+    runner._invoke_n_c = AsyncMock(return_value=(1.0, None, None))
     runner._process_results_from_q = AsyncMock()
 
     result = await runner.run(
@@ -385,13 +367,14 @@ def test_prepare_run_config_combinations(
     output_path: None | Literal["/tmp/output"],
     run_name: None | Literal["test_run"],
     run_description: None | Literal["Test description"] | Literal["File input test"],
+    callbacks=[],
 ):
     if payload == "test_file.jsonl":
         payload_file = Path(payload)
         payload_file.write_text('{"prompt": "test1"}\n{"prompt": "test2"}')
 
     run_config = runner._prepare_run_config(
-        payload, n_requests, clients, output_path, run_name, run_description
+        payload, n_requests, clients, output_path, run_name, run_description, callbacks
     )
 
     assert isinstance(run_config.payload, list)
@@ -417,7 +400,7 @@ async def test_run_with_different_payloads(
         payload_file.write_text('{"prompt": "test1"}\n{"prompt": "test2"}')
         payload = str(payload_file)  # type: ignore
 
-    runner._invoke_n_c = AsyncMock(return_value=1.0)
+    runner._invoke_n_c = AsyncMock(return_value=(1.0, None, None))
     runner._process_results_from_q = AsyncMock()
 
     result = await runner.run(payload=payload, n_requests=2, clients=1)
@@ -442,7 +425,7 @@ async def test_invoke_n_c_concurrent_execution(runner: Runner):
     runner._invoke_n = mock_invoke_n  # type: ignore
 
     start_time = time.perf_counter()
-    total_test_time = await runner._invoke_n_c(
+    total_test_time, _, _ = await runner._invoke_n_c(
         payload=[{"prompt": "test"}], n_requests=5, clients=3
     )
     end_time = time.perf_counter()
@@ -468,7 +451,7 @@ def test_prepare_run_config_invalid_inputs(
     clients: Literal[2] | Literal[0],
 ):
     with pytest.raises(AssertionError):
-        runner._prepare_run_config(payload, n_requests, clients, None, None, None)
+        runner._prepare_run_config(payload, n_requests, clients, None, None, None, None)
 
 
 @pytest.mark.asyncio
@@ -512,7 +495,6 @@ async def test_count_tokens_from_q_different_scenarios(runner: Runner):
         ),
         None,
     ]
-    runner._count_tokens_no_wait = AsyncMock(return_value=5)
 
     await runner._process_results_from_q()
 
@@ -586,10 +568,17 @@ def test_prepare_run_config_edge_cases(
     output_path: Literal["/tmp/output"],
     run_name: Literal["test_run"] | Literal[""],
     run_description: Literal["Test description"],
+    callbacks=[],
 ):
     with pytest.raises((AssertionError, ValueError)):
         runner._prepare_run_config(
-            payload, n_requests, clients, output_path, run_name, run_description
+            payload,
+            n_requests,
+            clients,
+            output_path,
+            run_name,
+            run_description,
+            callbacks,
         )
 
 
@@ -616,9 +605,10 @@ def test_prepare_run_config_more_edge_cases2(
     output_path: None | Literal["/tmp/output"],
     run_name: None | Literal["custom_run"],
     run_description: None | Literal["Custom description"],
+    callbacks=[],
 ):
     run_config = runner._prepare_run_config(
-        payload, n_requests, clients, output_path, run_name, run_description
+        payload, n_requests, clients, output_path, run_name, run_description, callbacks
     )
 
     assert isinstance(run_config.payload, list)
@@ -646,7 +636,7 @@ async def test_run_with_optional_parameters(
     run_name: None | Literal["custom_run"],
     run_description: None | Literal["Custom description"],
 ):
-    runner._invoke_n_c = AsyncMock(return_value=1.0)
+    runner._invoke_n_c = AsyncMock(return_value=(1.0, None, None))
     runner._process_results_from_q = AsyncMock()
 
     result = await runner.run(
@@ -687,7 +677,7 @@ async def test_invoke_n_c_with_different_clients(
     runner._invoke_n = mock_invoke_n  # type: ignore
 
     start_time = time.perf_counter()
-    total_test_time = await runner._invoke_n_c(
+    total_test_time, _, _ = await runner._invoke_n_c(
         payload=[{"prompt": "test"}], n_requests=5, clients=clients
     )
     end_time = time.perf_counter()
@@ -768,35 +758,72 @@ def test_prepare_run_config_more_edge_cases(
     output_path: None | Literal["/tmp/output"],
     run_name: None | Literal["test_run"] | Literal[""],
     run_description: None | Literal["Test description"] | Literal[""],
+    callbacks=[],
 ):
     if payload == "nonexistent_file.jsonl":
         with pytest.raises(FileNotFoundError):
             runner._prepare_run_config(
-                payload, n_requests, clients, output_path, run_name, run_description
+                payload,
+                n_requests,
+                clients,
+                output_path,
+                run_name,
+                run_description,
+                callbacks,
             )
     elif payload is None:
         with pytest.raises(AssertionError):
             runner._prepare_run_config(
-                payload, n_requests, clients, output_path, run_name, run_description
+                payload,
+                n_requests,
+                clients,
+                output_path,
+                run_name,
+                run_description,
+                callbacks,
             )
     elif run_name == "":
         with pytest.raises(AssertionError):
             runner._prepare_run_config(
-                payload, n_requests, clients, output_path, run_name, run_description
+                payload,
+                n_requests,
+                clients,
+                output_path,
+                run_name,
+                run_description,
+                callbacks,
             )
     elif clients == -1 or None:
         with pytest.raises(AssertionError):
             runner._prepare_run_config(
-                payload, n_requests, clients, output_path, run_name, run_description
+                payload,
+                n_requests,
+                clients,
+                output_path,
+                run_name,
+                run_description,
+                callbacks,
             )
     elif n_requests == 0:
         with pytest.raises(AssertionError):
             runner._prepare_run_config(
-                payload, n_requests, clients, output_path, run_name, run_description
+                payload,
+                n_requests,
+                clients,
+                output_path,
+                run_name,
+                run_description,
+                callbacks,
             )
     else:
         run_config = runner._prepare_run_config(
-            payload, n_requests, clients, output_path, run_name, run_description
+            payload,
+            n_requests,
+            clients,
+            output_path,
+            run_name,
+            run_description,
+            callbacks,
         )
 
         assert isinstance(run_config.payload, list)
@@ -857,7 +884,7 @@ async def test_count_tokens_from_q_with_custom_output_path(
         None,
     ]
     runner._queue.task_done = MagicMock()
-    runner._count_tokens_no_wait = MagicMock(return_value=5)
+    # runner._count_tokens_no_wait = MagicMock(return_value=5)
 
     await runner._process_results_from_q(
         output_path=custom_output_path / "responses.jsonl"

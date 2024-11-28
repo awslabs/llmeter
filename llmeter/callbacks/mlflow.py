@@ -52,7 +52,7 @@ class MlflowCallback(Callback):
         )
 
     async def _log_nested_run(self, result: Result):
-        with mlflow.start_run(nested=True):
+        with mlflow.start_run(run_name=result.run_name, nested=True):
             await self._log_llmeter_run(result)
 
     async def after_run(self, result: Result):
