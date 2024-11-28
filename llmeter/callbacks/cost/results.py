@@ -2,7 +2,6 @@
 
 # Python Built-Ins:
 from __future__ import annotations
-from itertools import chain
 from numbers import Number
 from typing import Literal, Sequence
 
@@ -162,7 +161,7 @@ class CalculatedCostWithDimensions(dict):
         raw: object,
         key_prefix: str = "",
         include_total: bool = True,
-    ) -> CalculatedCostWithDimensions:
+    ) -> None:
         """Store this cost result on a (potentially shared) namespace/object
 
         Args:

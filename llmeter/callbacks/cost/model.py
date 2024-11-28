@@ -162,18 +162,19 @@ class CostModel(JSONableBase, Callback):
                 "and include request-level costs)"
             )
         if save:
-            # Save the overall run cost and breakdown:
+            # Save the overall run cost and breakdown on the main result object:
             run_cost.save_on_namespace(result, key_prefix="cost_")
-            run_cost.save_on_namespace(result._contributed_stats, key_prefix="cost_")
-            result._contributed_stats.update(
-                CalculatedCostWithDimensions.summary_statistics(
-                    resp_costs,
-                    key_prefix="cost_",
-                    key_dim_name_suffix="_per_request",
-                    # cost_total_per_request would be confusing, so skip 'total':
-                    key_total_name_and_suffix="per_request",
-                )
+            # Contribute both 1/ the summary stats of request-level costs, and 2/ the overall run
+            # cost+breakdown, to result.stats:
+            stats = CalculatedCostWithDimensions.summary_statistics(
+                resp_costs,
+                key_prefix="cost_",
+                key_dim_name_suffix="_per_request",
+                # cost_total_per_request would be confusing, so skip 'total':
+                key_total_name_and_suffix="per_request",
             )
+            run_cost.save_on_namespace(stats, key_prefix="cost_")
+            result._update_contributed_stats(stats)
 
         return run_cost
 

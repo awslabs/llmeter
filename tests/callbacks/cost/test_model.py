@@ -118,7 +118,8 @@ async def test_cost_model_combines_req_and_run_dims():
     for r in response_mocks:
         await model.after_invoke(r)
     results_mock = NonCallableMock()
-    results_mock._contributed_stats = {}
+    update_contrib_stats_mock = Mock()
+    results_mock._update_contributed_stats = update_contrib_stats_mock
     results_mock.responses = response_mocks
     results_mock.additional_metrics_for_aggregation = None
     await model.after_run(results_mock)
@@ -131,6 +132,9 @@ async def test_cost_model_combines_req_and_run_dims():
     assert results_mock.cost_total == 5133
 
     # And the summaries:
+    update_contrib_stats_mock.assert_called_once()
+    actual_stats = update_contrib_stats_mock.call_args[0][0]
+    assert isinstance(actual_stats, dict)
     expected_stats_subset = {
         # Overall costs:
         "cost_total": 5133,
@@ -147,13 +151,13 @@ async def test_cost_model_combines_req_and_run_dims():
     }
     actual_stats_subset = {
         k: v
-        for k, v in results_mock._contributed_stats.items()
+        for k, v in actual_stats.items()
         if k in expected_stats_subset
     }
     assert actual_stats_subset == expected_stats_subset
     # Stats include overall, plus 4 stats (avg, p50, p90, p99) for each request-level dimension and
     # request totals:
-    assert len(results_mock._contributed_stats) == 5 + 4 * 3
+    assert len(actual_stats) == 5 + 4 * 3
 
     # Check recalculating with an adjusted model works correctly:
     req_dim_1.calculate = AsyncMock(return_value=2)
