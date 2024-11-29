@@ -1,5 +1,5 @@
-"""Base class for extending LLMeter with callback functions"""
-
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 from abc import ABC, abstractmethod
 import os
@@ -17,13 +17,13 @@ class Callback(ABC):
     in the test Run lifecycle: For example, logging experiments to MLFlow, or estimating costs
     associated with test runs or individual model invocations.
 
-    A Callback object may implement multiple of the defined LLMeter lifecycle hooks (such as
+    A Callback object may implement multiple of the defined lifecycle hooks (such as
     `before_invoke`, `after_run`, etc). Callbacks must support serializing their configuration to
     a file (by implementing `save_to_file`), and loading back (via `load_from_file`).
     """
 
     async def before_invoke(self, payload: dict) -> None:
-        """Lifecycle hook run before every `Endpoint.invoke()` request in a Run.
+        """Lifecycle hook called before every `Endpoint.invoke()` request in a Run.
 
         Args:
             payload: The payload to be sent to the endpoint.
@@ -33,7 +33,7 @@ class Callback(ABC):
         pass
 
     async def after_invoke(self, response: InvocationResponse) -> None:
-        """Lifecycle hook run after every `Endpoint.invoke()` request in a Run.
+        """Lifecycle hook called after every `Endpoint.invoke()` request in a Run.
 
         Args:
             response: The InvocationResponse (already annotated with initial information e.g.
@@ -45,7 +45,7 @@ class Callback(ABC):
         pass
 
     async def before_run(self, runner: Runner) -> None:
-        """Lifecycle hook run at the start of each `Runner.run()`
+        """Lifecycle hook called at the start of each `Runner.run()`
 
         This function will be called after the initial Runner configuration is prepared, and before
         creating clients or starting to send requests.
@@ -58,7 +58,7 @@ class Callback(ABC):
         pass
 
     async def after_run(self, result: Result) -> None:
-        """Lifecycle hook run at the end of each `Runner.run()`
+        """Lifecycle hook called at the end of each `Runner.run()`
 
         Args:
             result: The Result of the overall run (including all individual model invocations)
@@ -92,9 +92,9 @@ class Callback(ABC):
         Returns:
             callback: A loaded Callback - for example an `MlflowCallback`.
         """
-        # check if it's one of built-in modules
-        # use the _load_from_file method to load the configuration
-        pass
+        raise NotImplementedError(
+            "TODO: Callback.load_from_file is not yet implemented!"
+        )
 
     @classmethod
     @abstractmethod

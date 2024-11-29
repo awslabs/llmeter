@@ -160,7 +160,7 @@ async def test_latency_heatmap_plot_heatmap(mock_endpoint, tmp_path):
 def experiment_runner():
     # Create an ExperimentRunner instance with some default values
     return LoadTest(
-        endpoint=mock_endpoint, # type: ignore
+        endpoint=mock_endpoint,  # type: ignore
         payload={"input": "test"},
         sequence_of_clients=[1, 2, 3],
         min_requests_per_client=10,
@@ -229,7 +229,7 @@ def test_get_n_requests_parametrized(
 ):
     # Parametrized test to cover multiple scenarios
     runner = LoadTest(
-        endpoint=mock_endpoint, # type: ignore
+        endpoint=mock_endpoint,  # type: ignore
         payload={"input": "test"},
         sequence_of_clients=[1, 2, 3],
         min_requests_per_client=min_requests_per_client,

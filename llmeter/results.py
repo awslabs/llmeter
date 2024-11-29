@@ -202,9 +202,9 @@ class Result:
             - Time to first token
             - Number of tokens output
             - Number of tokens input
-        
+
         Aggregated statistics are keyed in the format "{stat_name}-{aggregation_type}"
-        
+
         This property is read-only and returns a new shallow copy of the data on each access.
         Default stats provided by LLMeter are calculated on first access and then cached. Callbacks
         Callbacks or other mechanisms needing to augment stats should use the
