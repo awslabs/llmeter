@@ -17,13 +17,13 @@ def test_base_classes_require_implementing_calculate():
     class TestReqDim(RequestCostDimensionBase):
         pass
 
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(TypeError, match="without an implementation"):
         TestReqDim()
 
     class TestRunDim(RunCostDimensionBase):
         pass
 
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(TypeError, match="without an implementation"):
         TestRunDim()
 
 

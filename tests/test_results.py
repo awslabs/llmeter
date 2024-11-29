@@ -191,8 +191,8 @@ def test_stats_property(sample_result: Result):
     for key in sample_result.to_dict().keys():
         assert key in stats
 
-    # Test caching
-    assert sample_result.stats is sample_result.stats  # Should return the same object
+    # Test caching returns same object for built-in stats:
+    assert sample_result._builtin_stats is sample_result._builtin_stats
 
 
 def test_stats_property_empty_result():

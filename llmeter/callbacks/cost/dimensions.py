@@ -12,7 +12,7 @@ use to bring customized cost dimensions for your own cost models.
 """
 
 # Python Built-Ins:
-from abc import abstractmethod
+from abc import abstractmethod, ABC
 from dataclasses import dataclass
 from math import ceil
 from typing import Optional
@@ -38,7 +38,7 @@ class IRequestCostDimension(ISerializable):
         ...
 
 
-class RequestCostDimensionBase(JSONableBase):
+class RequestCostDimensionBase(ABC, JSONableBase):
     """Base class for implementing per-request cost model dimensions
 
     This class provides a default implementation of `ISerializable` and sets up an abstract method
@@ -85,7 +85,7 @@ class IRunCostDimension(ISerializable):
         ...
 
 
-class RunCostDimensionBase(JSONableBase):
+class RunCostDimensionBase(ABC, JSONableBase):
     """Base class for implementing per-run cost model dimensions
 
     This class provides a default implementation of `ISerializable`, a default empty
