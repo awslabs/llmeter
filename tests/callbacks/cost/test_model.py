@@ -1,3 +1,6 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+from dataclasses import dataclass
 from unittest.mock import AsyncMock, Mock, NonCallableMock
 
 import pytest
@@ -37,6 +40,41 @@ def test_cost_model_serialization():
             },
         },
     }
+
+
+def test_cost_model_detects_duplicate_cost_dim_names():
+    """CostModel detects and raises errors when created with duplicate dimension names"""
+
+    @dataclass
+    class DummyCostDimension:
+        name: str  # Name property is *not* (currently?) used automatically - only class name
+
+    with pytest.raises(ValueError, match="Duplicate cost dimension name"):
+        CostModel(
+            request_dims=[
+                DummyCostDimension(name="foo"),
+                DummyCostDimension(name="bar"),
+            ],
+            run_dims=[],
+        )
+    with pytest.raises(ValueError, match="Duplicate cost dimension name"):
+        CostModel(
+            request_dims=[],
+            run_dims=[
+                DummyCostDimension(name="foo"),
+                DummyCostDimension(name="bar"),
+            ],
+        )
+    with pytest.raises(ValueError, match="Duplicate cost dimension name"):
+        CostModel(
+            request_dims=[DummyCostDimension(name="foo")],
+            run_dims=[DummyCostDimension(name="bar")],
+        )
+    with pytest.raises(ValueError, match="Duplicate cost dimension name"):
+        CostModel(
+            request_dims={"my_dim": DummyCostDimension(name="foo")},
+            run_dims={"my_dim": DummyCostDimension(name="bar")},
+        )
 
 
 @pytest.mark.asyncio

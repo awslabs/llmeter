@@ -1,9 +1,8 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
 # Python Built-Ins:
 from dataclasses import dataclass, field
 import importlib
-from itertools import chain
-from numbers import Number
-from typing import Literal
 
 # Local Dependencies:
 from ...endpoints.base import InvocationResponse
@@ -21,8 +20,8 @@ class CostModel(JSONableBase, Callback):
 
     A Cost Model is composed of whatever pricing *"dimensions"* are relevant for your FM deployment
     and use-case, which may be applied at the individual request level (like
-    `llmeter.callbacks.cost.dimensions.CostPerInputToken`), or at the overall deployment / test run
-    level (like `llmeter.callbacks.cost.dimensions.CostPerHour`).
+    `llmeter.callbacks.cost.dimensions.InputTokens`), or at the overall deployment / test run level
+    (like `llmeter.callbacks.cost.dimensions.EndpointTime`).
 
     With a Cost Model defined, you can explicitly `calculate_request_cost(...)` on an
     `InvocationResponse` to estimate costs for a specific request/response;
@@ -54,33 +53,41 @@ class CostModel(JSONableBase, Callback):
                 be used as its default name. An error will be thrown if any two dimensions
                 (including request_dims) have the same name.
         """
-        if request_dims is None:
-            self.request_dims = {}
-        elif not isinstance(request_dims, dict):
-            self.request_dims = {dim.__class__.__name__: dim for dim in request_dims}
-        else:
-            self.request_dims = request_dims
+        all_dims: dict[str, IRequestCostDimension | IRunCostDimension] = {}
+        self.request_dims = {}
+        self.run_dims = {}
 
-        if run_dims is None:
-            self.run_dims = {}
-        elif not isinstance(run_dims, dict):
-            self.run_dims = {dim.__class__.__name__: dim for dim in run_dims}
-        else:
-            self.run_dims = run_dims
-
-        # Validate no overlapping names:
-        all_dims = {}
-        for name, dim in chain(self.request_dims.items(), self.run_dims.items()):
-            if name in all_dims:
-                raise ValueError(
-                    f"Duplicate cost dimension name '{name}': Got both {dim} and {all_dims[name]}"
+        if request_dims is not None:
+            for name, dim in (
+                request_dims.items()
+                if isinstance(request_dims, dict)
+                else zip(
+                    (d.__class__.__name__ for d in request_dims),
+                    request_dims,
                 )
-            all_dims[name] = dim
+            ):
+                if name in all_dims:
+                    raise ValueError(
+                        f"Duplicate cost dimension name '{name}': Got both {dim} and {all_dims[name]}"
+                    )
+                all_dims[name] = dim
+                self.request_dims[name] = dim
 
-    async def before_run(self, runner: Runner) -> None:
-        """Initialize state for all run-level cost dimensions in the model"""
-        for dim in self.run_dims.values():
-            await dim.before_run_start(runner)
+        if run_dims is not None:
+            for name, dim in (
+                run_dims.items()
+                if isinstance(run_dims, dict)
+                else zip(
+                    (d.__class__.__name__ for d in run_dims),
+                    run_dims,
+                )
+            ):
+                if name in all_dims:
+                    raise ValueError(
+                        f"Duplicate cost dimension name '{name}': Got both {dim} and {all_dims[name]}"
+                    )
+                all_dims[name] = dim
+                self.run_dims[name] = dim
 
     async def calculate_request_cost(
         self,
@@ -167,12 +174,21 @@ class CostModel(JSONableBase, Callback):
 
         return run_cost
 
+    async def before_invoke(self, payload: dict) -> None:
+        """This LLMeter Callback hook is a no-op for CostModel"""
+        pass
+
     async def after_invoke(self, response: InvocationResponse) -> None:
         """LLMeter Callback.after_invoke hook
 
         Calls calculate_request_cost() with `save=True` to save the cost on the InvocationResponse.
         """
         await self.calculate_request_cost(response, save=True)
+
+    async def before_run(self, runner: Runner) -> None:
+        """Initialize state for all run-level cost dimensions in the model"""
+        for dim in self.run_dims.values():
+            await dim.before_run_start(runner)
 
     async def after_run(self, result: Result) -> None:
         """LLMeter Callback.after_run hook
