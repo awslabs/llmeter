@@ -1,5 +1,5 @@
-"""Output / result structure definitions for cost modelling"""
-
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
 # Python Built-Ins:
 from __future__ import annotations
 from numbers import Number
@@ -13,9 +13,12 @@ class CalculatedCostWithDimensions(dict):
     """Result of a cost estimate (composed of multiple cost dimensions)
 
     This class is a dictionary of costs keyed by dimension name, but provides additional
-    convenience methods including a `.total` property; ability to add multiple cost estimates
-    together; and functions to save to or load from a namespace including other information (such
-    as an `InvocationResponse` or `Result`)
+    convenience methods, including:
+
+    - A`.total` property, providing the total cost across all dimenisons
+    - Ability to add multiple cost estimates together (using standard `+` or `sum()`)
+    - Functions to save the estimate to (or load one from) a namespace including other information
+        (such as another dictionary, an `InvocationResponse` or `Result`)
     """
 
     @property
@@ -45,13 +48,13 @@ class CalculatedCostWithDimensions(dict):
     ) -> CalculatedCostWithDimensions:
         """Our __add__ operator is commutative, so __radd__ just calls __add__
 
-        This definition supports `sum([...things])`, which starts with `0 + things[0]` and
-        therefore needs `things[0]` to support `__radd__`.
+        This definition supports `sum([...costs])`, which starts with `0 + costs[0]` and therefore
+        needs `costs[0]` to support `__radd__`.
         """
         return self.__add__(other)
 
     def merge(self, other: dict[str, Number] | CalculatedCostWithDimensions) -> None:
-        """Merge another cost estimate into this one
+        """Merge another cost estimate into this one (in-place)
 
         Dimensions present in both `self` and `other` will be summed together.
         """
@@ -75,7 +78,7 @@ class CalculatedCostWithDimensions(dict):
         key_stat_name_prefix: str = "-",
         key_total_name_and_suffix: str = "total",
     ) -> dict[str, Number]:
-        """Utility function to calculate summary statistics for a sequence of cost results
+        """Utility function to calculate summary statistics for a dataset of cost results
 
         At a high level, this method produces a flat map from keys like [dimension]-[statistic], to
         the value of that statistic for that dimension.

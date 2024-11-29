@@ -1,7 +1,9 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
 """(De/re)serialization interfaces for saving Cost Model objects to file and loading them back"""
 
 # Python Built-Ins:
-from dataclasses import asdict, is_dataclass
+from dataclasses import is_dataclass
 from datetime import date, datetime, time
 import json
 import logging

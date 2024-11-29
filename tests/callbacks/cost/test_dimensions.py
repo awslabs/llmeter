@@ -1,12 +1,30 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
 import pytest
 
 from llmeter.callbacks.cost.dimensions import (
     InputTokens,
     EndpointTime,
     OutputTokens,
+    RequestCostDimensionBase,
+    RunCostDimensionBase,
 )
 from llmeter.endpoints.base import InvocationResponse
 from llmeter.results import Result
+
+
+def test_base_classes_require_implementing_calculate():
+    class TestReqDim(RequestCostDimensionBase):
+        pass
+
+    with pytest.raises(NotImplementedError):
+        TestReqDim()
+
+    class TestRunDim(RunCostDimensionBase):
+        pass
+
+    with pytest.raises(NotImplementedError):
+        TestRunDim()
 
 
 @pytest.mark.asyncio

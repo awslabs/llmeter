@@ -1,3 +1,5 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
 from llmeter.callbacks.cost.results import CalculatedCostWithDimensions
 
 
@@ -5,8 +7,10 @@ def test_cost_recalculates_total():
     """CalculatedCostWithDimensions.total should be re-calculated automatically"""
     cost1 = CalculatedCostWithDimensions(foo=4, bar=2)
     assert cost1.total == 6
-    cost1["baz"] = 6
+    cost1["baz"] = 6  # Add new dimension
     assert cost1.total == 12
+    cost1["bar"] = 4  # Update existing dimension
+    assert cost1.total == 14
 
 
 def test_calculated_cost_merge():
