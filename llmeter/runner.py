@@ -8,7 +8,7 @@ import os
 import random
 import time
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import InitVar, asdict, dataclass, replace
+from dataclasses import InitVar, asdict, dataclass, fields, replace
 from datetime import datetime
 from itertools import cycle
 from typing import Any, TYPE_CHECKING
@@ -116,16 +116,19 @@ class _RunConfig:
 
 
 @dataclass
-class Runner(_RunConfig):
-    """
-    A class for running and managing LLM inference tasks.
+class _Run(_RunConfig):
+    """Class to manage one specific test run
 
-    This class provides methods for token counting,
-    invocation handling, and asynchronous processing of LLM requests.
-
-    Attributes:
-        Inherits all attributes from _RunConfig.
+    This class is not intended to be used directly: Instead create a `Runner` to define a default
+    configuration, then call `runner.run()` with optional run-specific overrides.
     """
+
+    def __post_init__(self, disable_client_progress_bar, disable_clients_progress_bar):
+        super().__post_init__(disable_client_progress_bar, disable_clients_progress_bar)
+        self._validate_and_prepare_payload()
+        self._prepare_output_path()
+        self._responses = []
+        self._n_requests = self.n_requests or len(self.payload)
 
     async def _update_token_counts(self, response: InvocationResponse):
         """
@@ -336,6 +339,127 @@ class Runner(_RunConfig):
             logger.debug("Signaling token counting task to exit")
         return total_test_time, start_t, end_t
 
+    def _validate_and_prepare_payload(self):
+        assert self.payload, "No payload provided"
+        if isinstance(self.payload, (os.PathLike, str)):
+            self.payload = list(load_payloads(self.payload))
+        if isinstance(self.payload, dict):
+            self.payload = [self.payload]
+
+    def _prepare_output_path(self):
+        if self.run_name is None:
+            self.run_name = f"{datetime.now():%Y%m%d-%H%M}"
+        if self.output_path:
+            self.output_path = Path(self.output_path)
+            logger.info(f"Saving results to {self.output_path}")
+
+    async def _run(self):
+        result = Result(
+            responses=[],
+            total_test_time=None,
+            total_requests=self._n_requests * self.clients,
+            clients=self.clients,
+            n_requests=self._n_requests,
+            output_path=self.output_path / self.run_name,
+            model_id=self._endpoint.model_id,
+            provider=self._endpoint.provider,
+            endpoint_name=self._endpoint.endpoint_name,
+            run_name=self.run_name,
+            run_description=self.run_description,
+        )
+
+        if self.callbacks is not None:
+            [await cb.before_run(self) for cb in self.callbacks]
+
+        # Address default threads limit in asyncio
+        # https://stackoverflow.com/questions/75885213/how-to-increase-asyncio-thread-limits-in-an-existing-co-routine)
+        loop = asyncio.get_running_loop()
+        loop.set_default_executor(ThreadPoolExecutor(max_workers=self.clients + 5))
+        logger.info("Starting test")
+        self._queue = asyncio.Queue()
+        self._progress_bar = tqdm(
+            total=self.clients * self._n_requests,
+            leave=False,
+            desc="Total requests",
+            disable=_disable_tqdm,
+        )
+
+        try:
+            _, (total_test_time, start_time, end_time) = await asyncio.gather(
+                self._process_results_from_q(
+                    output_path=self.output_path / "responses.jsonl"
+                    if self.output_path
+                    else None,
+                ),
+                self._invoke_n_c(
+                    payload=self.payload,
+                    n_requests=self._n_requests,
+                    clients=self.clients,
+                ),
+            )
+
+        except asyncio.CancelledError:
+            logger.error(
+                f"Waited {self.timeout} seconds, but received no response. Test failed."
+            )
+            return result
+
+        self._progress_bar.close()
+        logger.info(f"Test completed in {total_test_time*1000:.2f} seconds.")
+
+        result = replace(
+            result,
+            responses=self._responses,
+            total_test_time=total_test_time,
+            start_time=start_time,
+            end_time=end_time,
+        )
+
+        if self.callbacks is not None:
+            [await cb.after_run(result) for cb in self.callbacks]
+
+        if result.output_path:
+            result.save()
+
+        return result
+
+
+@dataclass
+class Runner(_RunConfig):
+    """
+    A class for running and managing LLM inference tasks.
+
+    This class provides methods for token counting,
+    invocation handling, and asynchronous processing of LLM requests.
+
+    Attributes:
+        endpoint (Endpoint | dict): TODO Docstring - Here since this is the public class
+        output_path (os.PathLike | str | None): TODO Docstring
+        tokenizer (Tokenizer | Any | None): TODO Docstring
+        n_requests (int | None): TODO Docstring
+        clients (int): TODO Docstring
+        payload (dict | list[dict] | os.PathLike | str | None): TODO Docstring
+        run_name (str | None): TODO Docstring
+        run_description (str | None): TODO Docstring
+        timeout (int | float): TODO Docstring
+        disable_per_client_progress_bar (bool): TODO Docstring
+        disable_clients_progress_bar (bool): TODO Docstring
+        callbacks (list[Callback] | None): TODO Docstring
+    """
+
+    def _prepare_run(self, **kwargs) -> _Run:
+        """Create an individual run based on this runner's configurations, with optional overrides
+
+        Args:
+            **kwargs: Overrides to the Runner's default config for this specific run
+        """
+        return _Run(
+            **{
+                **{f.name: getattr(self, f.name) for f in fields(_RunConfig)},
+                **{k: v for k, v in kwargs.items() if v is not None},
+            }
+        )
+
     async def run(
         self,
         payload: dict | list[dict] | os.PathLike | str | None,
@@ -387,144 +511,15 @@ class Runner(_RunConfig):
             - If an output_path is provided, results are saved to files.
         """
 
-        run_config = self._prepare_run_config(
-            payload,
-            n_requests,
-            clients,
-            output_path,
-            run_name,
-            run_description,
-            callbacks,
+        run = self._prepare_run(
+            payload=payload,
+            n_requests=n_requests,
+            clients=clients,
+            output_path=output_path,
+            run_name=run_name,
+            run_description=run_description,
+            callbacks=callbacks,
         )
-        assert isinstance(run_config.payload, list)
-        assert isinstance(run_config.run_name, str)
-        if run_config.output_path:
-            run_config.save()
-
-        result = self._initialize_result(run_config)
-
-        self._responses = []
-
-        _n_requests = run_config.n_requests or len(run_config.payload)
-
-        result = Result(
-            responses=[],
-            total_test_time=None,
-            total_requests=_n_requests * run_config.clients,
-            clients=run_config.clients,
-            n_requests=_n_requests,
-            output_path=Path(run_config.output_path) / run_config.run_name
-            if run_config.output_path
-            else None,
-            model_id=self._endpoint.model_id,
-            provider=self._endpoint.provider,
-            endpoint_name=self._endpoint.endpoint_name,
-            run_name=run_config.run_name,
-            run_description=run_config.run_description,
-        )
-
-        if run_config.callbacks is not None:
-            [await cb.before_run(run_config) for cb in run_config.callbacks]
-
-        # Address default threads limit in asyncio
-        # https://stackoverflow.com/questions/75885213/how-to-increase-asyncio-thread-limits-in-an-existing-co-routine)
-        loop = asyncio.get_running_loop()
-        loop.set_default_executor(
-            ThreadPoolExecutor(max_workers=run_config.clients + 5)
-        )
-        logger.info("Starting test")
-        self._queue = asyncio.Queue()
-        self._progress_bar = tqdm(
-            total=run_config.clients * _n_requests,
-            leave=False,
-            desc="Total requests",
-            disable=_disable_tqdm,
-        )
-
-        try:
-            _, (total_test_time, start_time, end_time) = await asyncio.gather(
-                self._process_results_from_q(
-                    output_path=result.output_path / "responses.jsonl"
-                    if isinstance(result.output_path, Path)
-                    else None,
-                ),
-                self._invoke_n_c(
-                    payload=run_config.payload,
-                    n_requests=_n_requests,
-                    clients=run_config.clients,
-                ),
-            )
-
-        except asyncio.CancelledError:
-            logger.error(
-                f"Waited {self.timeout} seconds, but received no response. Test failed."
-            )
-            return result
-
-        self._progress_bar.close()
-        logger.info(f"Test completed in {total_test_time*1000:.2f} seconds.")
-
-        result = replace(
-            result,
-            responses=self._responses,
-            total_test_time=total_test_time,
-            start_time=start_time,
-            end_time=end_time,
-        )
-
-        if run_config.callbacks is not None:
-            [await cb.after_run(result) for cb in run_config.callbacks]
-
-        if result.output_path:
-            result.save()
-
-        return result
-
-    def _prepare_run_config(
-        self,
-        payload,
-        n_requests,
-        clients,
-        output_path,
-        run_name,
-        run_description,
-        callbacks,
-    ):
-        run_config = replace(
-            self, **{k: v for k, v in locals().items() if k != "self" if v is not None}
-        )
-        self._validate_and_prepare_payload(run_config)
-        self._prepare_output_path(run_config)
-        if callbacks is not None:
-            run_config.callbacks = callbacks
-        return run_config
-
-    def _validate_and_prepare_payload(self, run_config):
-        assert run_config.payload, "No payload provided"
-        if isinstance(run_config.payload, (os.PathLike, str)):
-            run_config.payload = list(load_payloads(run_config.payload))
-        if isinstance(run_config.payload, dict):
-            run_config.payload = [run_config.payload]
-
-    def _prepare_output_path(self, run_config: _RunConfig):
-        if run_config.run_name is None:
-            run_config.run_name = f"{datetime.now():%Y%m%d-%H%M}"
-        if run_config.output_path:
-            run_config.output_path = Path(run_config.output_path)
-            logger.info(f"Saving results to {run_config.output_path}")
-
-    def _initialize_result(self, run_config):
-        _n_requests = run_config.n_requests or len(run_config.payload)
-        return Result(
-            responses=[],
-            total_test_time=None,
-            total_requests=_n_requests * run_config.clients,
-            clients=run_config.clients,
-            n_requests=_n_requests,
-            output_path=run_config.output_path,
-            model_id=self._endpoint.model_id,
-            provider=self._endpoint.provider,
-            endpoint_name=self._endpoint.endpoint_name,
-            run_name=run_config.run_name,
-            run_description=run_config.run_description,
-        )
+        assert isinstance(run.payload, list)
+        assert isinstance(run.run_name, str)
+        return run._run()
