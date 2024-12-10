@@ -44,6 +44,7 @@ def mock_tokenizer():
 def run(mock_endpoint: MagicMock, mock_tokenizer: MagicMock) -> _Run:
     mock_run = _Run(
         payload={"dummy": "payload"},
+        run_name="dummy-run",
         endpoint=mock_endpoint,
         tokenizer=mock_tokenizer,
     )
@@ -166,17 +167,24 @@ async def test_run_with_file_payload(runner: Runner, tmp_path: Path):
 
 @pytest.mark.asyncio
 async def test_run_with_output_path(runner: Runner, tmp_path: Path):
-    output_path = tmp_path / "output"
+    # Implicit path from runner gets run name appended:
+    runner.output_path = Path(tmp_path)
+    result = await runner.run(
+        payload={"prompt": "test"}, n_requests=1, clients=1, run_name="run_1"
+    )
+    assert result.output_path is not None
+    assert (tmp_path / result.run_name / "run_config.json").exists()  # type: ignore
 
+    # Explicit path in run() is used as-is:
     result = await runner.run(
         payload={"prompt": "test"},
         n_requests=1,
         clients=1,
-        output_path=str(output_path),
+        run_name="run_2",
+        output_path=Path(tmp_path) / "custom_path",
     )
-
     assert result.output_path is not None
-    assert (output_path / result.run_name / "run_config.json").exists()  # type: ignore
+    assert (tmp_path / "custom_path" / "run_config.json").exists()  # type: ignore
 
 
 @pytest.mark.asyncio
@@ -237,19 +245,19 @@ def test_validate_and_prepare_payload(run: _Run, mock_endpoint: Endpoint):
         run._validate_and_prepare_payload()
 
 
-def test_prepare_output_path(run: _Run, tmp_path: Path, mock_endpoint: Endpoint):
+def test_run_output_path(runner: Runner, tmp_path: Path):
     # Test with provided run_name
-    run.output_path = str(tmp_path)
-    run.run_name = "test_run"
-    run.endpoint = mock_endpoint
-    run._prepare_output_path()
+    run = runner._prepare_run(
+        payload={"prompt": "hi"}, output_path=str(tmp_path), run_name="test_run"
+    )
     assert run.run_name == "test_run"
     assert isinstance(run.output_path, Path)
 
     # Test without provided run_name (should generate one)
-    run.output_path = str(tmp_path)
-    run.run_name = None
-    run._prepare_output_path()
+    run = runner._prepare_run(
+        payload={"prompt": "hi"},
+        output_path=str(tmp_path),
+    )
     assert run.run_name is not None
     assert isinstance(run.output_path, Path)
 
@@ -311,7 +319,7 @@ def test_run_config_save_load(tmp_path: Path, mock_endpoint: Endpoint):
     )
 
     config.save(output_path=tmp_path)
-    loaded_config = Runner.load(tmp_path / "test_run")
+    loaded_config = Runner.load(tmp_path)
 
     if isinstance(loaded_config.payload, str):
         with open(loaded_config.payload) as f:

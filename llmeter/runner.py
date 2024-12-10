@@ -37,20 +37,27 @@ if os.getenv("LLMETER_DISABLE_ALL_PROGRESS_BARS") == "1":
 
 @dataclass
 class _RunConfig:
-    """A class to store the configuration for a test run."""
+    """A class to store the configuration for a test run.
 
-    endpoint: Endpoint | dict
-    output_path: os.PathLike | str | None = None
+    Both Runner (which provides a base configuration from which multiple runs can be triggered),
+    and _Run (which represents a specific individual test run) inherit from this shared base - for
+    consistency and simplicity of configuration de/serialization.
+
+    See public `Runner` docstring for fields documentation, since this class is internal.
+    """
+
+    endpoint: Endpoint | dict | None = None
+    output_path: Path | None = None
     tokenizer: Tokenizer | Any | None = None
-    n_requests: int | None = None
     clients: int = 1
+    n_requests: int | None = None
     payload: dict | list[dict] | os.PathLike | str | None = None
     run_name: str | None = None
     run_description: str | None = None
     timeout: int | float = 60
+    callbacks: list[Callback] | None = None
     disable_per_client_progress_bar: InitVar[bool] = True
     disable_clients_progress_bar: InitVar[bool] = True
-    callbacks: list[Callback] | None = None
 
     def __post_init__(self, disable_client_progress_bar, disable_clients_progress_bar):
         self._disable_per_client_progress_bar = disable_client_progress_bar
@@ -70,6 +77,9 @@ class _RunConfig:
         else:
             self._endpoint = self.endpoint
 
+        if self.output_path is not None:
+            self.output_path = Path(self.output_path)
+
         if self.tokenizer is None:
             self.tokenizer = DummyTokenizer()
         if isinstance(self.tokenizer, dict):
@@ -82,11 +92,14 @@ class _RunConfig:
         output_path: os.PathLike | str | None = None,
         file_name: str = "run_config.json",
     ):
-        """Save the configuration to a disk or could storage."""
+        """Save the configuration to a disk or cloud storage.
+
+        Args:
+            output_path: Optional override for output folder. By default, self.output_path is used.
+            file_name: File name to create under `output_path`.
+        """
         output_path = Path(output_path or self.output_path)
         output_path.mkdir(parents=True, exist_ok=True)
-        if self.run_name:
-            output_path = output_path / self.run_name
         run_config_path = output_path / file_name
 
         config_copy = replace(self)
@@ -106,7 +119,12 @@ class _RunConfig:
 
     @classmethod
     def load(cls, load_path: Path | str, file_name: str = "run_config.json"):
-        """Load a configuration from a JSON file."""
+        """Load a configuration from a (local or cloud-stored) JSON file.
+
+        Args:
+            output_path: Folder under which the configuration is stored
+            file_name: File name within `output_path` for the run configuration JSON.
+        """
         load_path = Path(load_path)
         with open(load_path / file_name) as f:
             config = json.load(f)
@@ -124,13 +142,29 @@ class _Run(_RunConfig):
     """
 
     def __post_init__(self, disable_client_progress_bar, disable_clients_progress_bar):
+        assert (
+            self.run_name is not None
+        ), "Test Run must be created with an explicit run_name"
+
         super().__post_init__(disable_client_progress_bar, disable_clients_progress_bar)
+
+        assert (
+            self.endpoint is not None
+        ), "Test Run must be created with an explicit Endpoint"
+
         self._validate_and_prepare_payload()
-        self._prepare_output_path()
         self._responses = []
         self._n_requests = self.n_requests or len(self.payload)
 
-    async def _update_token_counts(self, response: InvocationResponse):
+    def _validate_and_prepare_payload(self):
+        assert self.payload, "No payload provided"
+        if isinstance(self.payload, (os.PathLike, str)):
+            self.payload = list(load_payloads(self.payload))
+        if isinstance(self.payload, dict):
+            self.payload = [self.payload]
+
+    @staticmethod
+    async def _update_token_counts(tokenizer: Tokenizer, response: InvocationResponse):
         """
         Update the token counts for the given response.
 
@@ -146,7 +180,7 @@ class _Run(_RunConfig):
                     text = str(text)
                 except Exception:
                     raise ValueError("provided input can't be converted to string")
-            response.num_tokens_input = len(self._tokenizer.encode(text))
+            response.num_tokens_input = len(tokenizer.encode(text))
 
         if response.num_tokens_output is None:
             text = response.response_text
@@ -157,7 +191,7 @@ class _Run(_RunConfig):
                     text = str(text)
                 except Exception:
                     raise ValueError("generated output can't be converted to string")
-            response.num_tokens_output = len(self._tokenizer.encode(text))
+            response.num_tokens_output = len(tokenizer.encode(text))
 
     async def _process_results_from_q(self, output_path: Path | None = None):
         logger.info("Starting token counting from queue")
@@ -179,7 +213,7 @@ class _Run(_RunConfig):
 
             logger.debug(f"Got {response.id} from queue")
 
-            await self._update_token_counts(response)
+            await self._update_token_counts(self._tokenizer, response)
             if self.callbacks is not None:
                 [await cb.after_invoke(response) for cb in self.callbacks]
 
@@ -340,28 +374,19 @@ class _Run(_RunConfig):
             logger.debug("Signaling token counting task to exit")
         return total_test_time, start_t, end_t
 
-    def _validate_and_prepare_payload(self):
-        assert self.payload, "No payload provided"
-        if isinstance(self.payload, (os.PathLike, str)):
-            self.payload = list(load_payloads(self.payload))
-        if isinstance(self.payload, dict):
-            self.payload = [self.payload]
-
-    def _prepare_output_path(self):
-        if self.run_name is None:
-            self.run_name = f"{datetime.now():%Y%m%d-%H%M}"
-        if self.output_path:
-            self.output_path = Path(self.output_path)
-            logger.info(f"Saving results to {self.output_path}")
-
     async def _run(self):
+        """Run the test with the given configuration
+
+        This method is expected to be called *exactly once* after the _Run object is created.
+        Attempting to re-use a _Run object may result in undefined behavior.
+        """
         result = Result(
             responses=[],
             total_test_time=None,
             total_requests=self._n_requests * self.clients,
             clients=self.clients,
             n_requests=self._n_requests,
-            output_path=self.output_path / self.run_name if self.output_path else None,
+            output_path=self.output_path,
             model_id=self._endpoint.model_id,
             provider=self._endpoint.provider,
             endpoint_name=self._endpoint.endpoint_name,
@@ -431,24 +456,48 @@ class _Run(_RunConfig):
 @dataclass
 class Runner(_RunConfig):
     """
-    A class for running and managing LLM inference tasks.
+    Run (one or more) LLM test sets using a base configuration.
 
-    This class provides methods for token counting,
-    invocation handling, and asynchronous processing of LLM requests.
+    First create a `Runner` with base configuration for your test(s), then call `.run()` with
+    optional run-specific overrides. This pattern allows you to group related runs together for
+    organizing experiments (like ramping load tests) that might use more than one Run in total.
+
+    All attributes of this class may be unset (as you may choose to set them only at the Run
+    level), but some are "Mandatory" to be set *either* at the Runner or individual-run level, as
+    described below.
 
     Attributes:
-        endpoint (Endpoint | dict): TODO Docstring - Here since this is the public class
-        output_path (os.PathLike | str | None): TODO Docstring
-        tokenizer (Tokenizer | Any | None): TODO Docstring
-        n_requests (int | None): TODO Docstring
-        clients (int): TODO Docstring
-        payload (dict | list[dict] | os.PathLike | str | None): TODO Docstring
-        run_name (str | None): TODO Docstring
-        run_description (str | None): TODO Docstring
-        timeout (int | float): TODO Docstring
-        disable_per_client_progress_bar (bool): TODO Docstring
-        disable_clients_progress_bar (bool): TODO Docstring
-        callbacks (list[Callback] | None): TODO Docstring
+        endpoint (Endpoint | dict | None): The LLM endpoint to be tested. **Must be set** at either
+            the Runner or specific Run level.
+        output_path (os.PathLike | str | None): The (cloud or local) base folder under which run
+            outputs and configurations should be stored. By default, outputs will not be saved to
+            file.
+        tokenizer (Tokenizer | Any | None): Optional tokenizer used to estimate input and output
+            token counts for endpoints that don't report exact information. By default, LLMeter's
+            `DummyTokenizer` will be used if needed.
+        clients (int): The number of concurrent clients to use for sending requests. Defaults to 1.
+        n_requests (int | None): The number of LLM invocations to generate *per client*. By
+            default, each request in `payload` will be sent once by each client.
+        payload (dict | list[dict] | os.PathLike | str | None): The request data to send to the
+            endpoint under test. You can provide a single JSON payload (dict), a list of payloads
+            (list[dict]), or a path to one or more JSON/JSON-Lines files to be loaded by
+            `llmeter.prompt_utils.load_payloads()`. **Must be set** at either the Runner or
+            specific Run level.
+        run_name (str | None): Name to use for a specific test Run. This is *ignored* if set at the
+            Runner level, and should instead be set in `Runner.run()` to name a specific run. By
+            default, runs are named with the date and time they're requested in format:
+            `%Y%m%d-%H%M`
+        run_description (str | None): A natural-language description for the test Run. Can be set
+            either at the Runner level (in which case the same description will be shared across
+            all Runs), or individually in `Runner.run()`.
+        timeout (int | float): The maximum time (in seconds) to wait for each response from the
+            endpoint. Defaults to 60 seconds.
+        callbacks (list[Callback] | None): Optional callbacks to enable during the test Run. See
+            `llmeter.callbacks` for more information.
+        disable_per_client_progress_bar (bool): Set `True` to disable per-client progress bars
+            from showing during the run. Default `False` (each client's progress will be shown).
+        disable_clients_progress_bar (bool): Set `True` to disable overall progress bar from
+            showing during the run. Default `False` (overall requests progress will be shown).
     """
 
     def _prepare_run(self, **kwargs) -> _Run:
@@ -457,47 +506,72 @@ class Runner(_RunConfig):
         Args:
             **kwargs: Overrides to the Runner's default config for this specific run
         """
-        return _Run(
-            **{
-                **{f.name: getattr(self, f.name) for f in fields(_RunConfig)},
-                **{k: v for k, v in kwargs.items() if v is not None},
-            }
-        )
+        run_params = {
+            **{f.name: getattr(self, f.name) for f in fields(_RunConfig)},
+            **{k: v for k, v in kwargs.items() if v is not None},
+        }
+        if kwargs.get("run_name") is None:
+            # Runner's own self.run_name is explicitly *not* used, as it would share between runs
+            run_params["run_name"] = f"{datetime.now():%Y%m%d-%H%M}"
+        if self.output_path and not kwargs.get("output_path"):
+            # Run output path is nested under run name subfolder unless explicitly set:
+            run_params["output_path"] = self.output_path / run_params["run_name"]
+
+        return _Run(**run_params)
 
     async def run(
         self,
-        payload: dict | list[dict] | os.PathLike | str | None,
+        *,  # Prevent mistakes with this long arg list by allowing only keyword-arg based passing
+        # Explicitly name and re-document the args for ease of use of this important public method
+        endpoint: Endpoint | dict | None = None,
+        output_path: Path | None = None,
+        tokenizer: Tokenizer | Any | None = None,
+        clients: int | None = None,
         n_requests: int | None = None,
-        clients: int = 1,
-        output_path: os.PathLike | str | None = None,
+        payload: dict | list[dict] | os.PathLike | str | None = None,
         run_name: str | None = None,
         run_description: str | None = None,
+        timeout: int | float | None = None,
         callbacks: list[Callback] | None = None,
+        disable_per_client_progress_bar: bool | None = None,
+        disable_clients_progress_bar: bool | None = None,
     ) -> Result:
         """
-        Tests the the endpoint latency and throughput for a fixed payload.
+        Run a test against an LLM endpoint
 
-        This method tests the performance of the endpoint by sending multiple
-        concurrent requests with the given payload(s). It measures the total time
-        taken to complete the test, generates invocations for the given payload(s),
-        and optionally saves the results and metrics.
-        The arguments are optional, and if provided they take precedence over
-        the values of the `Runner` class.
+        This method tests the performance of the endpoint by sending multiple concurrent requests
+        with the given payload(s). It measures the total time taken to complete the test, generates
+        invocations for the given payload(s), and optionally saves the results and metrics.
+
+        For arguments that are not specified, the Runner's attributes will be used by default.
 
         Args:
-            payload (Dict | Sequence[Dict] | str | UPath | None): The input payload(s)
-                to generate invocations for. Can be a single dictionary, a sequence of
-                dictionaries, a string (file path), or a UPath object.
-            n_requests (int | None, optional): The number of invocations to generate per
-                client. If None, uses the length of the payload. Defaults to None.
-            clients (int, optional): The number of concurrent clients to use for
-                sending requests. Defaults to 1.
-            output_path (UPath | str | None, optional): The path to save responses,
-                results, and test metrics. If None, results are not saved to files.
-            run_name (str | None, optional): A name for this specific test run.
-                Defaults to None.
-            run_description (str | None, optional): A description of this test run.
-                Defaults to None.
+            endpoint (Endpoint | dict | None): The LLM endpoint to be tested. **Must be set** at
+                either the Runner or specific Run level.
+            output_path (os.PathLike | str | None): The (cloud or local) base folder under which
+                run outputs and configurations should be stored. By default, a new `run_name`
+                sub-folder will be created under the Runner's `output_path` if set - otherwise
+                outputs will not be saved to file.
+            tokenizer (Tokenizer | Any | None): Optional tokenizer used to estimate input and
+                output token counts for endpoints that don't report exact information.
+            clients (int): The number of concurrent clients to use for sending requests.
+            n_requests (int | None): The number of LLM invocations to generate *per client*.
+            payload (dict | list[dict] | os.PathLike | str | None): The request data to send to the
+                endpoint under test. You can provide a single JSON payload (dict), a list of
+                payloads (list[dict]), or a path to one or more JSON/JSON-Lines files to be loaded
+                by `llmeter.prompt_utils.load_payloads()`. **Must be set** at either the Runner or
+                specific Run level.
+            run_name (str | None): Name to use for a specific test Run. By default, runs are named
+                with the date and time they're requested in format: `%Y%m%d-%H%M`
+            run_description (str | None): A natural-language description for the test Run.
+            timeout (int | float): The maximum time (in seconds) to wait for each response from the
+                endpoint.
+            callbacks (list[Callback] | None): Optional callbacks to enable during the test Run. See
+                `llmeter.callbacks` for more information.
+            disable_per_client_progress_bar (bool): Set `True` to disable per-client progress bars
+                from showing during the run.
+            disable_clients_progress_bar (bool): Set `True` to disable overall progress bar from
+                showing during the run.
 
         Returns:
             Result: An object containing the test results, including the generated
@@ -516,13 +590,18 @@ class Runner(_RunConfig):
         """
 
         run = self._prepare_run(
-            payload=payload,
-            n_requests=n_requests,
-            clients=clients,
+            endpoint=endpoint,
             output_path=output_path,
+            tokenizer=tokenizer,
+            clients=clients,
+            n_requests=n_requests,
+            payload=payload,
             run_name=run_name,
             run_description=run_description,
+            timeout=timeout,
             callbacks=callbacks,
+            disable_per_client_progress_bar=disable_per_client_progress_bar,
+            disable_clients_progress_bar=disable_clients_progress_bar,
         )
         assert isinstance(run.payload, list)
         assert isinstance(run.run_name, str)
