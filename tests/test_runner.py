@@ -108,16 +108,12 @@ async def test_invoke_n(run: _Run):
 
 
 @pytest.mark.asyncio
-async def test_run(run: _Run):
-    run._invoke_n_c = AsyncMock(return_value=(1.0, None, None))
-    run._process_results_from_q = AsyncMock()
-
-    result = await run._run(payload={"prompt": "test"}, n_requests=1, clients=1)
+async def test_run(runner: Runner):
+    result = await runner.run(payload={"prompt": "test"}, n_requests=1, clients=1)
 
     assert result.total_requests == 1
     assert result.clients == 1
     assert result.n_requests == 1
-    assert result.total_test_time == 1.0
 
 
 @pytest.mark.asyncio
@@ -157,29 +153,22 @@ async def test_invoke_n_c(run: _Run):
 
 
 @pytest.mark.asyncio
-async def test_run_with_file_payload(run: _Run, tmp_path: Path):
+async def test_run_with_file_payload(runner: Runner, tmp_path: Path):
     payload_file = tmp_path / "payload.jsonl"
     payload_file.write_text('{"prompt": "test1"}\n{"prompt": "test2"}')
 
-    run._invoke_n_c = AsyncMock(return_value=(1.0, None, None))
-    run._process_results_from_q = AsyncMock()
-
-    result = await run._run(payload=str(payload_file), n_requests=2, clients=1)
+    result = await runner.run(payload=str(payload_file), n_requests=2, clients=1)
 
     assert result.total_requests == 2
     assert result.clients == 1
     assert result.n_requests == 2
-    assert result.total_test_time == 1.0
 
 
 @pytest.mark.asyncio
-async def test_run_with_output_path(run: _Run, tmp_path: Path):
+async def test_run_with_output_path(runner: Runner, tmp_path: Path):
     output_path = tmp_path / "output"
 
-    run._invoke_n_c = AsyncMock(return_value=(1.0, None, None))
-    run._process_results_from_q = AsyncMock()
-
-    result = await run._run(
+    result = await runner.run(
         payload={"prompt": "test"},
         n_requests=1,
         clients=1,
@@ -196,7 +185,7 @@ async def test_run_error_handling(run: _Run):
     run._process_results_from_q = AsyncMock()
 
     with pytest.raises(Exception, match="Test error"):
-        await run._run(payload={"prompt": "test"}, n_requests=1, clients=1)
+        await run._run()
 
 
 @pytest.mark.asyncio
@@ -285,18 +274,14 @@ async def test_invoke_n_edge_cases(run: _Run):
 
 
 @pytest.mark.asyncio
-async def test_run_with_sequence_payload(run: _Run):
-    run._invoke_n_c = AsyncMock(return_value=(1.0, None, None))
-    run._process_results_from_q = AsyncMock()
-
-    result = await run._run(
+async def test_run_with_sequence_payload(runner: Runner):
+    result = await runner.run(
         payload=[{"prompt": "test1"}, {"prompt": "test2"}], n_requests=2, clients=1
     )
 
     assert result.total_requests == 2
     assert result.clients == 1
     assert result.n_requests == 2
-    assert result.total_test_time == 1.0
 
 
 @pytest.mark.asyncio
@@ -386,7 +371,7 @@ def test_prepare_run_combinations(
     [{"prompt": "test"}, [{"prompt": "test1"}, {"prompt": "test2"}], "test_file.jsonl"],
 )
 async def test_run_with_different_payloads(
-    run: _Run,
+    runner: Runner,
     payload: dict[str, str] | list[dict[str, str]] | Literal["test_file.jsonl"],
     tmp_path: Path,
 ):
@@ -395,15 +380,11 @@ async def test_run_with_different_payloads(
         payload_file.write_text('{"prompt": "test1"}\n{"prompt": "test2"}')
         payload = str(payload_file)  # type: ignore
 
-    run._invoke_n_c = AsyncMock(return_value=(1.0, None, None))
-    run._process_results_from_q = AsyncMock()
-
-    result = await run._run(payload=payload, n_requests=2, clients=1)
+    result = await runner.run(payload=payload, n_requests=2, clients=1)
 
     assert result.total_requests == 2
     assert result.clients == 1
     assert result.n_requests == 2
-    assert result.total_test_time == 1.0
 
 
 @pytest.mark.asyncio
@@ -455,25 +436,6 @@ def test_prepare_run_invalid_inputs(
             run_description=None,
             callbacks=None,
         )
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "payload, n_requests, clients",
-    [
-        (None, 5, 2),
-        ({"prompt": "test"}, -1, 2),
-        ({"prompt": "test"}, 5, 0),
-    ],
-)
-async def test_run_invalid_inputs(
-    run: _Run,
-    payload: None | dict[str, str],
-    n_requests: Literal[5] | Literal[-1],
-    clients: Literal[2] | Literal[0],
-):
-    with pytest.raises(AssertionError):
-        await run._run(payload=payload, n_requests=n_requests, clients=clients)
 
 
 @pytest.mark.asyncio
@@ -610,10 +572,6 @@ async def test_run_with_optional_parameters(
     run_name: None | Literal["custom_run"],
     run_description: None | Literal["Custom description"],
 ):
-    assert False, "TODO: Invoke endpoint instead. These runner methods no longer exist"
-    runner._invoke_n_c = AsyncMock(return_value=(1.0, None, None))
-    runner._process_results_from_q = AsyncMock()
-
     result = await runner.run(
         payload={"prompt": "test"},
         n_requests=n_requests,
@@ -626,7 +584,6 @@ async def test_run_with_optional_parameters(
     assert result.total_requests == (n_requests or 1) * (clients or 1)
     assert result.clients == clients or 1
     assert result.n_requests == n_requests or 1
-    assert result.total_test_time == 1.0
     if output_path:
         assert result.output_path is not None
     if run_name:

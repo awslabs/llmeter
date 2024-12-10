@@ -188,6 +188,7 @@ class _Run(_RunConfig):
                 self._progress_bar.update(1)
 
             if output_path:
+                output_path.parent.mkdir(parents=True, exist_ok=True)
                 with output_path.open("a") as f:
                     f.write(response.to_json() + "\n")
 
@@ -360,7 +361,7 @@ class _Run(_RunConfig):
             total_requests=self._n_requests * self.clients,
             clients=self.clients,
             n_requests=self._n_requests,
-            output_path=self.output_path / self.run_name,
+            output_path=self.output_path / self.run_name if self.output_path else None,
             model_id=self._endpoint.model_id,
             provider=self._endpoint.provider,
             endpoint_name=self._endpoint.endpoint_name,
@@ -370,6 +371,9 @@ class _Run(_RunConfig):
 
         if self.callbacks is not None:
             [await cb.before_run(self) for cb in self.callbacks]
+
+        if self.output_path:
+            self.save()  # Save run config & payload (after any callback transformations)
 
         # Address default threads limit in asyncio
         # https://stackoverflow.com/questions/75885213/how-to-increase-asyncio-thread-limits-in-an-existing-co-routine)
@@ -522,4 +526,4 @@ class Runner(_RunConfig):
         )
         assert isinstance(run.payload, list)
         assert isinstance(run.run_name, str)
-        return run._run()
+        return await run._run()
