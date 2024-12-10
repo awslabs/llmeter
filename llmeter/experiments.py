@@ -56,7 +56,7 @@ class LoadTest:
             output_path = None
         self._results = [
             await self._runner.run(
-                self.payload,
+                payload=self.payload,
                 clients=c,
                 n_requests=self._get_n_requests(c),
                 output_path=output_path,
@@ -152,7 +152,7 @@ class LatencyHeatmap:
 
     async def run(self, output_path=None):
         heatmap_results = await self._runner.run(
-            self.payload,
+            payload=self.payload,
             clients=self.clients,
             n_requests=len(self.input_lengths)
             * len(self.output_lengths)
