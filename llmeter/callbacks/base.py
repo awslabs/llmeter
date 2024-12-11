@@ -7,7 +7,7 @@ from typing import final
 
 from ..endpoints.base import InvocationResponse
 from ..results import Result
-from ..runner import Runner
+from ..runner import _RunConfig
 
 
 class Callback(ABC):
@@ -44,16 +44,16 @@ class Callback(ABC):
         """
         pass
 
-    async def before_run(self, runner: Runner) -> None:
+    async def before_run(self, run_config: _RunConfig) -> None:
         """Lifecycle hook called at the start of each `Runner.run()`
 
         This function will be called after the initial Runner configuration is prepared, and before
         creating clients or starting to send requests.
 
         Args:
-            runner: The configured `Runner` object that will be used to run the test.
+            run_config: The configuration that will be used to run the test.
         Returns:
-            None: If you'd like to modify the `runner`'s configuration, edit the argument in-place.
+            None: If you'd like to modify the current run's configuration, edit it in-place.
         """
         pass
 

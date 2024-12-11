@@ -20,7 +20,7 @@ from typing import Optional
 # Local Dependencies:
 from ...endpoints.base import InvocationResponse
 from ...results import Result
-from ...runner import Runner
+from ...runner import _RunConfig
 from .serde import ISerializable, JSONableBase
 
 
@@ -64,7 +64,7 @@ class IRunCostDimension(ISerializable):
     (request-independent) cost-per-hour are important.
     """
 
-    async def before_run_start(self, runner: Runner) -> None:
+    async def before_run_start(self, run_config: _RunConfig) -> None:
         """Function called to notify the cost component that a test run is about to start
 
         This method is called before the test run starts, and can be used to perform any
@@ -94,7 +94,7 @@ class RunCostDimensionBase(ABC, JSONableBase):
     make sure you fully implement `IRunCostDimension`!
     """
 
-    async def before_run_start(self, runner: Runner) -> None:
+    async def before_run_start(self, run_config: _RunConfig) -> None:
         """Function called to notify the cost component that a test run is about to start
 
         This method is called before the test run starts, and can be used to perform any

@@ -113,8 +113,8 @@ async def test_cost_model_callback_saves_run_costs():
         run_dims=[dummy_run_dim],
     )
 
-    runner_mock = NonCallableMock()
-    assert await model.before_run(runner_mock) is None
+    run_mock = NonCallableMock()
+    assert await model.before_run(run_mock) is None
     results_mock = NonCallableMock()
     results_mock.additional_metrics_for_aggregation = None
     results_mock.responses = []
@@ -123,7 +123,7 @@ async def test_cost_model_callback_saves_run_costs():
     assert results_mock.cost_Mock == 5000  # Class name is the default dimension name
 
     # Check calculate_* fn produces same result as callback:
-    await model.before_run(runner_mock) is None
+    await model.before_run(run_mock) is None
     assert await model.calculate_run_cost(
         results_mock
     ) == CalculatedCostWithDimensions.load_from_namespace(
@@ -150,8 +150,8 @@ async def test_cost_model_combines_req_and_run_dims():
     )
 
     # Run the dummy test:
-    runner_mock = NonCallableMock()
-    await model.before_run(runner_mock)
+    run_mock = NonCallableMock()
+    await model.before_run(run_mock)
     response_mocks = [NonCallableMock(), NonCallableMock(), NonCallableMock()]
     for r in response_mocks:
         await model.after_invoke(r)

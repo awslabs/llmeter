@@ -7,7 +7,7 @@ import importlib
 # Local Dependencies:
 from ...endpoints.base import InvocationResponse
 from ...results import Result
-from ...runner import Runner
+from ...runner import _RunConfig
 from ..base import Callback
 from .dimensions import IRequestCostDimension, IRunCostDimension
 from .results import CalculatedCostWithDimensions
@@ -185,10 +185,10 @@ class CostModel(JSONableBase, Callback):
         """
         await self.calculate_request_cost(response, save=True)
 
-    async def before_run(self, runner: Runner) -> None:
+    async def before_run(self, run_config: _RunConfig) -> None:
         """Initialize state for all run-level cost dimensions in the model"""
         for dim in self.run_dims.values():
-            await dim.before_run_start(runner)
+            await dim.before_run_start(run_config)
 
     async def after_run(self, result: Result) -> None:
         """LLMeter Callback.after_run hook
