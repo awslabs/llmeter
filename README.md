@@ -26,11 +26,12 @@ LLMeter also offers extra features that require additional dependencies. Current
 - **plotting**: Add methods to generate charts and heatmaps to summarize the results
 - **openai**: Enable testing endpoints offered by OpenAI
 - **litellm**: Enable testing a range of different models through [LiteLLM](https://github.com/BerriAI/litellm)
+- **mlflow**: Enable logging LLMeter experiments to [MLFlow](https://mlflow.org/)
 
 You can install one or more of these extra options using pip:
 
 ```terminal
-pip install llmeter[plotting, openai, litellm]
+pip install 'llmeter[plotting,openai,litellm,mlflow]'
 ```
 
 ## 🚀 Quick-start
@@ -80,6 +81,8 @@ sweep_test.plot_sweep_results()
 
 Alternatively, you can use the low-level `llmeter.runner.Runner` class to run and analyze request
 batches - and build your own custom experiments.
+
+Additional functionality like cost modelling and MLFlow experiment tracking is enabled through `llmeter.callbacks`, and you can write your own callbacks to hook other custom logic into LLMeter test runs.
 
 For more details, check out our selection of end-to-end code examples in the [examples](https://github.com/awslabs/llmeter/tree/main/examples) folder!
 
