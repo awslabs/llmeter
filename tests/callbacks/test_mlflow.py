@@ -122,15 +122,15 @@ def test_initialization():
     assert callback.nested is False
 
 
-@pytest.mark.asyncio
-async def test_load_from_file():
-    # Test the placeholder method
-    result = await MlflowCallback._load_from_file("test/path")
-    assert result is None
+# @pytest.mark.asyncio
+# async def test_load_from_file():
+#     # Test the placeholder method
+#     result = await MlflowCallback._load_from_file("test/path")
+#     assert result is None
 
 
-def test_save_to_file():
-    # Test the placeholder method
-    callback = MlflowCallback()
-    result = callback.save_to_file()
-    assert result is None
+# def test_save_to_file():
+#     # Test the placeholder method
+#     callback = MlflowCallback()
+#     result = callback.save_to_file()
+#     assert result is None

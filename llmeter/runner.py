@@ -1,6 +1,8 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
+
 from __future__ import annotations
+
 import asyncio
 import json
 import logging
@@ -11,7 +13,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import InitVar, asdict, dataclass, fields, replace
 from datetime import datetime
 from itertools import cycle
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
 from tqdm.auto import tqdm, trange
@@ -72,6 +74,7 @@ class _RunConfig:
         if self.run_name is not None:
             assert len(self.run_name) > 0, "Run name must be a non-empty string"
 
+        assert self.endpoint is not None, "Endpoint cannot be None"
         if isinstance(self.endpoint, dict):
             self._endpoint: Endpoint = Endpoint.load(self.endpoint)
         else:
@@ -108,6 +111,7 @@ class _RunConfig:
             payload_path = save_payloads(self.payload, output_path)
             config_copy.payload = payload_path
 
+        assert self.endpoint is not None, "Endpoint cannot be None"
         if not isinstance(self.endpoint, dict):
             config_copy.endpoint = self.endpoint.to_dict()
 
@@ -154,14 +158,18 @@ class _Run(_RunConfig):
 
         self._validate_and_prepare_payload()
         self._responses = []
-        self._n_requests = self.n_requests or len(self.payload)
 
     def _validate_and_prepare_payload(self):
+        """Validate and prepare the payload for the test run and update n_requests
+
+        This method ensures that the payload is valid and prepared for the test run.
+        """
         assert self.payload, "No payload provided"
         if isinstance(self.payload, (os.PathLike, str)):
             self.payload = list(load_payloads(self.payload))
         if isinstance(self.payload, dict):
             self.payload = [self.payload]
+        self._n_requests = self.n_requests or len(self.payload)
 
     @staticmethod
     async def _update_token_counts(tokenizer: Tokenizer, response: InvocationResponse):
@@ -253,6 +261,8 @@ class _Run(_RunConfig):
             List[EndpointResponse]: A list of response objects.
         """
 
+        # ToDo: replace with an async method to prepare payloads, including possible callbacks,
+        #  and feed them to the endpoint as needed
         if shuffle_order:
             self._random_seed += random.randint(1, 1000)
             random.seed(0)
@@ -271,6 +281,13 @@ class _Run(_RunConfig):
             ),
         ):
             try:
+                # before_invoke callback implementations may modify the payload
+                # so we need to make a copy to avoid side effects
+                # this callback invocation is not async, so it will affect the overall timing estimate
+
+                if self.callbacks is not None:
+                    p = p.copy()
+                    [k.before_invoke(p) for k in self.callbacks]
                 response = self._endpoint.invoke(p)
             except Exception as e:
                 logger.exception(f"Error with invocation with payload {p}: {e}")
@@ -421,7 +438,7 @@ class _Run(_RunConfig):
                     else None,
                 ),
                 self._invoke_n_c(
-                    payload=self.payload,
+                    payload=self.payload, # type: ignore
                     n_requests=self._n_requests,
                     clients=self.clients,
                 ),

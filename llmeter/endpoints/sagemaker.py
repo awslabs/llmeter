@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 
 
 class SageMakerBase(Endpoint):
+    # amazonq-ignore-next-line
     def __init__(
         self,
         endpoint_name: str,
