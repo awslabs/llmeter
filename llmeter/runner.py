@@ -285,9 +285,9 @@ class _Run(_RunConfig):
                 # so we need to make a copy to avoid side effects
                 # this callback invocation is not async, so it will affect the overall timing estimate
 
-                if self.callbacks is not None:
-                    p = p.copy()
-                    [k.before_invoke(p) for k in self.callbacks]
+                # if self.callbacks is not None:
+                #     p = p.copy()
+                #     [k.before_invoke(p) for k in self.callbacks]
                 response = self._endpoint.invoke(p)
             except Exception as e:
                 logger.exception(f"Error with invocation with payload {p}: {e}")

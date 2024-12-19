@@ -22,15 +22,15 @@ class Callback(ABC):
     a file (by implementing `save_to_file`), and loading back (via `load_from_file`).
     """
 
-    async def before_invoke(self, payload: dict) -> None:
-        """Lifecycle hook called before every `Endpoint.invoke()` request in a Run.
+    # async def before_invoke(self, payload: dict) -> None:
+    #     """Lifecycle hook called before every `Endpoint.invoke()` request in a Run.
 
-        Args:
-            payload: The payload to be sent to the endpoint.
-        Returns:
-            None: If you'd like to modify the request `payload`, edit the dictionary in-place.
-        """
-        pass
+    #     Args:
+    #         payload: The payload to be sent to the endpoint.
+    #     Returns:
+    #         None: If you'd like to modify the request `payload`, edit the dictionary in-place.
+    #     """
+    #     pass
 
     async def after_invoke(self, response: InvocationResponse) -> None:
         """Lifecycle hook called after every `Endpoint.invoke()` request in a Run.
