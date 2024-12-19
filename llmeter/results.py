@@ -3,18 +3,17 @@
 
 import json
 import logging
+import os
 from dataclasses import asdict, dataclass
 from functools import cached_property
-from itertools import filterfalse
-from math import isnan
-import os
-from statistics import StatisticsError, mean, median, quantiles
-from typing import Dict, Sequence
+from numbers import Number
+from typing import Sequence
 
 import jmespath
 from upath import UPath as Path
 
 from .endpoints import InvocationResponse
+from .utils import summary_stats_from_list
 
 logger = logging.getLogger(__name__)
 
@@ -34,9 +33,30 @@ class Result:
     provider: str | None = None
     run_name: str | None = None
     run_description: str | None = None
+    start_time: float | None = None
+    end_time: float | None = None
 
     def __str__(self):
         return json.dumps(self.stats, indent=4, default=str)
+
+    def __post_init__(self):
+        """Initialize the Result instance."""
+        self._contributed_stats = {}
+
+    def _update_contributed_stats(self, stats: dict[str, Number]):
+        """
+        Upsert externally-provided statistics for the `stats` property
+
+        Callbacks can use this method to extend the default stats with additional key-value pairs.
+        """
+        if not isinstance(stats, dict):
+            raise ValueError("Stats must be a dictionary")
+        for key, value in stats.items():
+            if not isinstance(value, Number):
+                raise ValueError(
+                    f"Value for key {key} must be a number, got {type(value)}"
+                )
+        self._contributed_stats.update(stats)
 
     def save(self, output_path: os.PathLike | str | None = None):
         """
@@ -134,50 +154,67 @@ class Result:
         return cls(responses=responses, **summary)
 
     @cached_property
-    def stats(self) -> Dict:
+    def _builtin_stats(self) -> dict:
         """
-        Calculate and return the overall run statistics.
+        Default run metrics and aggregated statistics provided by LLMeter core
 
-        This property method computes various statistics based on the run results.
-        It combines information from the instance's dictionary representation,
-        test-specific statistics, and aggregated statistics from individual results.
+        Users should generally refer to the `.stats` property instead, which combines this data
+        with any additional values contributed by callbacks or other extensions.
 
-        The statistics include:
-        - Basic information of the run
-        - Aggregated statistics for:
-            - Time to last token
-            - Time to first token
-            - Number of tokens output
-            - Number of tokens input
+        This is a read-only and `@cached_property`, which means the result is computed once and
+        then cached for subsequent accesses - improving performance.
 
         Returns:
-            Dict: A dictionary containing all computed statistics. The keys are:
-                - All key-value pairs from the instance's dictionary representation
+            stats: A dictionary containing all computed statistics. The keys are:
+                - All key-value pairs from the Result's dictionary representation
                 - Test-specific statistics
                 - Aggregated statistics with keys in the format "{stat_name}-{aggregation_type}"
                   where stat_name is one of the four metrics listed above, and
                   aggregation_type includes measures like mean, median, etc.
-
-        Note:
-            This method uses the @cached_property decorator, which means the result
-            is computed once and then cached for subsequent accesses, improving
-            performance for repeated calls.
         """
+
+        aggregation_metrics = [
+            "time_to_last_token",
+            "time_to_first_token",
+            "num_tokens_output",
+            "num_tokens_input",
+        ]
 
         results_stats = _get_stats_from_results(
             self,
-            [
-                "time_to_last_token",
-                "time_to_first_token",
-                "num_tokens_output",
-                "num_tokens_input",
-            ],
+            aggregation_metrics,
         )
         return {
             **self.to_dict(),
             **_get_test_stats(self),
             **{f"{k}-{j}": v for k, o in results_stats.items() for j, v in o.items()},
         }
+
+    @property
+    def stats(self) -> dict:
+        """
+        Run metrics and aggregated statistics over the individual requests
+
+        This combined view includes:
+        - Basic information about the run (from the Result's dictionary representation)
+        - Aggregated statistics ('average', 'p50', 'p90', 'p99') for:
+            - Time to last token
+            - Time to first token
+            - Number of tokens output
+            - Number of tokens input
+
+        Aggregated statistics are keyed in the format "{stat_name}-{aggregation_type}"
+
+        This property is read-only and returns a new shallow copy of the data on each access.
+        Default stats provided by LLMeter are calculated on first access and then cached. Callbacks
+        Callbacks or other mechanisms needing to augment stats should use the
+        `_update_contributed_stats()` method.
+        """
+        stats = self._builtin_stats.copy()
+
+        if self._contributed_stats:
+            stats.update(self._contributed_stats)
+        return stats
 
     def __repr__(self) -> str:
         return self.to_json()
@@ -193,7 +230,7 @@ def _get_stats_from_results(
     ]
     for metric in metrics:
         metric_data = jmespath.search(f"[:].{metric}", data=data)
-        stats[metric] = _get_stats_from_list(metric_data)
+        stats[metric] = summary_stats_from_list(metric_data)
     return stats
 
 
@@ -209,20 +246,3 @@ def _get_test_stats(results: Result):
         and results.total_requests / results.total_test_time * 60
     )
     return stats
-
-
-def _get_stats_from_list(data: Sequence[int | float]):
-    clean_data = list(filterfalse(isnan, data))
-    try:
-        return dict(
-            p50=median(clean_data),
-            p90=clean_data[0]
-            if len(clean_data) == 1
-            else quantiles(clean_data, n=10)[-1],
-            p99=clean_data[0]
-            if len(clean_data) == 1
-            else quantiles(clean_data, n=100)[-1],
-            average=mean(clean_data),
-        )
-    except StatisticsError:
-        return {}

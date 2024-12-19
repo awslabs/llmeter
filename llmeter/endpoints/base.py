@@ -6,7 +6,7 @@ import json
 import os
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass
-from typing import Dict, TypeVar
+from typing import TypeVar
 from uuid import uuid4
 
 from upath import UPath as Path
@@ -44,7 +44,13 @@ class InvocationResponse:
     error: str | None = None
 
     def to_json(self, **kwargs) -> str:
-        return json.dumps(self.__dict__, **kwargs)
+        def default_serializer(obj):
+            try:
+                return str(obj)
+            except Exception:
+                return None
+
+        return json.dumps(self.__dict__, default=default_serializer, **kwargs)
 
     @staticmethod
     def error_output(
@@ -59,10 +65,15 @@ class InvocationResponse:
         )
 
     def __repr__(self):
-        return self.to_json(default=str)
+        return self.to_json(
+            # default=str,
+        )
 
     def __str__(self):
-        return self.to_json(indent=4, default=str)
+        return self.to_json(
+            indent=4,
+            # default=str
+        )
 
     def to_dict(self):
         return asdict(self)
@@ -99,7 +110,7 @@ class Endpoint(ABC):
         self.provider = provider
 
     @abstractmethod
-    def invoke(self, payload: Dict) -> InvocationResponse:
+    def invoke(self, payload: dict) -> InvocationResponse:
         """
         Invoke the endpoint with the given payload.
 
@@ -174,7 +185,7 @@ class Endpoint(ABC):
             json.dump(endpoint_conf, f, indent=4, default=str)
         return output_path
 
-    def to_dict(self) -> Dict:
+    def to_dict(self) -> dict:
         """
         Convert the endpoint configuration to a dictionary.
 
@@ -211,7 +222,7 @@ class Endpoint(ABC):
         return endpoint_class(**data)
 
     @classmethod
-    def load(cls, endpoint_config: Dict) -> Self:  # type: ignore
+    def load(cls, endpoint_config: dict) -> Self:  # type: ignore
         """
         Load an endpoint configuration from a dictionary.
 
