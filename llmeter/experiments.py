@@ -8,7 +8,6 @@ from datetime import datetime
 from math import ceil
 from typing import Callable
 
-from tokenizers import Tokenizer
 from tqdm.auto import tqdm
 from upath import UPath as Path
 
@@ -18,6 +17,7 @@ from .endpoints.base import Endpoint
 from .plotting import plot_heatmap, plot_sweep_results
 from .prompt_utils import CreatePromptCollection
 from .runner import Runner
+from .tokenizers import Tokenizer
 
 logger = logging.getLogger(__name__)
 
