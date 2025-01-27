@@ -35,7 +35,7 @@ class InvocationResponse:
 
     response_text: str | None
     id: str | None = None
-    input_prompt: str | None = None
+    input_prompt: str | dict | None = None
     time_to_first_token: float | None = None
     time_to_last_token: float | None = None
     num_tokens_input: int | None = None
