@@ -10,6 +10,7 @@ import os
 import random
 import time
 from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
 from dataclasses import InitVar, asdict, dataclass, fields, replace
 from datetime import datetime
 from itertools import cycle
@@ -49,7 +50,7 @@ class _RunConfig:
     """
 
     endpoint: Endpoint | dict | None = None
-    output_path: Path | None = None
+    output_path: str | Path | None = None
     tokenizer: Tokenizer | Any | None = None
     clients: int = 1
     n_requests: int | None = None
@@ -284,11 +285,12 @@ class _Run(_RunConfig):
                 # before_invoke callback implementations may modify the payload
                 # so we need to make a copy to avoid side effects
                 # this callback invocation is not async, so it will affect the overall timing estimate
+                if self.callbacks is not None:
+                    p = deepcopy(p)
+                    [asyncio.run(k.before_invoke(p)) for k in self.callbacks]
 
-                # if self.callbacks is not None:
-                #     p = p.copy()
-                #     [k.before_invoke(p) for k in self.callbacks]
                 response = self._endpoint.invoke(p)
+
             except Exception as e:
                 logger.exception(f"Error with invocation with payload {p}: {e}")
                 response = InvocationResponse.error_output(
@@ -403,7 +405,7 @@ class _Run(_RunConfig):
             total_requests=self._n_requests * self.clients,
             clients=self.clients,
             n_requests=self._n_requests,
-            output_path=self.output_path,
+            output_path=self.output_path,  # type: ignore
             model_id=self._endpoint.model_id,
             provider=self._endpoint.provider,
             endpoint_name=self._endpoint.endpoint_name,
@@ -433,12 +435,12 @@ class _Run(_RunConfig):
         try:
             _, (total_test_time, start_time, end_time) = await asyncio.gather(
                 self._process_results_from_q(
-                    output_path=self.output_path / "responses.jsonl"
+                    output_path=Path(self.output_path) / "responses.jsonl"
                     if self.output_path
                     else None,
                 ),
                 self._invoke_n_c(
-                    payload=self.payload, # type: ignore
+                    payload=self.payload,  # type: ignore
                     n_requests=self._n_requests,
                     clients=self.clients,
                 ),
@@ -532,7 +534,8 @@ class Runner(_RunConfig):
             run_params["run_name"] = f"{datetime.now():%Y%m%d-%H%M}"
         if self.output_path and not kwargs.get("output_path"):
             # Run output path is nested under run name subfolder unless explicitly set:
-            run_params["output_path"] = self.output_path / run_params["run_name"]
+            run_params["output_path"] = Path(self.output_path) / run_params["run_name"]
+            print(run_params["output_path"])
 
         return _Run(**run_params)
 

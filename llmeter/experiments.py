@@ -41,7 +41,7 @@ class LoadTest:
     callbacks: list[Callback] | None = None
 
     def __post_init__(self) -> None:
-        self._runner = Runner(endpoint=self.endpoint, tokenizer=self.tokenizer)  # type: ignore
+        # self._runner = Runner(endpoint=self.endpoint, tokenizer=self.tokenizer)  # type: ignore
         self._test_name = self.test_name or f"{datetime.now():%Y%m%d-%H%M}"
 
     def _get_n_requests(self, clients):
@@ -54,12 +54,15 @@ class LoadTest:
             output_path = Path(output_path or self.output_path) / self._test_name
         except Exception:
             output_path = None
+        _runner = Runner(
+            endpoint=self.endpoint, tokenizer=self.tokenizer, output_path=output_path
+        )  # type: ignore
+
         self._results = [
-            await self._runner.run(
+            await _runner.run(
                 payload=self.payload,
                 clients=c,
                 n_requests=self._get_n_requests(c),
-                output_path=output_path,
                 run_name=f"{c:05.0f}-clients",
                 callbacks=self.callbacks,
             )

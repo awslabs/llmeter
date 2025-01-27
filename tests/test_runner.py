@@ -41,31 +41,24 @@ def mock_tokenizer():
 
 
 @pytest.fixture
-def run(mock_endpoint: MagicMock, mock_tokenizer: MagicMock) -> _Run:
-    mock_run = _Run(
-        payload={"dummy": "payload"},
-        run_name="dummy-run",
-        endpoint=mock_endpoint,
-        tokenizer=mock_tokenizer,
-    )
-    mock_run._responses = []
-    mock_run._progress_bar = MagicMock()
-    mock_run._queue = AsyncMock()
-    mock_run._queue.task_done = MagicMock()
-
-    return mock_run
-
-
-@pytest.fixture
-def runner(mock_endpoint: MagicMock, mock_tokenizer: MagicMock) -> Runner:
+def runner(mock_endpoint: MagicMock, mock_tokenizer: MagicMock):
     mock_runner = Runner(endpoint=mock_endpoint, tokenizer=mock_tokenizer)
+    mock_runner._responses = []
+    mock_runner._progress_bar = MagicMock()
+    mock_runner._queue = AsyncMock()
+    mock_runner._queue.task_done = MagicMock()
 
     return mock_runner
 
 
-def test_run_initialization(run: _Run):
-    assert isinstance(run, _Run)
-    assert isinstance(run, _RunConfig)
+def test_runner_initialization(runner: Runner):
+    assert isinstance(runner, Runner)
+    assert isinstance(runner, _RunConfig)
+
+
+def test_count_tokens_no_wait(runner: Runner):
+    runner._tokenizer.encode.return_value = [1, 2, 3]
+    assert runner._count_tokens_no_wait("test text") == 3
 
 
 @pytest.mark.asyncio
@@ -210,7 +203,7 @@ async def test_run_callback_triggered(run: _Run):
     callback_mock.before_run.assert_called_once_with(run)
     callback_mock.after_invoke.assert_has_calls([call(res) for res in result.responses])
     callback_mock.after_run.assert_called_once_with(result)
-    callback_mock.before_invoke.assert_has_calls([call(p) for p in run.payload])
+    callback_mock.before_invoke.assert_has_calls([call(p) for p in run.payload])  # type: ignore
 
 
 @pytest.mark.asyncio
@@ -268,20 +261,20 @@ async def test_run_callbacks_triggered_in_order(run: _Run):
                     f"Callback index {self.my_index} after_run called at index {current_index}"
                 )
 
-    run.callbacks = [
+    run.callbacks = [  # type: ignore
         DummySequenceCheckerCallback(0),
         DummySequenceCheckerCallback(1),
         DummySequenceCheckerCallback(2),
     ]
     result = await run._run()
 
-    assert run.callbacksequencecheckerindex == 2
-    assert result.callbacksequencecheckerindex == 2
+    assert run.callbacksequencecheckerindex == 2  # type: ignore
+    assert result.callbacksequencecheckerindex == 2  # type: ignore
     for response in result.responses:
-        assert response.callbacksequencecheckerindex == 2
+        assert response.callbacksequencecheckerindex == 2  # type: ignore
     assert len(payloads) == len(result.responses)
     for payload in payloads:
-        assert payload.callbacksequencecheckerindex == 2
+        assert payload["callbacksequencecheckerindex"] == 2
 
 
 @pytest.mark.asyncio
@@ -400,7 +393,7 @@ def test_run_config_save_load(tmp_path: Path, mock_endpoint: Endpoint):
         payload={"prompt": "test"},
         n_requests=5,
         clients=2,
-        output_path=str(tmp_path),
+        output_path=Path(tmp_path),
         run_name="test_run",
         run_description="Test run description",
         endpoint=mock_endpoint,
@@ -672,7 +665,7 @@ async def test_run_with_optional_parameters(
         payload={"prompt": "test"},
         n_requests=n_requests,
         clients=clients,  # type: ignore
-        output_path=output_path,
+        output_path=output_path,  # type: ignore
         run_name=run_name,
         run_description=run_description,
     )
@@ -733,7 +726,7 @@ async def test_invoke_n_c_with_different_clients(
         (None, None, None, None, None, None),
     ],
 )
-def test_prepare_run_more_edge_cases(
+def test_prepare_run_more_edge_cases2(
     runner: Runner,
     payload: dict[str, str]
     | list[dict[str, str]]
