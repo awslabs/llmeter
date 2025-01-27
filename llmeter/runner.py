@@ -8,7 +8,8 @@ import os
 import random
 import time
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import InitVar, asdict, dataclass, replace
+from copy import deepcopy
+from dataclasses import InitVar, asdict, dataclass, fields, replace
 from datetime import datetime
 from itertools import cycle
 from typing import Any
@@ -35,8 +36,8 @@ if os.getenv("LLMETER_DISABLE_ALL_PROGRESS_BARS") == "1":
 class _RunConfig:
     """A class to store the configuration for a test run."""
 
-    endpoint: Endpoint | dict
-    output_path: os.PathLike | str | None = None
+    endpoint: Endpoint | dict | None = None
+    output_path: str | Path | None = None
     tokenizer: Tokenizer | Any | None = None
     n_requests: int | None = None
     clients: int = 1
@@ -239,7 +240,15 @@ class Runner(_RunConfig):
             ),
         ):
             try:
+                # before_invoke callback implementations may modify the payload
+                # so we need to make a copy to avoid side effects
+                # this callback invocation is not async, so it will affect the overall timing estimate
+                if self.callbacks is not None:
+                    p = deepcopy(p)
+                    [asyncio.run(k.before_invoke(p)) for k in self.callbacks]
+
                 response = self._endpoint.invoke(p)
+
             except Exception as e:
                 logger.exception(f"Error with invocation with payload {p}: {e}")
                 response = InvocationResponse.error_output(
@@ -408,12 +417,10 @@ class Runner(_RunConfig):
         result = Result(
             responses=[],
             total_test_time=None,
-            total_requests=_n_requests * run_config.clients,
-            clients=run_config.clients,
-            n_requests=_n_requests,
-            output_path=Path(run_config.output_path) / run_config.run_name
-            if run_config.output_path
-            else None,
+            total_requests=self._n_requests * self.clients,
+            clients=self.clients,
+            n_requests=self._n_requests,
+            output_path=self.output_path,  # type: ignore
             model_id=self._endpoint.model_id,
             provider=self._endpoint.provider,
             endpoint_name=self._endpoint.endpoint_name,
@@ -437,16 +444,16 @@ class Runner(_RunConfig):
         )
 
         try:
-            _, total_test_time = await asyncio.gather(
-                self._count_tokens_from_q(
-                    output_path=result.output_path / "responses.jsonl"
-                    if isinstance(result.output_path, Path)
+            _, (total_test_time, start_time, end_time) = await asyncio.gather(
+                self._process_results_from_q(
+                    output_path=Path(self.output_path) / "responses.jsonl"
+                    if self.output_path
                     else None,
                 ),
                 self._invoke_n_c(
-                    payload=run_config.payload,
-                    n_requests=_n_requests,
-                    clients=run_config.clients,
+                    payload=self.payload,  # type: ignore
+                    n_requests=self._n_requests,
+                    clients=self.clients,
                 ),
             )
 
@@ -470,42 +477,158 @@ class Runner(_RunConfig):
 
         return result
 
-    def _prepare_run_config(
-        self, payload, n_requests, clients, output_path, run_name, run_description
-    ):
-        run_config = replace(
-            self, **{k: v for k, v in locals().items() if k != "self" if v is not None}
+
+@dataclass
+class Runner(_RunConfig):
+    """
+    Run (one or more) LLM test sets using a base configuration.
+
+    First create a `Runner` with base configuration for your test(s), then call `.run()` with
+    optional run-specific overrides. This pattern allows you to group related runs together for
+    organizing experiments (like ramping load tests) that might use more than one Run in total.
+
+    All attributes of this class may be unset (as you may choose to set them only at the Run
+    level), but some are "Mandatory" to be set *either* at the Runner or individual-run level, as
+    described below.
+
+    Attributes:
+        endpoint (Endpoint | dict | None): The LLM endpoint to be tested. **Must be set** at either
+            the Runner or specific Run level.
+        output_path (os.PathLike | str | None): The (cloud or local) base folder under which run
+            outputs and configurations should be stored. By default, outputs will not be saved to
+            file.
+        tokenizer (Tokenizer | Any | None): Optional tokenizer used to estimate input and output
+            token counts for endpoints that don't report exact information. By default, LLMeter's
+            `DummyTokenizer` will be used if needed.
+        clients (int): The number of concurrent clients to use for sending requests. Defaults to 1.
+        n_requests (int | None): The number of LLM invocations to generate *per client*. By
+            default, each request in `payload` will be sent once by each client.
+        payload (dict | list[dict] | os.PathLike | str | None): The request data to send to the
+            endpoint under test. You can provide a single JSON payload (dict), a list of payloads
+            (list[dict]), or a path to one or more JSON/JSON-Lines files to be loaded by
+            `llmeter.prompt_utils.load_payloads()`. **Must be set** at either the Runner or
+            specific Run level.
+        run_name (str | None): Name to use for a specific test Run. This is *ignored* if set at the
+            Runner level, and should instead be set in `Runner.run()` to name a specific run. By
+            default, runs are named with the date and time they're requested in format:
+            `%Y%m%d-%H%M`
+        run_description (str | None): A natural-language description for the test Run. Can be set
+            either at the Runner level (in which case the same description will be shared across
+            all Runs), or individually in `Runner.run()`.
+        timeout (int | float): The maximum time (in seconds) to wait for each response from the
+            endpoint. Defaults to 60 seconds.
+        callbacks (list[Callback] | None): Optional callbacks to enable during the test Run. See
+            `llmeter.callbacks` for more information.
+        disable_per_client_progress_bar (bool): Set `True` to disable per-client progress bars
+            from showing during the run. Default `False` (each client's progress will be shown).
+        disable_clients_progress_bar (bool): Set `True` to disable overall progress bar from
+            showing during the run. Default `False` (overall requests progress will be shown).
+    """
+
+    def _prepare_run(self, **kwargs) -> _Run:
+        """Create an individual run based on this runner's configurations, with optional overrides
+
+        Args:
+            **kwargs: Overrides to the Runner's default config for this specific run
+        """
+        run_params = {
+            **{f.name: getattr(self, f.name) for f in fields(_RunConfig)},
+            **{k: v for k, v in kwargs.items() if v is not None},
+        }
+        if kwargs.get("run_name") is None:
+            # Runner's own self.run_name is explicitly *not* used, as it would share between runs
+            run_params["run_name"] = f"{datetime.now():%Y%m%d-%H%M}"
+        if self.output_path and not kwargs.get("output_path"):
+            # Run output path is nested under run name subfolder unless explicitly set:
+            run_params["output_path"] = Path(self.output_path) / run_params["run_name"]
+            print(run_params["output_path"])
+
+        return _Run(**run_params)
+
+    async def run(
+        self,
+        *,  # Prevent mistakes with this long arg list by allowing only keyword-arg based passing
+        # Explicitly name and re-document the args for ease of use of this important public method
+        endpoint: Endpoint | dict | None = None,
+        output_path: Path | None = None,
+        tokenizer: Tokenizer | Any | None = None,
+        clients: int | None = None,
+        n_requests: int | None = None,
+        payload: dict | list[dict] | os.PathLike | str | None = None,
+        run_name: str | None = None,
+        run_description: str | None = None,
+        timeout: int | float | None = None,
+        callbacks: list[Callback] | None = None,
+        disable_per_client_progress_bar: bool | None = None,
+        disable_clients_progress_bar: bool | None = None,
+    ) -> Result:
+        """
+        Run a test against an LLM endpoint
+
+        This method tests the performance of the endpoint by sending multiple concurrent requests
+        with the given payload(s). It measures the total time taken to complete the test, generates
+        invocations for the given payload(s), and optionally saves the results and metrics.
+
+        For arguments that are not specified, the Runner's attributes will be used by default.
+
+        Args:
+            endpoint (Endpoint | dict | None): The LLM endpoint to be tested. **Must be set** at
+                either the Runner or specific Run level.
+            output_path (os.PathLike | str | None): The (cloud or local) base folder under which
+                run outputs and configurations should be stored. By default, a new `run_name`
+                sub-folder will be created under the Runner's `output_path` if set - otherwise
+                outputs will not be saved to file.
+            tokenizer (Tokenizer | Any | None): Optional tokenizer used to estimate input and
+                output token counts for endpoints that don't report exact information.
+            clients (int): The number of concurrent clients to use for sending requests.
+            n_requests (int | None): The number of LLM invocations to generate *per client*.
+            payload (dict | list[dict] | os.PathLike | str | None): The request data to send to the
+                endpoint under test. You can provide a single JSON payload (dict), a list of
+                payloads (list[dict]), or a path to one or more JSON/JSON-Lines files to be loaded
+                by `llmeter.prompt_utils.load_payloads()`. **Must be set** at either the Runner or
+                specific Run level.
+            run_name (str | None): Name to use for a specific test Run. By default, runs are named
+                with the date and time they're requested in format: `%Y%m%d-%H%M`
+            run_description (str | None): A natural-language description for the test Run.
+            timeout (int | float): The maximum time (in seconds) to wait for each response from the
+                endpoint.
+            callbacks (list[Callback] | None): Optional callbacks to enable during the test Run. See
+                `llmeter.callbacks` for more information.
+            disable_per_client_progress_bar (bool): Set `True` to disable per-client progress bars
+                from showing during the run.
+            disable_clients_progress_bar (bool): Set `True` to disable overall progress bar from
+                showing during the run.
+
+        Returns:
+            Result: An object containing the test results, including the generated
+            response texts, total test time, total requests, number of clients,
+            number of requests per client, and other relevant metrics.
+
+        Raises:
+            Exception: If there's an error during the test execution or if the
+            endpoint cannot be reached.
+
+        Note:
+            - This method uses asyncio for concurrent processing.
+            - Progress is displayed using tqdm if not disabled.
+            - Responses are collected and processed asynchronously.
+            - If an output_path is provided, results are saved to files.
+        """
+
+        run = self._prepare_run(
+            endpoint=endpoint,
+            output_path=output_path,
+            tokenizer=tokenizer,
+            clients=clients,
+            n_requests=n_requests,
+            payload=payload,
+            run_name=run_name,
+            run_description=run_description,
+            timeout=timeout,
+            callbacks=callbacks,
+            disable_per_client_progress_bar=disable_per_client_progress_bar,
+            disable_clients_progress_bar=disable_clients_progress_bar,
         )
-        self._validate_and_prepare_payload(run_config)
-        self._prepare_output_path(run_config)
-        return run_config
-
-    def _validate_and_prepare_payload(self, run_config):
-        assert run_config.payload, "No payload provided"
-        if isinstance(run_config.payload, (os.PathLike, str)):
-            run_config.payload = list(load_payloads(run_config.payload))
-        if isinstance(run_config.payload, dict):
-            run_config.payload = [run_config.payload]
-
-    def _prepare_output_path(self, run_config: _RunConfig):
-        if run_config.run_name is None:
-            run_config.run_name = f"{datetime.now():%Y%m%d-%H%M}"
-        if run_config.output_path:
-            run_config.output_path = Path(run_config.output_path)
-            logger.info(f"Saving results to {run_config.output_path}")
-
-    def _initialize_result(self, run_config):
-        _n_requests = run_config.n_requests or len(run_config.payload)
-        return Result(
-            responses=[],
-            total_test_time=None,
-            total_requests=_n_requests * run_config.clients,
-            clients=run_config.clients,
-            n_requests=_n_requests,
-            output_path=run_config.output_path,
-            model_id=self._endpoint.model_id,
-            provider=self._endpoint.provider,
-            endpoint_name=self._endpoint.endpoint_name,
-            run_name=run_config.run_name,
-            run_description=run_config.run_description,
-        )
+        assert isinstance(run.payload, list)
+        assert isinstance(run.run_name, str)
+        return await run._run()

@@ -195,7 +195,95 @@ async def test_run_error_handling(runner: Runner):
 
 
 @pytest.mark.asyncio
-async def test_prepare_run_config(runner: Runner):
+async def test_run_callback_triggered(run: _Run):
+    callback_mock = MagicMock()
+    callback_mock.before_invoke = AsyncMock()
+    callback_mock.after_invoke = AsyncMock()
+    callback_mock.before_run = AsyncMock()
+    callback_mock.after_run = AsyncMock()
+
+    run.callbacks = [callback_mock]
+    result = await run._run()
+
+    callback_mock.before_run.assert_called_once_with(run)
+    callback_mock.after_invoke.assert_has_calls([call(res) for res in result.responses])
+    callback_mock.after_run.assert_called_once_with(result)
+    callback_mock.before_invoke.assert_has_calls([call(p) for p in run.payload])  # type: ignore
+
+
+@pytest.mark.asyncio
+async def test_run_callbacks_triggered_in_order(run: _Run):
+    payloads = []
+
+    class DummySequenceCheckerCallback:
+        def __init__(self, my_index, field="callbacksequencecheckerindex"):
+            self.my_index = my_index
+            self.field = field
+
+        async def before_run(self, run_config):
+            if hasattr(run_config, self.field):
+                setattr(run_config, self.field, getattr(run_config, self.field) + 1)
+            else:
+                setattr(run_config, self.field, 0)
+            current_index = getattr(run_config, self.field)
+            if current_index != self.my_index:
+                raise AssertionError(
+                    f"Callback index {self.my_index} before_run called at index {current_index}"
+                )
+
+        async def before_invoke(self, payload: dict):
+            if self.my_index == 0:
+                payloads.append(payload)
+            if self.field in payload:
+                payload[self.field] += 1
+            else:
+                payload[self.field] = 0
+            current_index = payload[self.field]
+            if current_index != self.my_index:
+                raise AssertionError(
+                    f"Callback index {self.my_index} before_invoke called at index {current_index}"
+                )
+
+        async def after_invoke(self, response):
+            if hasattr(response, self.field):
+                setattr(response, self.field, getattr(response, self.field) + 1)
+            else:
+                setattr(response, self.field, 0)
+            current_index = getattr(response, self.field)
+            if current_index != self.my_index:
+                raise AssertionError(
+                    f"Callback index {self.my_index} after_invoke called at index {current_index}"
+                )
+
+        async def after_run(self, result):
+            if hasattr(result, self.field):
+                setattr(result, self.field, getattr(result, self.field) + 1)
+            else:
+                setattr(result, self.field, 0)
+            current_index = getattr(result, self.field)
+            if current_index != self.my_index:
+                raise AssertionError(
+                    f"Callback index {self.my_index} after_run called at index {current_index}"
+                )
+
+    run.callbacks = [  # type: ignore
+        DummySequenceCheckerCallback(0),
+        DummySequenceCheckerCallback(1),
+        DummySequenceCheckerCallback(2),
+    ]
+    result = await run._run()
+
+    assert run.callbacksequencecheckerindex == 2  # type: ignore
+    assert result.callbacksequencecheckerindex == 2  # type: ignore
+    for response in result.responses:
+        assert response.callbacksequencecheckerindex == 2  # type: ignore
+    assert len(payloads) == len(result.responses)
+    for payload in payloads:
+        assert payload["callbacksequencecheckerindex"] == 2
+
+
+@pytest.mark.asyncio
+async def test_prepare_run(runner: Runner):
     payload = {"prompt": "test"}
     n_requests = 5
     clients = 2
@@ -348,7 +436,7 @@ def test_run_config_save_load(tmp_path: Path, mock_endpoint: Endpoint):
         payload={"prompt": "test"},
         n_requests=5,
         clients=2,
-        output_path=str(tmp_path),
+        output_path=Path(tmp_path),
         run_name="test_run",
         run_description="Test run description",
         endpoint=mock_endpoint,
@@ -653,7 +741,7 @@ async def test_run_with_optional_parameters(
         payload={"prompt": "test"},
         n_requests=n_requests,
         clients=clients,  # type: ignore
-        output_path=output_path,
+        output_path=output_path,  # type: ignore
         run_name=run_name,
         run_description=run_description,
     )
@@ -757,7 +845,7 @@ def test_initialize_result_more_combinations(
         (None, None, None, None, None, None),
     ],
 )
-def test_prepare_run_config_more_edge_cases(
+def test_prepare_run_more_edge_cases2(
     runner: Runner,
     payload: dict[str, str]
     | list[dict[str, str]]
