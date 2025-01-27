@@ -6,7 +6,7 @@ import time
 from typing import Dict, Sequence
 from uuid import uuid4
 
-import jmespath
+# import jmespath
 from openai import APIConnectionError, OpenAI
 from openai.types.chat import ChatCompletion
 
@@ -55,10 +55,12 @@ class OpenAIEndpoint(Endpoint):
         Returns:
             str: Concatenated message contents
         """
-        jmes_path = "[:].content"
-        messages = payload.get("messages")
+        # jmes_path = "[:].content"
+        # messages = payload.get("messages")
+        # print(messages)
         # return "\n".join([k for j in jmespath.search(jmes_path, messages) for k in j])
-        return "\n".join(jmespath.search(jmes_path, messages))
+        # return "\n".join(jmespath.search(jmes_path, messages))
+        return payload
 
     @staticmethod
     def create_payload(
@@ -98,7 +100,6 @@ class OpenAICompletionEndpoint(OpenAIEndpoint):
             InvocationResponse: Response from the API
         """
         payload = {**kwargs, **payload}
-
         payload["model"] = self.model_id
 
         start_t = time.perf_counter()
@@ -116,14 +117,20 @@ class OpenAICompletionEndpoint(OpenAIEndpoint):
         return response
 
     def _parse_converse_response(self, client_response: ChatCompletion, start_t: float):
-        """Parse the API response.
+        """Parse the OpenAI chat completion API response into an InvocationResponse object.
 
         Args:
-            client_response (ChatCompletion): Raw API response
+            client_response (ChatCompletion): Raw response from OpenAI chat completion API
+            start_t (float): Start time of the API call in seconds
 
         Returns:
-            InvocationResponse: Parsed response object
+            InvocationResponse: Parsed response object containing:
+                - Response ID
+                - Response text content
+                - Token counts for input/output
+                - Time to last token
         """
+
         usage = client_response.usage
 
         return InvocationResponse(
@@ -172,15 +179,20 @@ class OpenAICompletionStreamEndpoint(OpenAIEndpoint):
     def _parse_converse_stream_response(
         self, client_response: ChatCompletion, start_t: float
     ) -> InvocationResponse:
-        """Parse the streaming API response.
+        """Parse the streaming API response from OpenAI chat completion API.
 
         Args:
-            client_response (ChatCompletion): Raw API response stream
+            client_response (ChatCompletion): Raw API response stream containing chunks of completion text
+            start_t (float): Start time of the API call in seconds
 
         Returns:
-            InvocationResponse: Parsed response object with streaming content
+            InvocationResponse: Parsed response object containing:
+                - Response ID
+                - Concatenated response text from all chunks
+                - Token counts for input/output
+                - Time to first token and last token
         """
-        response_text = ""
+
         response_id = None
         prompt_tokens = None
         completion_tokens = None
@@ -189,7 +201,7 @@ class OpenAICompletionStreamEndpoint(OpenAIEndpoint):
         time_to_first_token = time.perf_counter() - start_t
         if response_id is None:
             response_id = first_chunk.id  # type: ignore
-        response_text += first_chunk.choices[0].delta.content
+        response_text = first_chunk.choices[0].delta.content
 
         for chunk in client_response:
             if chunk.choices[0].delta.content is not None:  # type: ignore
