@@ -57,7 +57,6 @@ class OpenAIEndpoint(Endpoint):
         """
         # jmes_path = "[:].content"
         # messages = payload.get("messages")
-        # print(messages)
         # return "\n".join([k for j in jmespath.search(jmes_path, messages) for k in j])
         # return "\n".join(jmespath.search(jmes_path, messages))
         return payload

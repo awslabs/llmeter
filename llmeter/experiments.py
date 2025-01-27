@@ -149,7 +149,7 @@ class LatencyHeatmap:
 
         self._runner = Runner(
             endpoint=self.endpoint,
-            output_path=self.output_path,
+            output_path=Path(self.output_path),
             tokenizer=self.tokenizer,
         )
 
@@ -161,7 +161,7 @@ class LatencyHeatmap:
             * len(self.output_lengths)
             * self.requests_per_combination
             // self.clients,
-            output_path=output_path or self.output_path,
+            output_path=Path(output_path) or self.output_path,
         )
         self._results = heatmap_results
         return heatmap_results

@@ -535,7 +535,6 @@ class Runner(_RunConfig):
         if self.output_path and not kwargs.get("output_path"):
             # Run output path is nested under run name subfolder unless explicitly set:
             run_params["output_path"] = Path(self.output_path) / run_params["run_name"]
-            print(run_params["output_path"])
 
         return _Run(**run_params)
 
