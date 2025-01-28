@@ -7,12 +7,14 @@ from typing import Dict, Sequence
 from uuid import uuid4
 
 import boto3
-import jmespath
 from botocore.exceptions import ClientError
+from botocore.config import Config
 
 from .base import Endpoint, InvocationResponse
 
 logger = logging.getLogger(__name__)
+
+config = Config(retries={"max_attempts": 10, "mode": "standard"})
 
 
 class BedrockBase(Endpoint):
@@ -47,7 +49,9 @@ class BedrockBase(Endpoint):
         self.region = region or boto3.session.Session().region_name
         logger.info(f"Using AWS region: {self.region}")
 
-        self._bedrock_client = boto3.client("bedrock-runtime", region_name=self.region)
+        self._bedrock_client = boto3.client(
+            "bedrock-runtime", region_name=self.region, config=config
+        )
         self._inference_config = inference_config
 
     def _parse_payload(self, payload):
@@ -60,9 +64,18 @@ class BedrockBase(Endpoint):
         Returns:
             str: Concatenated text content from the messages.
         """
-        jpath = "[:].content[:].text"
-        messages = payload.get("messages")
-        return "\n".join([k for j in jmespath.search(jpath, messages) for k in j])
+        messages = payload.get("messages", [])
+        texts = [
+            text
+            for msg in messages
+            for content in msg.get("content", [])
+            for text in (
+                content.get("text", [])
+                if isinstance(content.get("text"), list)
+                else [content.get("text", "")]
+            )
+        ]
+        return "\n".join(filter(None, texts))
 
     @staticmethod
     def create_payload(
@@ -100,16 +113,17 @@ class BedrockBase(Endpoint):
 
 class BedrockConverse(BedrockBase):
     def _parse_converse_response(self, response: Dict) -> InvocationResponse:
-        output_text = response["output"]["message"]["content"][0]["text"]
+        # Direct dictionary access and single-level assignment for better performance
+        output = response["output"]["message"]["content"][0]["text"]
         usage = response.get("usage", {})
-        # metrics = response.get("metrics", {})
+        input_tokens = usage.get("inputTokens")
+        output_tokens = usage.get("outputTokens")
 
         return InvocationResponse(
-            id=uuid4().hex,
-            response_text=output_text,
-            num_tokens_input=usage.get("inputTokens"),
-            num_tokens_output=usage.get("outputTokens"),
-            # time_to_last_token=metrics.get("latencyMs") / 1e3,
+            id=f"{uuid4()}",
+            response_text=output,
+            num_tokens_input=input_tokens,
+            num_tokens_output=output_tokens,
         )
 
     def invoke(self, payload: Dict, **kwargs) -> InvocationResponse:

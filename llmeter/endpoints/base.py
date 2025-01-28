@@ -16,7 +16,7 @@ Self = TypeVar(
 )  # for python >= 3.11 can be replaced with direct import of `Self`
 
 
-@dataclass
+@dataclass(slots=True)
 class InvocationResponse:
     """
     A class representing a invocation result.
@@ -35,7 +35,7 @@ class InvocationResponse:
 
     response_text: str | None
     id: str | None = None
-    input_prompt: str | None = None
+    input_prompt: str | dict | None = None
     time_to_first_token: float | None = None
     time_to_last_token: float | None = None
     num_tokens_input: int | None = None
@@ -50,7 +50,7 @@ class InvocationResponse:
             except Exception:
                 return None
 
-        return json.dumps(self.__dict__, default=default_serializer, **kwargs)
+        return json.dumps(asdict(self), default=default_serializer, **kwargs)
 
     @staticmethod
     def error_output(

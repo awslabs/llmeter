@@ -22,6 +22,7 @@ openai = { version = ">=1.35.1", optional = true }
 litellm = { version = ">=1.47.1", optional = true }
 plotly = { version = "^5.24.1", optional = true }
 kaleido = { version = "<=0.2.1", optional = true }
+mlflow-skinny = { version = ">=2.13.0", optional = true }
 
 [tool.poetry.group.dev.dependencies]
 boto3-stubs = { extras = [
@@ -36,7 +37,6 @@ transformers = "^4.40.2"
 sagemaker = "^2.224.0"
 ruff = "^0.6.5"
 tiktoken = "^0.7.0"
-nbformat = "^5.10.4"
 
 [tool.poetry.group.test.dependencies]
 pytest = "^8.3.3"
@@ -55,14 +55,16 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry.extras]
 all = ["seaborn", "openai", "litellm"]
-plotting = ["plotly", "kaleido"]
+plotting = ["seaborn"]
 openai = ["openai"]
 litellm = ["litellm"]
+mlflow = ["mlflow-skinny"]
 
 [tool.pytest.ini_options]
 asyncio_default_fixture_loop_scope = "function"
 filterwarnings = ["ignore::DeprecationWarning"]
 collect_ignore = ["test_experiments.py"]
+
 
 [tool.bandit]
 exclude_dirs = ["tests"]

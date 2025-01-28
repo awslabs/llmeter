@@ -8,7 +8,6 @@ from datetime import datetime
 from math import ceil
 from typing import Callable
 
-from tokenizers import Tokenizer
 from tqdm.auto import tqdm
 from upath import UPath as Path
 
@@ -18,6 +17,7 @@ from .endpoints.base import Endpoint
 from .plotting import plot_heatmap, plot_sweep_results
 from .prompt_utils import CreatePromptCollection
 from .runner import Runner
+from .tokenizers import Tokenizer
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +41,7 @@ class LoadTest:
     callbacks: list[Callback] | None = None
 
     def __post_init__(self) -> None:
-        self._runner = Runner(endpoint=self.endpoint, tokenizer=self.tokenizer)  # type: ignore
+        # self._runner = Runner(endpoint=self.endpoint, tokenizer=self.tokenizer)  # type: ignore
         self._test_name = self.test_name or f"{datetime.now():%Y%m%d-%H%M}"
 
     def _get_n_requests(self, clients):
@@ -54,12 +54,15 @@ class LoadTest:
             output_path = Path(output_path or self.output_path) / self._test_name
         except Exception:
             output_path = None
+        _runner = Runner(
+            endpoint=self.endpoint, tokenizer=self.tokenizer, output_path=output_path
+        )  # type: ignore
+
         self._results = [
-            await self._runner.run(
-                self.payload,
+            await _runner.run(
+                payload=self.payload,
                 clients=c,
                 n_requests=self._get_n_requests(c),
-                output_path=output_path,
                 run_name=f"{c:05.0f}-clients",
                 callbacks=self.callbacks,
             )
@@ -146,19 +149,19 @@ class LatencyHeatmap:
 
         self._runner = Runner(
             endpoint=self.endpoint,
-            output_path=self.output_path,
+            output_path=Path(self.output_path),
             tokenizer=self.tokenizer,
         )
 
     async def run(self, output_path=None):
         heatmap_results = await self._runner.run(
-            self.payload,
+            payload=self.payload,
             clients=self.clients,
             n_requests=len(self.input_lengths)
             * len(self.output_lengths)
             * self.requests_per_combination
             // self.clients,
-            output_path=output_path or self.output_path,
+            output_path=Path(output_path) or self.output_path,
         )
         self._results = heatmap_results
         return heatmap_results

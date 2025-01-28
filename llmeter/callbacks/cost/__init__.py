@@ -1,3 +1,5 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
 """Tools for modelling the cost of FM deployments, invocations, and test runs
 
 Cost is an important aspect to consider when comparing between Foundation Models or optimizing

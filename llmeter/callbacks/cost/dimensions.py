@@ -1,5 +1,18 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+"""Classes defining different components of cost
+
+A "dimension" is one aspect of the pricing for a deployed Foundation Model or application. In
+general, multiple factors are likely to contribute to the total cost of FMs under test: For
+example, an API may charge separate rates for input vs output token counts; or a self-managed
+cloud deployment may carry per-hour charges for compute, as well as network bandwidth charges.
+
+Here we provide implementations for some common cost dimensions, and define base classes you can
+use to bring customized cost dimensions for your own cost models.
+"""
+
 # Python Built-Ins:
-from abc import abstractmethod
+from abc import abstractmethod, ABC
 from dataclasses import dataclass
 from math import ceil
 from typing import Optional
@@ -7,7 +20,7 @@ from typing import Optional
 # Local Dependencies:
 from ...endpoints.base import InvocationResponse
 from ...results import Result
-from ...runner import Runner
+from ...runner import _RunConfig
 from .serde import ISerializable, JSONableBase
 
 
@@ -25,12 +38,12 @@ class IRequestCostDimension(ISerializable):
         ...
 
 
-class RequestCostDimensionBase(JSONableBase):
-    """Optional base class for implementing per-request cost model dimensions
+class RequestCostDimensionBase(ABC, JSONableBase):
+    """Base class for implementing per-request cost model dimensions
 
     This class provides a default implementation of `ISerializable` and sets up an abstract method
-    for `calculate()`. It's fine if you don't want to use it - just be sure to fully implement
-    `IRequestCostDimension`!
+    for `calculate()`. It's fine if you don't want to derive from it directly - just be sure to
+    fully implement `IRequestCostDimension`!
     """
 
     @abstractmethod
@@ -51,11 +64,14 @@ class IRunCostDimension(ISerializable):
     (request-independent) cost-per-hour are important.
     """
 
-    async def before_run_start(self, runner: Runner) -> None:
+    async def before_run_start(self, run_config: _RunConfig) -> None:
         """Function called to notify the cost component that a test run is about to start
 
         This method is called before the test run starts, and can be used to perform any
-        initialization or setup required for the cost component.
+        initialization or setup required for the cost component. In general, we assume a dimension
+        instance may be re-used for multiple test runs, but only one run at a time: Meaning
+        `before_run_start()` should not be called again before `calculate()` is called for the
+        previous run.
         """
         ...
 
@@ -69,21 +85,25 @@ class IRunCostDimension(ISerializable):
         ...
 
 
-class RunCostDimensionBase(JSONableBase):
-    """Optional base class for implementing per-run cost model dimensions
+class RunCostDimensionBase(ABC, JSONableBase):
+    """Base class for implementing per-run cost model dimensions
 
     This class provides a default implementation of `ISerializable`, a default empty
-    `before_run_path` implementation, and abstract methods for the other requirements of the
-    `IRunCostDimension` protocol. It's fine if you don't want to use it - just make sure you
-    fully implement `IRunCostDimension`!
+    `before_run_start` implementation, and abstract methods for the other requirements of the
+    `IRunCostDimension` protocol. It's fine if you don't want to derive from it directly - just
+    make sure you fully implement `IRunCostDimension`!
     """
 
-    async def before_run_start(self, runner: Runner) -> None:
+    async def before_run_start(self, run_config: _RunConfig) -> None:
         """Function called to notify the cost component that a test run is about to start
 
         This method is called before the test run starts, and can be used to perform any
-        initialization or setup required for the cost component. The default implementation is a
-        pass.
+        initialization or setup required for the cost component.  In general, we assume a dimension
+        instance may be re-used for multiple test runs, but only one run at a time: Meaning
+        `before_run_start()` should not be called again before `calculate()` is called for the
+        previous run.
+
+        The default implementation is a pass.
         """
         pass
 

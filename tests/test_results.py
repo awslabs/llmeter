@@ -8,46 +8,7 @@ import pytest
 from upath import UPath
 
 from llmeter.endpoints.base import InvocationResponse
-from llmeter.results import (
-    Result,
-    _get_aggregation_stats_from_list,
-    _get_stats_from_results,
-    _get_run_stats,
-)
-
-
-## testing for `_get_stats_from_list()`
-def test_get_stats_from_list():
-    # Test with a normal list of numbers
-    data = [1, 2, 3, 4, 5]
-    result = _get_aggregation_stats_from_list(data)
-    assert result == {"p50": 3, "p90": 5.4, "p99": 5.94, "average": 3}
-
-    # Test with a list containing NaN values
-    data_with_nan = [1, 2, float("nan"), 4, 5]
-    result_with_nan = _get_aggregation_stats_from_list(data_with_nan)
-    assert result_with_nan == {"p50": 3, "p90": 5.5, "p99": 5.95, "average": 3}
-
-    # Test with an empty list
-    empty_data = []
-    empty_result = _get_aggregation_stats_from_list(empty_data)
-    assert empty_result == {}
-
-    # Test with a list containing only NaN values
-    nan_data = [float("nan"), float("nan")]
-    nan_result = _get_aggregation_stats_from_list(nan_data)
-    assert nan_result == {}
-
-    # Test with a single value
-    single_data = [42]
-    single_result = _get_aggregation_stats_from_list(single_data)
-    assert single_result == {"p50": 42, "p90": 42, "p99": 42, "average": 42}
-
-    # Test with negative numbers
-    negative_data = [-5, -3, -1, 0, 2, 4]
-    negative_result = _get_aggregation_stats_from_list(negative_data)
-    assert negative_result == {"p50": -0.5, "p90": 4.6, "p99": 5.86, "average": -0.5}
-
+from llmeter.results import Result, _get_stats_from_results, _get_test_stats
 
 sample_responses_successful = [
     InvocationResponse(
@@ -230,8 +191,8 @@ def test_stats_property(sample_result: Result):
     for key in sample_result.to_dict().keys():
         assert key in stats
 
-    # Test caching
-    assert sample_result.stats is sample_result.stats  # Should return the same object
+    # Test caching returns same object for built-in stats:
+    assert sample_result._builtin_stats is sample_result._builtin_stats
 
 
 def test_stats_property_empty_result():
