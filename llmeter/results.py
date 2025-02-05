@@ -219,6 +219,24 @@ class Result:
     def __repr__(self) -> str:
         return self.to_json()
 
+    def get_dimension(self, dimension: str):
+        """
+        Get the values of a specific dimension from the responses.
+
+        Args:
+            dimension (str): The name of the dimension to retrieve.
+
+        Returns:
+            list: A list of values for the specified dimension across all responses.
+
+        Raises:
+            ValueError: If the specified dimension is not found in any response.
+        """
+        values = [getattr(response, dimension) for response in self.responses]
+        if not any(values):
+            raise ValueError(f"Dimension {dimension} not found in any response")
+        return values
+
 
 def _get_stats_from_results(
     results: Result | Sequence[InvocationResponse], metrics: Sequence[str]
@@ -249,7 +267,7 @@ def _get_stats_from_results(
     ]
     for metric in metrics:
         metric_data = jmespath.search(f"[:].{metric}", data=data)
-        stats[metric] = _get_aggregation_stats_from_list(metric_data)
+        stats[metric] = summary_stats_from_list(metric_data)
     return stats
 
 
@@ -290,48 +308,3 @@ def _get_run_stats(results: Result):
         and results.total_requests / results.total_test_time * 60
     )
     return stats
-
-
-def _get_aggregation_stats_from_list(data: Sequence[int | float]):
-    """
-    Calculate statistical aggregations from a sequence of numeric data.
-
-    This function computes various statistical metrics (median, 90th percentile,
-    99th percentile, and mean) from the input data, filtering out any NaN values.
-
-    Args:
-        data (Sequence[int | float]): A sequence of numeric values to analyze.
-            Can contain integers or floating point numbers, including NaN values
-            which will be filtered out.
-
-    Returns:
-        Dict[str, float]: A dictionary containing the following statistics:
-            - 'p50': The median (50th percentile) of the data
-            - 'p90': The 90th percentile of the data
-            - 'p99': The 99th percentile of the data
-            - 'average': The arithmetic mean of the data
-            Returns an empty dictionary if the input data is empty or invalid.
-
-    Raises:
-        StatisticsError: Handled internally - occurs when statistics cannot be
-            computed (e.g., empty sequence after filtering NaN values).
-
-    Note:
-        - For single-element sequences, p90 and p99 will be equal to that element
-        - NaN values are filtered out before computing statistics
-    """
-
-    clean_data = list(filterfalse(isnan, data))
-    try:
-        return dict(
-            p50=median(clean_data),
-            p90=clean_data[0]
-            if len(clean_data) == 1
-            else quantiles(clean_data, n=10)[-1],
-            p99=clean_data[0]
-            if len(clean_data) == 1
-            else quantiles(clean_data, n=100)[-1],
-            average=mean(clean_data),
-        )
-    except StatisticsError:
-        return {}
