@@ -6,7 +6,7 @@ import time
 from typing import Dict, Sequence
 from uuid import uuid4
 
-# import jmespath
+import jmespath
 from openai import APIConnectionError, OpenAI
 from openai.types.chat import ChatCompletion
 
@@ -55,11 +55,11 @@ class OpenAIEndpoint(Endpoint):
         Returns:
             str: Concatenated message contents
         """
-        # jmes_path = "[:].content"
-        # messages = payload.get("messages")
+        jmes_path = "[:].content"
+        messages = payload.get("messages")
         # return "\n".join([k for j in jmespath.search(jmes_path, messages) for k in j])
-        # return "\n".join(jmespath.search(jmes_path, messages))
-        return payload
+        return "\n".join(jmespath.search(jmes_path, messages))
+        # return payload
 
     @staticmethod
     def create_payload(
@@ -163,6 +163,7 @@ class OpenAICompletionStreamEndpoint(OpenAIEndpoint):
             payload["stream_options"] = {"include_usage": True}
 
         try:
+            start_t = time.perf_counter()
             client_response: ChatCompletion = self._client.chat.completions.create(
                 **payload
             )
@@ -170,7 +171,7 @@ class OpenAICompletionStreamEndpoint(OpenAIEndpoint):
             logger.error(e)
             return InvocationResponse.error_output(id=uuid4().hex, error=str(e))
         response = self._parse_converse_stream_response(
-            client_response, time.perf_counter()
+            client_response, start_t
         )
         response.input_prompt = self._parse_payload(payload)
         return response
