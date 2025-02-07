@@ -14,7 +14,7 @@ from upath import UPath as Path
 from llmeter.callbacks.base import Callback
 
 from .endpoints.base import Endpoint
-# from .plotting import plot_heatmap, plot_sweep_results
+from .plotting import plot_heatmap, plot_sweep_results
 from .prompt_utils import CreatePromptCollection
 from .runner import Runner
 from .tokenizers import Tokenizer
@@ -72,15 +72,18 @@ class LoadTest:
         ]
         return self._results
 
-    # def plot_sweep_results(self):
-    #     if not self._results:
-    #         raise ValueError("No results to plot")
-    #     return plot_sweep_results(
-    #         self._results,
-    #         output_path=Path(self.output_path) / self._test_name
-    #         if self.output_path
-    #         else None,
-    #     )
+    def plot_sweep_results(self, show: bool = True):
+        if not self._results:
+            raise ValueError("No results to plot")
+        figs = plot_sweep_results(
+            self._results,
+            output_path=Path(self.output_path) / self._test_name
+            if self.output_path
+            else None,
+        )
+        if show:
+            [f.show() for _, f in figs.items()]
+        return figs
 
 
 @dataclass
@@ -166,12 +169,31 @@ class LatencyHeatmap:
         self._results = heatmap_results
         return heatmap_results
 
-    # def plot_heatmap(self):
-    #     if not self._results:
-    #         raise ValueError("No results to plot")
-    #     return plot_heatmap(
-    #         self._results,
-    #         bins_input_tokens=len(self.input_lengths),
-    #         bins_output_tokens=len(self.output_lengths),
-    #         output_path=self._results.output_path,
-    #     )
+    def plot_heatmap(
+        self, n_bins_x: int | None, n_bins_y: int | None, show: bool = True
+    ):
+        if not self._results:
+            raise ValueError("No results to plot")
+        f1 = plot_heatmap(
+            self._results,
+            "time_to_first_token",
+            n_bins_x=n_bins_x,
+            n_bins_y=n_bins_y,
+            # output_path=self._results.output_path,
+            show_scatter=True,
+        )
+
+        f2 = plot_heatmap(
+            self._results,
+            "time_to_last_token",
+            n_bins_x=n_bins_x,
+            n_bins_y=n_bins_y,
+            # output_path=self._results.output_path,
+            show_scatter=True,
+        )
+
+        if show:
+            f1.show()
+            f2.show()
+
+        return f1, f2
