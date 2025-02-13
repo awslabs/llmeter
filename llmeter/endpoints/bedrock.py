@@ -14,8 +14,6 @@ from .base import Endpoint, InvocationResponse
 
 logger = logging.getLogger(__name__)
 
-config = Config(retries={"max_attempts": 10, "mode": "standard"})
-
 
 class BedrockBase(Endpoint):
     def __init__(
@@ -24,6 +22,7 @@ class BedrockBase(Endpoint):
         endpoint_name: str | None = None,
         region: str | None = None,
         inference_config: Dict | None = None,
+        max_attempts: int = 3,
     ):
         """
         Base class for Amazon Bedrock endpoints.
@@ -48,7 +47,7 @@ class BedrockBase(Endpoint):
 
         self.region = region or boto3.session.Session().region_name
         logger.info(f"Using AWS region: {self.region}")
-
+        config = Config(retries={"max_attempts": max_attempts, "mode": "standard"})
         self._bedrock_client = boto3.client(
             "bedrock-runtime", region_name=self.region, config=config
         )
@@ -120,7 +119,7 @@ class BedrockConverse(BedrockBase):
         output_tokens = usage.get("outputTokens")
 
         return InvocationResponse(
-            id=f"{uuid4()}",
+            id=uuid4().hex,
             response_text=output,
             num_tokens_input=input_tokens,
             num_tokens_output=output_tokens,

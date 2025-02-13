@@ -282,13 +282,7 @@ class _Run(_RunConfig):
             ),
         ):
             try:
-                # before_invoke callback implementations may modify the payload
-                # so we need to make a copy to avoid side effects
-                # this callback invocation is not async, so it will affect the overall timing estimate
-                if self.callbacks is not None:
-                    p = deepcopy(p)
-                    [asyncio.run(k.before_invoke(p)) for k in self.callbacks]
-
+                p = asyncio.run(process_before_invoke_callbacks(self.callbacks, p))
                 response = self._endpoint.invoke(p)
 
             except Exception as e:
@@ -470,6 +464,26 @@ class _Run(_RunConfig):
             result.save()
 
         return result
+
+
+async def process_before_invoke_callbacks(
+    callbacks: list[Callback] | None, payload: dict
+) -> dict:
+    """
+    Process the `before_run` callbacks for a Run.
+
+    This method is expected to be called *exactly once* after the _Run object is created.
+    Attempting to re-use a _Run object may result in undefined behavior.
+
+    Args:
+        callbacks (list[Callback]): The list of callbacks to process.
+    """
+    if callbacks is not None:
+        p = deepcopy(payload)
+
+        [await cb.before_invoke(p) for cb in callbacks]
+        return p
+    return payload
 
 
 @dataclass
