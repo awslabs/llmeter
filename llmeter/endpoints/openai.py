@@ -59,7 +59,6 @@ class OpenAIEndpoint(Endpoint):
         messages = payload.get("messages")
         # return "\n".join([k for j in jmespath.search(jmes_path, messages) for k in j])
         return "\n".join(jmespath.search(jmes_path, messages))
-        # return payload
 
     @staticmethod
     def create_payload(
@@ -112,6 +111,7 @@ class OpenAICompletionEndpoint(OpenAIEndpoint):
             return InvocationResponse.error_output(id=uuid4().hex, error=str(e))
 
         response = self._parse_converse_response(client_response, start_t)
+        response.input_payload = payload
         response.input_prompt = self._parse_payload(payload)
         return response
 
@@ -173,6 +173,7 @@ class OpenAICompletionStreamEndpoint(OpenAIEndpoint):
         response = self._parse_converse_stream_response(
             client_response, start_t
         )
+        response.input_payload = payload
         response.input_prompt = self._parse_payload(payload)
         return response
 

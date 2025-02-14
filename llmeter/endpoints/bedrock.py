@@ -3,12 +3,11 @@
 
 import logging
 import time
-from typing import Dict, Sequence
 from uuid import uuid4
 
 import boto3
-from botocore.exceptions import ClientError
 from botocore.config import Config
+from botocore.exceptions import ClientError
 
 from .base import Endpoint, InvocationResponse
 
@@ -21,7 +20,7 @@ class BedrockBase(Endpoint):
         model_id: str,
         endpoint_name: str | None = None,
         region: str | None = None,
-        inference_config: Dict | None = None,
+        inference_config: dict | None = None,
         max_attempts: int = 3,
     ):
         """
@@ -66,6 +65,7 @@ class BedrockBase(Endpoint):
         messages = payload.get("messages", [])
         texts = [
             text
+            # amazonq-ignore-next-line
             for msg in messages
             for content in msg.get("content", [])
             for text in (
@@ -77,9 +77,7 @@ class BedrockBase(Endpoint):
         return "\n".join(filter(None, texts))
 
     @staticmethod
-    def create_payload(
-        user_message: str | Sequence[str], max_tokens: int = 256, **kwargs
-    ):
+    def create_payload(user_message: str | list[str], max_tokens: int = 256, **kwargs):
         """
         Create a payload for the Bedrock Converse API request.
 
@@ -111,21 +109,21 @@ class BedrockBase(Endpoint):
 
 
 class BedrockConverse(BedrockBase):
-    def _parse_converse_response(self, response: Dict) -> InvocationResponse:
+    def _parse_converse_response(self, response: dict) -> InvocationResponse:
         # Direct dictionary access and single-level assignment for better performance
         output = response["output"]["message"]["content"][0]["text"]
         usage = response.get("usage", {})
-        input_tokens = usage.get("inputTokens")
-        output_tokens = usage.get("outputTokens")
+        retries = response["ResponseMetadata"]["RetryAttempts"]
 
         return InvocationResponse(
             id=uuid4().hex,
             response_text=output,
-            num_tokens_input=input_tokens,
-            num_tokens_output=output_tokens,
+            num_tokens_input=usage.get("inputTokens"),
+            num_tokens_output=usage.get("outputTokens"),
+            retries=retries,
         )
 
-    def invoke(self, payload: Dict, **kwargs) -> InvocationResponse:
+    def invoke(self, payload: dict, **kwargs) -> InvocationResponse:
         payload = {**kwargs, **payload}
         if payload.get("inferenceConfig") is None:
             payload["inferenceConfig"] = self._inference_config or {}
@@ -137,15 +135,18 @@ class BedrockConverse(BedrockBase):
             time_to_last_token = time.perf_counter() - start_t
         except (ClientError, Exception) as e:
             logger.error(e)
-            return InvocationResponse.error_output(id=uuid4().hex, error=str(e))
+            return InvocationResponse.error_output(
+                input_payload=payload, id=uuid4().hex, error=str(e)
+            )
         response = self._parse_converse_response(client_response)  # type: ignore
+        response.input_payload = payload
         response.input_prompt = self._parse_payload(payload)
         response.time_to_last_token = time_to_last_token
         return response
 
 
 class BedrockConverseStream(BedrockConverse):
-    def invoke(self, payload: Dict, **kwargs) -> InvocationResponse:
+    def invoke(self, payload: dict, **kwargs) -> InvocationResponse:
         payload = {**kwargs, **payload}
         if payload.get("inferenceConfig") is None:
             payload["inferenceConfig"] = self._inference_config or {}
@@ -156,13 +157,16 @@ class BedrockConverseStream(BedrockConverse):
             client_response = self._bedrock_client.converse_stream(**payload)
         except (ClientError, Exception) as e:
             logger.error(e)
-            return InvocationResponse.error_output(id=uuid4().hex, error=str(e))
-        response = self._parse_conversation_stream(client_response, start_t)  # type: ignore
+            return InvocationResponse.error_output(
+                input_payload=payload, id=uuid4().hex, error=str(e)
+            )
+        response = self._parse_conversation_stream(client_response, start_t)
+        response.input_payload = payload
         response.input_prompt = self._parse_payload(payload)
         return response
 
     def _parse_conversation_stream(
-        self, client_response: Dict, start_t: float
+        self, client_response, start_t: float
     ) -> InvocationResponse:
         time_flag = True
         time_to_first_token = None
@@ -201,5 +205,6 @@ class BedrockConverseStream(BedrockConverse):
                 response.time_per_output_token = (response.num_tokens_output - 1) and (
                     generation_time / (response.num_tokens_output - 1)
                 )
+        response.retries = client_response["ResponseMetadata"]["RetryAttempts"]
 
         return response

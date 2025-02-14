@@ -18,7 +18,6 @@ logger = logging.getLogger(__name__)
 
 
 class SageMakerBase(Endpoint):
-    # amazonq-ignore-next-line
     def __init__(
         self,
         endpoint_name: str,
@@ -141,7 +140,9 @@ class SageMakerEndpoint(SageMakerBase):
         except (ClientError, Exception) as e:
             logger.error(e)
             return InvocationResponse.error_output(
-                id=uuid4().hex, error=str(e), input_prompt=input_prompt
+                input_payload=payload,
+                id=uuid4().hex,
+                error=str(e),
             )
 
         time_to_last_token = time.perf_counter() - start_t
@@ -151,6 +152,7 @@ class SageMakerEndpoint(SageMakerBase):
             num_tokens_output = parsed_response.get("num_tokens_output", None)
 
         return InvocationResponse(
+            input_payload=payload,
             id=uuid4().hex,
             response_text=response_text,
             time_to_last_token=time_to_last_token,
@@ -244,18 +246,15 @@ class SageMakerStreamEndpoint(SageMakerBase):
             )
         except Exception as e:
             logger.error(e)
-            return InvocationResponse.error_output(
-                error=str(e), input_prompt=input_prompt
-            )
+            return InvocationResponse.error_output(input_payload=payload, error=str(e))
 
         try:
             response = self._parse_client_response(client_response, start_t)
+            response.input_payload = payload
             response.input_prompt = input_prompt
             return response
         except Exception as e:
-            return InvocationResponse.error_output(
-                error=str(e), input_prompt=input_prompt
-            )
+            return InvocationResponse.error_output(input_payload=payload, error=str(e))
 
     @staticmethod
     def create_payload(
@@ -300,7 +299,7 @@ class TokenIterator:
                 except json.JSONDecodeError:
                     continue
                 if line_data.get("error"):
-                    raise Exception(line_data["error"])
+                    raise RuntimeError(line_data["error"])
                     break
                 self.details = line_data.get("details")
                 return line_data["token"]["text"]
