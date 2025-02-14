@@ -64,7 +64,6 @@ mlflow = ["mlflow-skinny"]
 [tool.pytest.ini_options]
 asyncio_default_fixture_loop_scope = "function"
 filterwarnings = ["ignore::DeprecationWarning"]
-collect_ignore = ["test_experiments.py"]
 
 [tool.bandit]
 exclude_dirs = ["tests"]

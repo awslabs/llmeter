@@ -173,6 +173,24 @@ class _Run(_RunConfig):
         self._n_requests = self.n_requests or len(self.payload)
 
     @staticmethod
+    async def _compute_time_per_output_token(response: InvocationResponse):
+        """
+        Compute the time per output token for the given response.
+
+        Args:
+            response (InvocationResponse): The response to compute time per output token for.
+        """
+        if response.time_per_output_token:
+            if (
+                response.time_to_last_token
+                and response.num_tokens_output
+                and response.time_to_first_token
+            ):
+                response.time_per_output_token = (
+                    response.time_to_last_token - response.time_to_first_token
+                ) / (response.num_tokens_output - 1)
+
+    @staticmethod
     async def _update_token_counts(tokenizer: Tokenizer, response: InvocationResponse):
         """
         Update the token counts for the given response.
@@ -223,6 +241,7 @@ class _Run(_RunConfig):
             logger.debug(f"Got {response.id} from queue")
 
             await self._update_token_counts(self._tokenizer, response)
+            await self._compute_time_per_output_token(response)
             if self.callbacks is not None:
                 [await cb.after_invoke(response) for cb in self.callbacks]
 
