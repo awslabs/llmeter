@@ -342,7 +342,12 @@ def latency_clients_fig(
         raise ValueError(f"Error creating figure: {str(e)}")
 
 
-def plot_sweep_results(result: list[Result], output_path: Path | None, log_scale=True):
+def plot_sweep_results(
+    result: list[Result],
+    output_path: Path | None,
+    log_scale=True,
+    format: Literal["html", "png"] = "html",
+):
     f1 = latency_clients_fig(result, "time_to_first_token", log_scale=log_scale)
     f2 = latency_clients_fig(
         result,
@@ -356,6 +361,21 @@ def plot_sweep_results(result: list[Result], output_path: Path | None, log_scale
     f4 = error_clients_fig(
         result, marker_color=px.colors.qualitative.Plotly[3], log_scale=log_scale
     )
+
+    if output_path:
+        # save figure to the output path
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        if format == "html":
+            f1.write_html(output_path / "time_to_first_token.html")
+            f2.write_html(output_path / "time_to_last_token.html")
+            f3.write_html(output_path / "requests_per_minute.html")
+            f4.write_html(output_path / "error_rate.html")
+        elif format == "png":
+            f1.write_image(output_path / "time_to_first_token.png")
+            f2.write_image(output_path / "time_to_last_token.png")
+            f3.write_image(output_path / "requests_per_minute.png")
+            f4.write_image(output_path / "error_rate.png")
+
     return {
         "time_to_first_token": f1,
         "time_to_last_token": f2,

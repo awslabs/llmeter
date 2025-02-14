@@ -6,12 +6,13 @@ import os
 from dataclasses import dataclass, field
 from datetime import datetime
 from math import ceil
-from typing import Callable
+from typing import Callable, Literal
 
 from tqdm.auto import tqdm
 from upath import UPath as Path
 
 from llmeter.callbacks.base import Callback
+from llmeter.results import Result
 
 from .endpoints.base import Endpoint
 from .plotting import plot_heatmap, plot_sweep_results
@@ -29,6 +30,38 @@ if os.getenv("LLMETER_DISABLE_ALL_PROGRESS_BARS") == "1":
 
 
 @dataclass
+class SweepResult:
+    results: dict[int, Result]
+    test_name: str
+    output_path: os.PathLike | str | None = None
+
+    def plot_sweep_results(
+        self, show: bool = True, format: Literal["html", "png"] = "html"
+    ):
+        figs = plot_sweep_results(
+            [v for k, v in self.results.items()],
+            output_path=Path(self.output_path) / self.test_name
+            if self.output_path
+            else None,
+            format=format,
+        )
+        if show:
+            [f.show() for _, f in figs.items()]
+        return figs
+
+    @classmethod
+    def load(cls, load_path: Path | str, test_name: str | None = None):
+        if isinstance(load_path, str):
+            load_path = Path(load_path)
+        results = [Result.load(x) for x in load_path.iterdir() if x.is_dir()]
+        return SweepResult(
+            results={r.clients: r for r in results},
+            test_name=test_name or load_path.name,
+            output_path=load_path.parent,
+        )
+
+
+@dataclass
 class LoadTest:
     endpoint: Endpoint
     payload: dict | list[dict]
@@ -41,7 +74,6 @@ class LoadTest:
     callbacks: list[Callback] | None = None
 
     def __post_init__(self) -> None:
-        # self._runner = Runner(endpoint=self.endpoint, tokenizer=self.tokenizer)  # type: ignore
         self._test_name = self.test_name or f"{datetime.now():%Y%m%d-%H%M}"
 
     def _get_n_requests(self, clients):
@@ -56,7 +88,7 @@ class LoadTest:
             output_path = None
         _runner = Runner(
             endpoint=self.endpoint, tokenizer=self.tokenizer, output_path=output_path
-        )  # type: ignore
+        )
 
         self._results = [
             await _runner.run(
@@ -70,20 +102,12 @@ class LoadTest:
                 self.sequence_of_clients, desc="Configurations", disable=_disable_tqdm
             )
         ]
-        return self._results
-
-    def plot_sweep_results(self, show: bool = True):
-        if not self._results:
-            raise ValueError("No results to plot")
-        figs = plot_sweep_results(
-            self._results,
-            output_path=Path(self.output_path) / self._test_name
-            if self.output_path
-            else None,
+        # return self._results
+        return SweepResult(
+            results={r.clients: r for r in self._results},
+            test_name=self._test_name,
+            output_path=output_path,
         )
-        if show:
-            [f.show() for _, f in figs.items()]
-        return figs
 
 
 @dataclass
