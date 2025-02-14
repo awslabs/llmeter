@@ -6,14 +6,9 @@ import json
 import os
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass
-from typing import TypeVar
 from uuid import uuid4
 
 from upath import UPath as Path
-
-Self = TypeVar(
-    "Self", bound="Endpoint"
-)  # for python >= 3.11 can be replaced with direct import of `Self`
 
 
 @dataclass(slots=True)
@@ -34,6 +29,7 @@ class InvocationResponse:
     """
 
     response_text: str | None
+    input_payload: dict | None = None
     id: str | None = None
     input_prompt: str | dict | None = None
     time_to_first_token: float | None = None
@@ -42,6 +38,7 @@ class InvocationResponse:
     num_tokens_output: int | None = None
     time_per_output_token: float | None = None
     error: str | None = None
+    retries: int | None = None
 
     def to_json(self, **kwargs) -> str:
         def default_serializer(obj):
@@ -54,12 +51,12 @@ class InvocationResponse:
 
     @staticmethod
     def error_output(
-        input_prompt: str | None = None, error=None, id: str | None = None
-    ):
+        input_payload: dict | None = None, error=None, id: str | None = None
+    ) -> "InvocationResponse":
         return InvocationResponse(
             id=id or uuid4().hex,
             response_text=None,
-            input_prompt=input_prompt,
+            input_payload=input_payload,
             time_to_last_token=None,
             error="invocation failed" if error is None else str(error),
         )
@@ -197,7 +194,7 @@ class Endpoint(ABC):
         return endpoint_conf
 
     @classmethod
-    def load_from_file(cls, input_path: os.PathLike) -> Self:
+    def load_from_file(cls, input_path: os.PathLike) -> "Endpoint":
         """
         Load an endpoint configuration from a JSON file.
 
@@ -222,7 +219,7 @@ class Endpoint(ABC):
         return endpoint_class(**data)
 
     @classmethod
-    def load(cls, endpoint_config: dict) -> Self:  # type: ignore
+    def load(cls, endpoint_config: dict) -> "Endpoint":  # type: ignore
         """
         Load an endpoint configuration from a dictionary.
 

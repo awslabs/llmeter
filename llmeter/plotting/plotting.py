@@ -1,18 +1,23 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from typing import TYPE_CHECKING, Literal
+
 from upath import UPath as Path
 
-from .runner import Result
-from .utils import DeferredError
-from typing import Callable, Literal
+from ..runner import Result
+from ..utils import DeferredError
 
-try:
+if not TYPE_CHECKING:
+    try:
+        import plotly.express as px
+        import plotly.graph_objects as go
+    except ModuleNotFoundError:
+        px = DeferredError("Please install plotly to use plotting functions")
+        go = DeferredError("Please install plotly to use plotting functions")
+else:
     import plotly.express as px
     import plotly.graph_objects as go
-except ModuleNotFoundError:
-    plotly = DeferredError("Please install plotly to use plotting functions")
-
 
 try:
     import kaleido
@@ -20,9 +25,9 @@ except ModuleNotFoundError:
     kaleido = DeferredError("Please install kaleido to use plotting functions")
 
 
-def scatter_histogram(
-    result: Result, x_dimension: str, y_dimension: str, n_bins_x, n_bins_y
-):
+def scatter_histogram_2d(
+    result: Result, x_dimension: str, y_dimension: str, n_bins_x: int, n_bins_y: int
+) -> go.Figure:
     """
     Generate a scatter plot with histograms for the given dimensions.
 
@@ -64,6 +69,14 @@ def scatter_histogram(
     return fig
 
 
+def histogram_by_dimension(result, dimension: str, **histogram_kwargs) -> go.Histogram:
+    x = result.get_dimension(dimension)
+    name = histogram_kwargs.pop("name", None) or result.run_name
+    histnorm = histogram_kwargs.pop("histnorm", None) or "probability"
+
+    return go.Histogram(x=x, name=name, histnorm=histnorm, **histogram_kwargs)
+
+
 def plot_heatmap(
     result: Result,
     dimension: str,
@@ -71,7 +84,7 @@ def plot_heatmap(
     n_bins_y: int | None,
     output_path: Path | None = None,
     show_scatter=False,
-):
+) -> go.Figure:
     """
     Generate a heatmap visualization of token counts and a specified dimension.
 
@@ -145,61 +158,13 @@ def plot_heatmap(
     return fig
 
 
-def dimension_boxplot(
-    results: list[Result],
-    y_dimension: str | Callable,
-    x_dimension: str | Callable,
-    boxpoints: bool | str = False,
-    name: str | None = None,
+def boxplot_by_dimension(
+    result: Result, dimension: str, name: str | None = None, **box_kwargs
 ) -> go.Box:
-    """
-    Create a box plot visualization for a specific dimension across multiple results.
+    x = result.get_dimension(dimension)
+    name = box_kwargs.pop("name", None) or result.run_name
 
-    Args:
-        results (list[Result]): List of Result objects containing the response data
-        dimension (str): The dimension to plot (e.g. 'time_to_first_token', 'latency')
-        boxpoints (bool, optional): Whether to show individual data points. Defaults to False.
-        name (str, optional): Name label for the box plot. Defaults to None.
-
-    Returns:
-        plotly.graph_objects.Box: Box plot figure object showing distribution of dimension values
-
-    Example:
-        >>> results = [result1, result2]  # List of Result objects
-        >>> fig = dimension_boxplot(results, "time_to_first_token", boxpoints=True)
-    """
-    ys = []
-    xs = []
-    for result in results:
-        if callable(y_dimension):
-            y = y_dimension(result)
-        else:
-            y = result.get_dimension(y_dimension)
-
-        if callable(x_dimension):
-            x = x_dimension(result)
-        else:
-            x = result.get_dimension(x_dimension)
-
-        # Get dimension values and filter out None/empty values
-        y = [k for k in y if k]
-        if not isinstance(x, list):
-            x = [x]
-        if len(x) == 1:
-            x = x * len(y)
-        # x = [result.clients] * len(y)
-
-        ys.extend(y)
-        xs.extend(x)
-
-    return go.Box(
-        y=ys,
-        x=xs,
-        name=name,
-        boxpoints=boxpoints,
-        whiskerwidth=0.2,
-        jitter=0.5,
-    )
+    return go.Box(x=x, name=name, **box_kwargs)
 
 
 def stat_clients(results: list[Result], stat: str, **scatter_kwargs):
@@ -361,10 +326,10 @@ def latency_clients_fig(
         box_trace = latency_clients(results, dimension, **box_kwargs)
         fig.add_trace(box_trace)
         fig.update_layout(
-            title=f"{dimension.replace("_", " ").capitalize()} vs number of clients",
+            title=f"{dimension.replace('_', ' ').capitalize()} vs number of clients",
             xaxis_title="Number of clients",
             xaxis_tickformat="s",
-            yaxis_title=f"{dimension.replace("_", " ").capitalize()} (s)",
+            yaxis_title=f'{dimension.replace("_", " ").capitalize()} (s)',
             yaxis_tickformat=".2s",
         )
         if log_scale:
