@@ -658,3 +658,15 @@ class Runner(_RunConfig):
         assert isinstance(run.payload, list)
         assert isinstance(run.run_name, str)
         return await run._run()
+
+    def add_callback(self, callback: Callback):
+        """
+        Add a callback to the runner's list of callbacks.
+
+        Args:
+            callback (Callback): The callback to be added.
+        """
+        if self.callbacks is None:
+            self.callbacks = [callback]
+        else:
+            self.callbacks.append(callback)
