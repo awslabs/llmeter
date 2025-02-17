@@ -4,6 +4,7 @@ from .plotting import (
     scatter_histogram_2d,
     plot_sweep_results,
     histogram_by_dimension,
+    color_sequences,
 )
 
 __all__ = [
@@ -11,4 +12,6 @@ __all__ = [
     "scatter_histogram_2d",
     "boxplot_by_dimension",
     "plot_sweep_results",
+    "histogram_by_dimension",
+    "color_sequences",
 ]

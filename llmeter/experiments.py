@@ -15,7 +15,7 @@ from llmeter.callbacks.base import Callback
 from llmeter.results import Result
 
 from .endpoints.base import Endpoint
-from .plotting import plot_heatmap, plot_sweep_results
+from .plotting import plot_heatmap, plot_sweep_results, color_sequences
 from .prompt_utils import CreatePromptCollection
 from .runner import Runner
 from .tokenizers import Tokenizer
@@ -38,13 +38,32 @@ class SweepResult:
     def plot_sweep_results(
         self, show: bool = True, format: Literal["html", "png"] = "html"
     ):
-        figs = plot_sweep_results(
-            [v for k, v in self.results.items()],
-            output_path=Path(self.output_path) / self.test_name
-            if self.output_path
-            else None,
-            format=format,
-        )
+        # figs = plot_sweep_results([v for _, v in self.results.items()])
+        figs = plot_sweep_results(self)
+
+        # add individual color sequence for each plot
+        c_seqs = [
+            color_sequences.Bluered,
+            color_sequences.Turbo,
+            color_sequences.Sunsetdark_r,
+            color_sequences.Blackbody,
+            color_sequences.Viridis,
+            color_sequences.Plasma,
+        ]
+
+        for i, (_, f) in enumerate(figs.items()):
+            f.update_layout(colorway=c_seqs[i % len(c_seqs)])
+
+        # output_path = (
+        #     Path(self.output_path) / self.test_name if self.output_path else None
+        # )
+        output_path = Path(self.output_path)
+        if output_path:
+            # save figure to the output path
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            for k, f in figs.items():
+                f.write_html(output_path / f"{k}.{format}")
+
         if show:
             [f.show() for _, f in figs.items()]
         return figs
