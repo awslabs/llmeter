@@ -307,4 +307,18 @@ def _get_run_stats(results: Result):
         results.total_test_time
         and results.total_requests / results.total_test_time * 60
     )
+    stats["total_input_tokens"] = sum(
+        jmespath.search("[:].num_tokens_input", data=data)
+    )
+    stats["total_output_tokens"] = sum(
+        jmespath.search("[:].num_tokens_output", data=data)
+    )
+    stats["average_input_tokens_per_minute"] = (
+        results.total_test_time
+        and stats["total_input_tokens"] / results.total_test_time * 60
+    )
+    stats["average_output_tokens_per_minute"] = (
+        results.total_test_time
+        and stats["total_output_tokens"] / results.total_test_time * 60
+    )
     return stats
