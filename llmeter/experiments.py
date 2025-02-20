@@ -69,10 +69,31 @@ class SweepResult:
         return figs
 
     @classmethod
-    def load(cls, load_path: Path | str, test_name: str | None = None):
+    def load(cls, load_path: Path | str, test_name: str | None = None) -> "SweepResult":
+        """Load sweep results from a directory.
+
+        Args:
+            load_path: Directory path containing the sweep results subdirectories
+            test_name: Optional name for the test. If not provided, will use the directory name
+
+        Returns:
+            SweepResult: A SweepResult object containing the loaded results
+
+        Raises:
+            FileNotFoundError: If load_path does not exist
+            ValueError: If no results are found in the directory
+        """
         if isinstance(load_path, str):
             load_path = Path(load_path)
+
+        if not load_path.exists():
+            raise FileNotFoundError(f"Load path {load_path} does not exist")
+
         results = [Result.load(x) for x in load_path.iterdir() if x.is_dir()]
+
+        if not results:
+            raise ValueError(f"No results found in {load_path}")
+
         return SweepResult(
             results={r.clients: r for r in results},
             test_name=test_name or load_path.name,
