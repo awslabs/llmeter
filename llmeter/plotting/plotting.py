@@ -408,7 +408,7 @@ def plot_sweep_results(
     f3 = rpm_clients_fig(sweep_result, log_scale=log_scale)
     f4 = error_clients_fig(sweep_result, log_scale=log_scale)
     f5 = average_input_tokens_clients_fig(sweep_result, log_scale=log_scale)
-    f6 = average_input_tokens_clients_fig(sweep_result, log_scale=log_scale)
+    f6 = average_output_tokens_clients_fig(sweep_result, log_scale=log_scale)
 
     return {
         "time_to_first_token": f1,
