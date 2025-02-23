@@ -20,6 +20,8 @@ from uuid import uuid4
 from tqdm.auto import tqdm, trange
 from upath import UPath as Path
 
+from llmeter.utils import now_utc
+
 if TYPE_CHECKING:
     # Avoid circular import: We only need typing for Callback
     from .callbacks.base import Callback
@@ -446,6 +448,7 @@ class _Run(_RunConfig):
         )
 
         try:
+            run_start_time = now_utc()
             _, (total_test_time, start_time, end_time) = await asyncio.gather(
                 self._process_results_from_q(
                     output_path=Path(self.output_path) / "responses.jsonl"
@@ -458,6 +461,7 @@ class _Run(_RunConfig):
                     clients=self.clients,
                 ),
             )
+            run_end_time = now_utc()
 
         except asyncio.CancelledError:
             logger.error(
@@ -472,8 +476,8 @@ class _Run(_RunConfig):
             result,
             responses=self._responses,
             total_test_time=total_test_time,
-            start_time=start_time,
-            end_time=end_time,
+            start_time=run_start_time,
+            end_time=run_end_time,
         )
 
         if self.callbacks is not None:

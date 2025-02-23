@@ -1,5 +1,6 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
+from datetime import datetime, timezone
 from itertools import filterfalse
 from math import isnan
 from statistics import StatisticsError, mean, median, quantiles
@@ -74,3 +75,12 @@ def summary_stats_from_list(
 
     except StatisticsError:
         return {}
+
+
+def now_utc() -> datetime:
+    """Returns the current UTC datetime.
+
+    Returns:
+        datetime: Current UTC datetime object
+    """
+    return datetime.now(timezone.utc)
