@@ -180,7 +180,7 @@ class _Run(_RunConfig):
         Args:
             response (InvocationResponse): The response to compute time per output token for.
         """
-        if response.time_per_output_token:
+        if response.time_per_output_token is None:
             if (
                 response.time_to_last_token
                 and response.num_tokens_output
