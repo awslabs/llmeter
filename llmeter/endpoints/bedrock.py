@@ -61,20 +61,43 @@ class BedrockBase(Endpoint):
 
         Returns:
             str: Concatenated text content from the messages.
+
+        Raises:
+            TypeError: If payload is not a dictionary
+            KeyError: If required fields are missing from payload
         """
-        messages = payload.get("messages", [])
-        texts = [
-            text
-            # amazonq-ignore-next-line
-            for msg in messages
-            for content in msg.get("content", [])
-            for text in (
-                content.get("text", [])
-                if isinstance(content.get("text"), list)
-                else [content.get("text", "")]
-            )
-        ]
-        return "\n".join(filter(None, texts))
+        try:
+            if not isinstance(payload, dict):
+                raise TypeError("Payload must be a dictionary")
+
+            messages = payload.get("messages", [])
+            if not isinstance(messages, list):
+                raise TypeError("Messages must be a list")
+
+            texts = []
+            for msg in messages:
+                if not isinstance(msg, dict):
+                    raise TypeError("Each message must be a dictionary")
+
+                for content in msg.get("content", []):
+                    if not isinstance(content, dict):
+                        raise TypeError("Content must be a dictionary")
+
+                    text_content = content.get("text")
+                    if isinstance(text_content, list):
+                        texts.extend(text_content)
+                    else:
+                        texts.append(text_content or "")
+
+            return "\n".join(filter(None, texts))
+
+        except (TypeError, KeyError) as e:
+            logger.error(f"Error parsing payload: {e}")
+            return ""
+
+        except Exception as e:
+            logger.error(f"Unexpected error parsing payload: {e}")
+            return ""
 
     @staticmethod
     def create_payload(user_message: str | list[str], max_tokens: int = 256, **kwargs):
@@ -88,61 +111,151 @@ class BedrockBase(Endpoint):
 
         Returns:
             dict: The formatted payload for the Bedrock API request.
+
+        Raises:
+            TypeError: If user_message is not a string or list of strings
+            ValueError: If max_tokens is not a positive integer
         """
+        if not isinstance(user_message, (str, list)):
+            raise TypeError("user_message must be a string or list of strings")
+
+        if isinstance(user_message, list):
+            if not all(isinstance(msg, str) for msg in user_message):
+                raise TypeError("All messages must be strings")
+            if not user_message:
+                raise ValueError("user_message list cannot be empty")
+
+        if not isinstance(max_tokens, int) or max_tokens <= 0:
+            raise ValueError("max_tokens must be a positive integer")
 
         if isinstance(user_message, str):
             user_message = [user_message]
-        payload: dict = {
-            "messages": [
-                {"role": "user", "content": [{"text": k}]} for k in user_message
-            ],
-        }
-        payload.update(kwargs)
-        if payload.get("inferenceConfig") is None:
-            payload["inferenceConfig"] = {}
 
-        payload["inferenceConfig"] = {
-            **payload["inferenceConfig"],
-            "maxTokens": max_tokens,
-        }
-        return payload
+        try:
+            payload: dict = {
+                "messages": [
+                    {"role": "user", "content": [{"text": k}]} for k in user_message
+                ],
+            }
+            payload.update(kwargs)
+            if payload.get("inferenceConfig") is None:
+                payload["inferenceConfig"] = {}
+
+            payload["inferenceConfig"] = {
+                **payload["inferenceConfig"],
+                "maxTokens": max_tokens,
+            }
+            return payload
+
+        except Exception as e:
+            logger.error(f"Error creating payload: {e}")
+            raise RuntimeError(f"Failed to create payload: {str(e)}")
 
 
 class BedrockConverse(BedrockBase):
     def _parse_converse_response(self, response: dict) -> InvocationResponse:
-        # Direct dictionary access and single-level assignment for better performance
-        output = response["output"]["message"]["content"][0]["text"]
-        usage = response.get("usage", {})
-        retries = response["ResponseMetadata"]["RetryAttempts"]
+        """
+        Parse the response from a Bedrock converse API call.
 
-        return InvocationResponse(
-            id=uuid4().hex,
-            response_text=output,
-            num_tokens_input=usage.get("inputTokens"),
-            num_tokens_output=usage.get("outputTokens"),
-            retries=retries,
-        )
+        Args:
+            response (dict): Raw response from the Bedrock API containing output text and metadata
+
+        Returns:
+            InvocationResponse: Parsed response containing the generated text and metadata
+
+        Raises:
+            KeyError: If required fields are missing from the response
+            TypeError: If response fields have unexpected types
+        """
+        try:
+            # Direct dictionary access and single-level assignment for better performance
+            output = response["output"]["message"]["content"][0]["text"]
+            if not isinstance(output, str):
+                raise TypeError("Expected string for output text")
+
+            usage = response.get("usage", {})
+            retries = response["ResponseMetadata"]["RetryAttempts"]
+
+            return InvocationResponse(
+                id=uuid4().hex,
+                response_text=output,
+                num_tokens_input=usage.get("inputTokens"),
+                num_tokens_output=usage.get("outputTokens"),
+                retries=retries,
+            )
+
+        except KeyError as e:
+            logger.error(f"Missing required field in response: {e}")
+            return InvocationResponse.error_output(
+                id=uuid4().hex,
+                error=f"Missing required field: {e}",
+            )
+
+        except TypeError as e:
+            logger.error(f"Unexpected type in response: {e}")
+            return InvocationResponse.error_output(
+                id=uuid4().hex,
+                error=f"Type error in response: {e}",
+            )
+
+        except Exception as e:
+            logger.error(f"Error parsing converse response: {e}")
+            return InvocationResponse.error_output(
+                id=uuid4().hex,
+                error=f"Response parsing error: {e}",
+            )
 
     def invoke(self, payload: dict, **kwargs) -> InvocationResponse:
-        payload = {**kwargs, **payload}
-        if payload.get("inferenceConfig") is None:
-            payload["inferenceConfig"] = self._inference_config or {}
+        """
+        Invoke the Bedrock converse API with the given payload.
 
-        payload["modelId"] = self.model_id
+        Args:
+            payload (dict): The payload containing the request parameters
+            **kwargs: Additional keyword arguments to include in the payload
+
+        Returns:
+            InvocationResponse: Response object containing generated text and metadata
+
+        Raises:
+            ClientError: If there is an error calling the Bedrock API
+            ValueError: If payload is invalid
+            TypeError: If payload is not a dictionary
+        """
+        if not isinstance(payload, dict):
+            raise TypeError("Payload must be a dictionary")
+
         try:
-            start_t = time.perf_counter()
-            client_response = self._bedrock_client.converse(**payload)
-            time_to_last_token = time.perf_counter() - start_t
-        except (ClientError, Exception) as e:
-            logger.error(e)
+            payload = {**kwargs, **payload}
+            if payload.get("inferenceConfig") is None:
+                payload["inferenceConfig"] = self._inference_config or {}
+
+            payload["modelId"] = self.model_id
+            try:
+                start_t = time.perf_counter()
+                client_response = self._bedrock_client.converse(**payload)
+                time_to_last_token = time.perf_counter() - start_t
+            except ClientError as e:
+                logger.error(f"Bedrock API error: {e}")
+                return InvocationResponse.error_output(
+                    input_payload=payload, id=uuid4().hex, error=str(e)
+                )
+            except Exception as e:
+                logger.error(f"Unexpected error during API call: {e}")
+                return InvocationResponse.error_output(
+                    input_payload=payload, id=uuid4().hex, error=str(e)
+                )
+
+            response = self._parse_converse_response(client_response)  # type: ignore
+            response.input_payload = payload
+            response.input_prompt = self._parse_payload(payload)
+            response.time_to_last_token = time_to_last_token
+            return response
+
+        except Exception as e:
+            logger.error(f"Error in invoke method: {e}")
             return InvocationResponse.error_output(
                 input_payload=payload, id=uuid4().hex, error=str(e)
             )
-        response = self._parse_converse_response(client_response)  # type: ignore
-        response.input_payload = payload
-        response.input_prompt = self._parse_payload(payload)
-        response.time_to_last_token = time_to_last_token
-        return response
 
 
 class BedrockConverseStream(BedrockConverse):
@@ -168,43 +281,83 @@ class BedrockConverseStream(BedrockConverse):
     def _parse_conversation_stream(
         self, client_response, start_t: float
     ) -> InvocationResponse:
+        """
+        Parse the streaming response from Bedrock conversation API.
+
+        Args:
+            client_response (dict): The raw response from the Bedrock API
+            start_t (float): The timestamp when the request was initiated
+
+        Returns:
+            InvocationResponse: Parsed response containing the generated text and metadata
+
+        Raises:
+            KeyError: If required fields are missing from the response
+            TypeError: If response fields have unexpected types
+        """
         time_flag = True
         time_to_first_token = None
+        time_to_last_token = None
         output_text = ""
-        for chunk in client_response["stream"]:
-            if "contentBlockDelta" in chunk:
-                output_text += chunk["contentBlockDelta"]["delta"].get("text") or ""
-                if time_flag:
-                    time_to_first_token = time.perf_counter() - start_t
-                    time_flag = False
+        metadata = None
 
-            if "contentBlockStop" in chunk:
-                time_to_last_token = time.perf_counter() - start_t
+        try:
+            for chunk in client_response["stream"]:
+                if "contentBlockDelta" in chunk:
+                    delta_text = chunk["contentBlockDelta"]["delta"].get("text", "")
+                    if not isinstance(delta_text, str):
+                        raise TypeError("Expected string for delta text")
+                    output_text += delta_text or ""
+                    if time_flag:
+                        time_to_first_token = time.perf_counter() - start_t
+                        time_flag = False
 
-            if "metadata" in chunk:
-                metadata = chunk["metadata"]
+                if "contentBlockStop" in chunk:
+                    time_to_last_token = time.perf_counter() - start_t
 
-        response = InvocationResponse(
-            id=uuid4().hex,
-            response_text=output_text,
-            time_to_last_token=time_to_last_token,
-            time_to_first_token=time_to_first_token,
-        )
+                if "metadata" in chunk:
+                    metadata = chunk["metadata"]
 
-        if metadata:
-            # time_to_last_token = metadata.get("metrics", {}).get("latencyMs")
-            usage = metadata.get("usage", {})
-            response.num_tokens_input = usage.get("inputTokens")
-            response.num_tokens_output = usage.get("outputTokens")
-            if (
-                response.num_tokens_output
-                and time_to_last_token
-                and time_to_first_token
-            ):
-                generation_time = time_to_last_token - time_to_first_token
-                response.time_per_output_token = (response.num_tokens_output - 1) and (
-                    generation_time / (response.num_tokens_output - 1)
-                )
-        response.retries = client_response["ResponseMetadata"]["RetryAttempts"]
+            response = InvocationResponse(
+                id=uuid4().hex,
+                response_text=output_text,
+                time_to_last_token=time_to_last_token,
+                time_to_first_token=time_to_first_token,
+            )
 
-        return response
+            if metadata:
+                # The latency provided by Bedrock is at the service endpoint time, not client side
+                # time_to_last_token = metadata.get("metrics", {}).get("latencyMs")
+                try:
+                    usage = metadata.get("usage", {})
+                    response.num_tokens_input = usage.get("inputTokens")
+                    response.num_tokens_output = usage.get("outputTokens")
+                except Exception as e:
+                    logger.error(f"Error parsing metadata: {e}")
+                    return InvocationResponse.error_output(
+                        id=uuid4().hex,
+                        error=f"Metadata parsing error: {e}",
+                    )
+
+            response.retries = client_response["ResponseMetadata"]["RetryAttempts"]
+
+            return response
+
+        except KeyError as e:
+            logger.error(f"Missing required field in response: {e}")
+            return InvocationResponse.error_output(
+                id=uuid4().hex,
+                error=f"Missing required field: {e}",
+            )
+        except TypeError as e:
+            logger.error(f"Unexpected type in response: {e}")
+            return InvocationResponse.error_output(
+                id=uuid4().hex,
+                error=f"Type error in response: {e}",
+            )
+        except Exception as e:
+            logger.error(f"Error parsing conversation stream: {e}")
+            return InvocationResponse.error_output(
+                id=uuid4().hex,
+                error=f"Stream parsing error: {e}",
+            )

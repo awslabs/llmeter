@@ -108,7 +108,9 @@ class OpenAICompletionEndpoint(OpenAIEndpoint):
 
         except (APIConnectionError, Exception) as e:
             logger.error(e)
-            return InvocationResponse.error_output(id=uuid4().hex, error=str(e))
+            return InvocationResponse.error_output(
+                input_payload=payload, id=uuid4().hex, error=str(e)
+            )
 
         response = self._parse_converse_response(client_response, start_t)
         response.input_payload = payload
@@ -169,10 +171,10 @@ class OpenAICompletionStreamEndpoint(OpenAIEndpoint):
             )
         except (APIConnectionError, Exception) as e:
             logger.error(e)
-            return InvocationResponse.error_output(id=uuid4().hex, error=str(e))
-        response = self._parse_converse_stream_response(
-            client_response, start_t
-        )
+            return InvocationResponse.error_output(
+                input_payload=payload, id=uuid4().hex, error=str(e)
+            )
+        response = self._parse_converse_stream_response(client_response, start_t)
         response.input_payload = payload
         response.input_prompt = self._parse_payload(payload)
         return response
