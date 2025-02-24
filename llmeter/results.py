@@ -160,10 +160,13 @@ class Result:
             summary = json.load(g)
             # Convert datetime strings back to datetime objects
             for key in ["start_time", "end_time"]:
-                if key in summary and summary[key]:
-                    summary[key] = datetime.fromisoformat(
-                        summary[key].replace("Z", "+00:00")
-                    )
+                if key in summary and summary[key] and isinstance(summary[key], str):
+                    try:
+                        summary[key] = datetime.fromisoformat(
+                            summary[key].replace("Z", "+00:00")
+                        )
+                    except ValueError:
+                        pass
         return cls(responses=responses, **summary)
 
     @cached_property
