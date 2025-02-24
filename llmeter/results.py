@@ -8,7 +8,7 @@ from dataclasses import asdict, dataclass
 from datetime import datetime
 from functools import cached_property
 from numbers import Number
-from typing import Sequence
+from typing import Any, Sequence
 
 import jmespath
 from upath import UPath as Path
@@ -235,12 +235,19 @@ class Result:
     def __repr__(self) -> str:
         return self.to_json()
 
-    def get_dimension(self, dimension: str):
+    def get_dimension(
+        self,
+        dimension: str,
+        filter_dimension: str | None = None,
+        filter_value: Any = None,
+    ):
         """
         Get the values of a specific dimension from the responses.
 
         Args:
             dimension (str): The name of the dimension to retrieve.
+            filter_dimension (str, optional): Name of dimension to filter on. Defaults to None.
+            filter_value (any, optional): Value to match for the filter dimension. Defaults to None.
 
         Returns:
             list: A list of values for the specified dimension across all responses.
@@ -248,9 +255,18 @@ class Result:
         Raises:
             ValueError: If the specified dimension is not found in any response.
         """
-        values = [getattr(response, dimension) for response in self.responses]
+        if filter_dimension is not None:
+            values = [
+                getattr(response, dimension)
+                for response in self.responses
+                if getattr(response, filter_dimension) == filter_value
+            ]
+        else:
+            values = [getattr(response, dimension) for response in self.responses]
+
         if not any(values):
-            raise ValueError(f"Dimension {dimension} not found in any response")
+            # raise ValueError(f"Dimension {dimension} not found in any response")
+            logger.warning(f"Dimension {dimension} not found in any response")
         return values
 
 

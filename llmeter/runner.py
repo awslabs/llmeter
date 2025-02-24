@@ -200,10 +200,13 @@ class _Run(_RunConfig):
         Args:
             response (InvocationResponse): The response to update token counts for.
         """
+        if response.error is not None:
+            return
+
         if response.num_tokens_input is None:
             text = response.input_prompt
             if text is None:
-                response.num_tokens_input = 0
+                response.num_tokens_input = None
             if not isinstance(text, str):
                 try:
                     text = str(text)
@@ -214,7 +217,7 @@ class _Run(_RunConfig):
         if response.num_tokens_output is None:
             text = response.response_text
             if text is None:
-                response.num_tokens_output = 0
+                response.num_tokens_output = None
             if not isinstance(text, str):
                 try:
                     text = str(text)
