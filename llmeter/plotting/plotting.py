@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from upath import UPath as Path
 
@@ -77,8 +77,34 @@ def scatter_histogram_2d(
     return fig
 
 
-def histogram_by_dimension(result, dimension: str, **histogram_kwargs) -> go.Histogram:
-    x = result.get_dimension(dimension)
+def histogram_by_dimension(
+    result: Result,
+    dimension: str,
+    filter_dimension: str | None = None,
+    filter_value: Any = None,
+    **histogram_kwargs,
+) -> go.Histogram:
+    """
+    Create a histogram plot for a given dimension from the result data.
+
+    Args:
+        result (Result): The Result object containing the response data
+        dimension (str): The dimension to plot as histogram values
+        filter_dimension (str | None, optional): Dimension to filter the data on. Defaults to None.
+        filter_value (Any, optional): Value to filter the filter_dimension by. Defaults to None.
+        **histogram_kwargs: Additional keyword arguments to pass to go.Histogram
+
+    Returns:
+        plotly.graph_objects.Histogram: Histogram plot of the specified dimension
+
+    Example:
+        >>> result = Result(...)
+        >>> fig = histogram_by_dimension(result, "time_to_first_token")
+        >>> fig.show()
+    """
+    x = result.get_dimension(
+        dimension, filter_dimension=filter_dimension, filter_value=filter_value
+    )
     name = histogram_kwargs.pop("name", None) or result.run_name
     histnorm = histogram_kwargs.pop("histnorm", None) or "probability"
 
@@ -197,7 +223,7 @@ def stat_clients(sweep_result: SweepResult, stat: str, **scatter_kwargs):
         "x": clients,
         "y": ER,
         "mode": "lines+markers",
-        "name": stat.replace("_", " ").capitalize(),
+        "name": sweep_result.test_name,
         "opacity": 0.5,
         "line": dict(dash="dot"),
     }

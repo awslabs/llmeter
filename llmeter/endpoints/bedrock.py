@@ -15,41 +15,44 @@ logger = logging.getLogger(__name__)
 
 
 class BedrockBase(Endpoint):
+    """Base class for interacting with Amazon Bedrock endpoints.
+
+    This class provides core functionality for making requests to Amazon Bedrock
+    endpoints, handling configuration and client initialization.
+
+    Args:
+        model_id (str): The identifier for the model to use
+        endpoint_name (str | None, optional): Name of the endpoint. Defaults to None.
+        region (str | None, optional): AWS region to use. Defaults to None.
+        inference_config (dict | None, optional): Configuration for inference. Defaults to None.
+        bedrock_boto3_client (boto3.client, optional): Pre-configured boto3 client. Defaults to None.
+        max_attempts (int, optional): Maximum number of retry attempts. Defaults to 3.
+    """
+
     def __init__(
         self,
         model_id: str,
         endpoint_name: str | None = None,
         region: str | None = None,
         inference_config: dict | None = None,
+        bedrock_boto3_client=None,
         max_attempts: int = 3,
     ):
-        """
-        Base class for Amazon Bedrock endpoints.
-
-        This class provides the foundation for interacting with Amazon Bedrock services,
-        including client initialization and payload handling.
-        """
-
         super().__init__(
             model_id=model_id, endpoint_name=endpoint_name or "", provider="bedrock"
         )
-        """
-        Initialize the BedrockBase instance.
-
-        Args:
-            model_id (str): The ID of the model to use.
-            region (str | None, optional): The AWS region to use. If None, uses the default session region.
-            inference_config (Dict | None, optional): Configuration for inference.
-        """
 
         self.endpoint_name = "amazon bedrock"
 
         self.region = region or boto3.session.Session().region_name
         logger.info(f"Using AWS region: {self.region}")
-        config = Config(retries={"max_attempts": max_attempts, "mode": "standard"})
-        self._bedrock_client = boto3.client(
-            "bedrock-runtime", region_name=self.region, config=config
-        )
+
+        self._bedrock_client = bedrock_boto3_client
+        if self._bedrock_client is None:
+            config = Config(retries={"max_attempts": max_attempts, "mode": "standard"})
+            self._bedrock_client = boto3.client(
+                "bedrock-runtime", region_name=self.region, config=config
+            )
         self._inference_config = inference_config
 
     def _parse_payload(self, payload):
@@ -232,7 +235,7 @@ class BedrockConverse(BedrockBase):
             payload["modelId"] = self.model_id
             try:
                 start_t = time.perf_counter()
-                client_response = self._bedrock_client.converse(**payload)
+                client_response = self._bedrock_client.converse(**payload)  # type: ignore
                 time_to_last_token = time.perf_counter() - start_t
             except ClientError as e:
                 logger.error(f"Bedrock API error: {e}")
@@ -267,7 +270,7 @@ class BedrockConverseStream(BedrockConverse):
         payload["modelId"] = self.model_id
         start_t = time.perf_counter()
         try:
-            client_response = self._bedrock_client.converse_stream(**payload)
+            client_response = self._bedrock_client.converse_stream(**payload)  # type: ignore
         except (ClientError, Exception) as e:
             logger.error(e)
             return InvocationResponse.error_output(
