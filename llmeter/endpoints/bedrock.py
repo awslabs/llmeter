@@ -342,6 +342,16 @@ class BedrockConverseStream(BedrockConverse):
                         error=f"Metadata parsing error: {e}",
                     )
 
+            # compute time per output token if the model supports it
+            if (
+                response.num_tokens_output
+                and response.time_to_last_token
+                and response.time_to_first_token
+            ):
+                response.time_per_output_token = (
+                    response.time_to_last_token - response.time_to_first_token
+                ) / (response.num_tokens_output - 1)
+
             response.retries = client_response["ResponseMetadata"]["RetryAttempts"]
 
             return response

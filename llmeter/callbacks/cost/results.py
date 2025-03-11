@@ -15,7 +15,7 @@ class CalculatedCostWithDimensions(dict):
     This class is a dictionary of costs keyed by dimension name, but provides additional
     convenience methods, including:
 
-    - A`.total` property, providing the total cost across all dimenisons
+    - A`.total` property, providing the total cost across all dimensions
     - Ability to add multiple cost estimates together (using standard `+` or `sum()`)
     - Functions to save the estimate to (or load one from) a namespace including other information
         (such as another dictionary, an `InvocationResponse` or `Result`)

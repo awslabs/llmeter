@@ -11,7 +11,8 @@ from uuid import uuid4
 from upath import UPath as Path
 
 
-@dataclass(slots=True)
+# @dataclass(slots=True)
+@dataclass
 class InvocationResponse:
     """
     A class representing a invocation result.
