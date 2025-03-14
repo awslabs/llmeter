@@ -77,7 +77,7 @@ class Callback(ABC):
         Args:
             path: (Local or Cloud) path where the callback is saved
         """
-        pass
+        raise NotImplementedError("TODO: Callback.save_to_file is not yet implemented!")
 
     @staticmethod
     @final
