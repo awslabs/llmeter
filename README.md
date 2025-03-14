@@ -65,7 +65,7 @@ load_test = LoadTest(
     sequence_of_clients=[1, 5, 20, 50, 100, 500],
 )
 load_test_results = await load_test.run()
-load_test_results.plot_sweep_results()
+load_test_results.plot_results()
 ```
 
 Alternatively, you can use the low-level `llmeter.runner.Runner` class to run and analyze request
@@ -85,10 +85,10 @@ You can generate a collection of standard charts to visualize the result of a lo
 
 ```python
 # Load test results
-from llmeter.experiments import SweepResult
-load_test_result = SweepResult.load("local or S3 path", test_name="Test result")
+from llmeter.experiments import LoadTestResult
+load_test_result = LoadTestResult.load("local or S3 path", test_name="Test result")
 
-figures = load_test_result.plot_sweep_results()
+figures = load_test_result.plot_results()
 ```
 
 | ![Average input tokens](docs/average_input_tokens_clients.png)  |  ![Average output tokens](docs/average_output_tokens_clients.png) |

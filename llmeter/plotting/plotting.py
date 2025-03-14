@@ -28,7 +28,7 @@ except ModuleNotFoundError:
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from llmeter.experiments import SweepResult
+    from llmeter.experiments import LoadTestResult
 
 
 color_sequences = px.colors.sequential
@@ -201,12 +201,12 @@ def boxplot_by_dimension(
     return go.Box(x=x, name=name, **box_kwargs)
 
 
-def stat_clients(sweep_result: SweepResult, stat: str, **scatter_kwargs):
+def stat_clients(load_test_result: LoadTestResult, stat: str, **scatter_kwargs):
     """
     Create a scatter plot trace for a given statistic vs number of clients.
 
     Args:
-        sweep_result (SweepResult): SweepResult object containing the response data
+        load_test_result (LoadTestResults): LoadTestResults object containing the response data
         stat (str): The statistic to plot (e.g. 'failed_requests_rate', 'requests_per_minute')
         **scatter_kwargs: Additional keyword arguments to pass to go.Scatter
 
@@ -214,7 +214,7 @@ def stat_clients(sweep_result: SweepResult, stat: str, **scatter_kwargs):
         plotly.graph_objects.Scatter: Scatter plot trace of the statistic vs number of clients
     """
     results_sorted = [
-        sweep_result.results[k] for k in sorted(sweep_result.results.keys())
+        load_test_result.results[k] for k in sorted(load_test_result.results.keys())
     ]
     ER = [k.stats[stat] for k in results_sorted]
     clients = [k.clients for k in results_sorted]
@@ -223,7 +223,7 @@ def stat_clients(sweep_result: SweepResult, stat: str, **scatter_kwargs):
         "x": clients,
         "y": ER,
         "mode": "lines+markers",
-        "name": sweep_result.test_name,
+        "name": load_test_result.test_name,
         "opacity": 0.5,
         "line": dict(dash="dot"),
     }
@@ -234,12 +234,12 @@ def stat_clients(sweep_result: SweepResult, stat: str, **scatter_kwargs):
     return go.Scatter(**default_kwargs)
 
 
-def error_clients_fig(sweep_result: SweepResult, log_scale=False, **scatter_kwargs):
+def error_clients_fig(load_test_result: LoadTestResult, log_scale=False, **scatter_kwargs):
     """
     Create a figure showing error rate vs number of clients.
 
     Args:
-        sweep_result (SweepResult): SweepResult object containing the response data
+        load_test_result (LoadTestResult): LoadTestResult object containing the response data
         log_scale (bool, optional): Whether to use logarithmic scale for x-axis. Defaults to False.
         **scatter_kwargs: Additional keyword arguments to pass to stat_clients
 
@@ -247,7 +247,7 @@ def error_clients_fig(sweep_result: SweepResult, log_scale=False, **scatter_kwar
         plotly.graph_objects.Figure: Figure showing error rate vs number of clients
     """
     fig = go.Figure()
-    fig.add_trace(stat_clients(sweep_result, "failed_requests_rate", **scatter_kwargs))
+    fig.add_trace(stat_clients(load_test_result, "failed_requests_rate", **scatter_kwargs))
     fig.update_layout(
         title="Error rate vs number of clients",
         xaxis_title="Number of clients",
@@ -261,12 +261,12 @@ def error_clients_fig(sweep_result: SweepResult, log_scale=False, **scatter_kwar
     return fig
 
 
-def rpm_clients_fig(sweep_result: SweepResult, log_scale=False, **scatter_kwargs):
+def rpm_clients_fig(load_test_result: LoadTestResult, log_scale=False, **scatter_kwargs):
     """
     Create a figure showing requests per minute vs number of clients.
 
     Args:
-        sweep_result (SweepResult): SweepResult object containing the response data
+        load_test_result (LoadTestResult): LoadTestResult object containing the response data
         log_scale (bool, optional): Whether to use logarithmic scale for axes. Defaults to False.
         **scatter_kwargs: Additional keyword arguments to pass to stat_clients
 
@@ -274,7 +274,7 @@ def rpm_clients_fig(sweep_result: SweepResult, log_scale=False, **scatter_kwargs
         plotly.graph_objects.Figure: Figure showing requests per minute vs number of clients
     """
     fig = go.Figure()
-    fig.add_trace(stat_clients(sweep_result, "requests_per_minute", **scatter_kwargs))
+    fig.add_trace(stat_clients(load_test_result, "requests_per_minute", **scatter_kwargs))
     fig.update_layout(
         title="Requests per minute vs number of clients",
         xaxis_title="Number of clients",
@@ -291,11 +291,11 @@ def rpm_clients_fig(sweep_result: SweepResult, log_scale=False, **scatter_kwargs
 
 
 def average_input_tokens_clients_fig(
-    sweep_result: SweepResult, log_scale=False, **scatter_kwargs
+    load_test_result: LoadTestResult, log_scale=False, **scatter_kwargs
 ):
     fig = go.Figure()
     fig.add_trace(
-        stat_clients(sweep_result, "average_input_tokens_per_minute", **scatter_kwargs)
+        stat_clients(load_test_result, "average_input_tokens_per_minute", **scatter_kwargs)
     )
     fig.update_layout(
         title="Average input tokens per minute vs number of clients",
@@ -313,11 +313,11 @@ def average_input_tokens_clients_fig(
 
 
 def average_output_tokens_clients_fig(
-    sweep_result: SweepResult, log_scale=False, **scatter_kwargs
+    load_test_result: LoadTestResult, log_scale=False, **scatter_kwargs
 ):
     fig = go.Figure()
     fig.add_trace(
-        stat_clients(sweep_result, "average_output_tokens_per_minute", **scatter_kwargs)
+        stat_clients(load_test_result, "average_output_tokens_per_minute", **scatter_kwargs)
     )
     fig.update_layout(
         title="Average output tokens per minute vs number of clients",
@@ -335,7 +335,7 @@ def average_output_tokens_clients_fig(
 
 
 def latency_clients(
-    sweep_result: SweepResult,
+    load_test_result: LoadTestResult,
     dimension: Literal["time_to_first_token", "time_to_last_token"],
     **box_kwargs,
 ):
@@ -343,7 +343,7 @@ def latency_clients(
     Create a box plot trace showing latency distribution vs number of clients.
 
     Args:
-        results (list[Result]): List of Result objects containing response data
+        load_test_result (LoadTestResult): LoadTestResult object containing the response data
         dimension (Literal["time_to_first_token", "time_to_last_token"]): The latency dimension to plot
         **box_kwargs: Additional keyword arguments to pass to go.Box
 
@@ -351,12 +351,12 @@ def latency_clients(
         plotly.graph_objects.Box: Box plot trace showing latency distribution
 
     Raises:
-        ValueError: If results list is empty or dimension is invalid
+        ValueError: If no valid data points found or dimension is invalid
     """
 
     y_box = []
     x_box = []
-    r = sweep_result.results
+    r = load_test_result.results
     # for result in sorted(results, key=lambda x: x.clients, reverse=False):
     for n_clients in sorted(r.keys()):
         result = r[n_clients]
@@ -381,7 +381,7 @@ def latency_clients(
 
 
 def latency_clients_fig(
-    sweep_result: SweepResult,
+    load_test_result: LoadTestResult,
     dimension: Literal["time_to_first_token", "time_to_last_token"],
     log_scale=False,
     **box_kwargs,
@@ -390,7 +390,7 @@ def latency_clients_fig(
     Create a figure showing latency distribution vs number of clients.
 
     Args:
-        results (list[Result]): List of Result objects containing response data
+        load_test_result (LoadTestResult): LoadTestResult object containing the response data
         dimension (Literal["time_to_first_token", "time_to_last_token"]): The latency dimension to plot
         log_scale (bool, optional): Whether to use logarithmic scale for axes. Defaults to False.
         **box_kwargs: Additional keyword arguments to pass to latency_clients
@@ -405,8 +405,8 @@ def latency_clients_fig(
     try:
         fig = go.Figure()
         if not box_kwargs.get("name"):
-            box_kwargs["name"] = sweep_result.test_name
-        box_trace = latency_clients(sweep_result, dimension, **box_kwargs)
+            box_kwargs["name"] = load_test_result.test_name
+        box_trace = latency_clients(load_test_result, dimension, **box_kwargs)
         fig.add_trace(box_trace)
         fig.update_layout(
             title=f"{dimension.replace('_', ' ').capitalize()} vs number of clients",
@@ -425,16 +425,32 @@ def latency_clients_fig(
         raise ValueError(f"Error creating figure: {str(e)}")
 
 
-def plot_sweep_results(
-    sweep_result: SweepResult,
+def plot_load_test_results(
+    load_test_result: LoadTestResult,
     log_scale=True,
 ):
-    f1 = latency_clients_fig(sweep_result, "time_to_first_token", log_scale=log_scale)
-    f2 = latency_clients_fig(sweep_result, "time_to_last_token", log_scale=log_scale)
-    f3 = rpm_clients_fig(sweep_result, log_scale=log_scale)
-    f4 = error_clients_fig(sweep_result, log_scale=log_scale)
-    f5 = average_input_tokens_clients_fig(sweep_result, log_scale=log_scale)
-    f6 = average_output_tokens_clients_fig(sweep_result, log_scale=log_scale)
+    """
+    Generate a collection of plots visualizing different metrics from a load test result.
+
+    Args:
+        load_test_result (LoadTestResult): The load test result object containing the data to plot
+        log_scale (bool, optional): Whether to use logarithmic scale for the plots. Defaults to True.
+
+    Returns:
+        dict: Dictionary containing the following plots:
+            - time_to_first_token: Figure showing time to first token vs number of clients
+            - time_to_last_token: Figure showing time to last token vs number of clients  
+            - requests_per_minute: Figure showing requests per minute vs number of clients
+            - error_rate: Figure showing error rate vs number of clients
+            - average_input_tokens_clients: Figure showing average input tokens per minute vs clients
+            - average_output_tokens_clients: Figure showing average output tokens per minute vs clients
+    """
+    f1 = latency_clients_fig(load_test_result, "time_to_first_token", log_scale=log_scale)
+    f2 = latency_clients_fig(load_test_result, "time_to_last_token", log_scale=log_scale)
+    f3 = rpm_clients_fig(load_test_result, log_scale=log_scale)
+    f4 = error_clients_fig(load_test_result, log_scale=log_scale)
+    f5 = average_input_tokens_clients_fig(load_test_result, log_scale=log_scale)
+    f6 = average_output_tokens_clients_fig(load_test_result, log_scale=log_scale)
 
     return {
         "time_to_first_token": f1,

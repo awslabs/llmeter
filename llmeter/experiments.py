@@ -15,7 +15,7 @@ from llmeter.callbacks.base import Callback
 from llmeter.results import Result
 
 from .endpoints.base import Endpoint
-from .plotting import plot_heatmap, plot_sweep_results, color_sequences
+from .plotting import plot_heatmap, plot_load_test_results, color_sequences
 from .prompt_utils import CreatePromptCollection
 from .runner import Runner
 from .tokenizers import Tokenizer
@@ -30,16 +30,15 @@ if os.getenv("LLMETER_DISABLE_ALL_PROGRESS_BARS") == "1":
 
 
 @dataclass
-class SweepResult:
+class LoadTestResult:
     results: dict[int, Result]
     test_name: str
     output_path: os.PathLike | str | None = None
 
-    def plot_sweep_results(
+    def plot_results(
         self, show: bool = True, format: Literal["html", "png"] = "html"
     ):
-        # figs = plot_sweep_results([v for _, v in self.results.items()])
-        figs = plot_sweep_results(self)
+        figs = plot_load_test_results(self)
 
         # add individual color sequence for each plot
         c_seqs = [
@@ -54,9 +53,6 @@ class SweepResult:
         for i, (_, f) in enumerate(figs.items()):
             f.update_layout(colorway=c_seqs[i % len(c_seqs)])
 
-        # output_path = (
-        #     Path(self.output_path) / self.test_name if self.output_path else None
-        # )
         output_path = Path(self.output_path)
         if output_path:
             # save figure to the output path
@@ -69,20 +65,23 @@ class SweepResult:
         return figs
 
     @classmethod
-    def load(cls, load_path: Path | str, test_name: str | None = None) -> "SweepResult":
-        """Load sweep results from a directory.
+    def load(cls, load_path: Path | str | None, test_name: str | None = None) -> "LoadTestResult":
+        """Load test results from a directory.
 
         Args:
-            load_path: Directory path containing the sweep results subdirectories
+            load_path: Directory path containing the load test results subdirectories
             test_name: Optional name for the test. If not provided, will use the directory name
 
         Returns:
-            SweepResult: A SweepResult object containing the loaded results
+            LoadTestResult: A LoadTestResult object containing the loaded results
 
         Raises:
-            FileNotFoundError: If load_path does not exist
+            FileNotFoundError: If load_path does not exist or is None/empty
             ValueError: If no results are found in the directory
         """
+        if not load_path:
+            raise FileNotFoundError("Load path cannot be None or empty")
+
         if isinstance(load_path, str):
             load_path = Path(load_path)
 
@@ -94,7 +93,7 @@ class SweepResult:
         if not results:
             raise ValueError(f"No results found in {load_path}")
 
-        return SweepResult(
+        return LoadTestResult(
             results={r.clients: r for r in results},
             test_name=test_name or load_path.name,
             output_path=load_path.parent,
@@ -143,7 +142,7 @@ class LoadTest:
             )
         ]
         # return self._results
-        return SweepResult(
+        return LoadTestResult(
             results={r.clients: r for r in self._results},
             test_name=self._test_name,
             output_path=output_path,
