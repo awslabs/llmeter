@@ -13,9 +13,9 @@ if not TYPE_CHECKING:
     try:
         import plotly.express as px
         import plotly.graph_objects as go
-    except ModuleNotFoundError:
-        px = DeferredError("Please install plotly to use plotting functions")
-        go = DeferredError("Please install plotly to use plotting functions")
+    except ImportError as e:
+        px = DeferredError(e)
+        go = DeferredError(e)
 else:
     import plotly.express as px
     import plotly.graph_objects as go
