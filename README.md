@@ -63,13 +63,33 @@ load_test = LoadTest(
     endpoint=endpoint,
     payload={...},
     sequence_of_clients=[1, 5, 20, 50, 100, 500],
+    output_path="local or S3 path"
 )
 load_test_results = await load_test.run()
 load_test_results.plot_results()
 ```
 
+Where `payload` can be a single dictionary, a list of dictionary, or a path to a JSON Line file that contains a payload for every line.
+
 Alternatively, you can use the low-level `llmeter.runner.Runner` class to run and analyze request
 batches - and build your own custom experiments.
+
+```python
+from llmeter.runner import Runner
+
+endpoint_test = Runner(
+    endpoint,
+    tokenizer=tokenizer,
+    output_path="local or S3 path",
+)
+result = await endpoint_test.run(
+    payload={...},
+    n_requests=3,
+    clients=3,
+)
+
+print(result.stats)
+```
 
 Additional functionality like cost modelling and MLFlow experiment tracking is enabled through `llmeter.callbacks`, and you can write your own callbacks to hook other custom logic into LLMeter test runs.
 
