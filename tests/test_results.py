@@ -8,7 +8,7 @@ import pytest
 from upath import UPath
 
 from llmeter.endpoints.base import InvocationResponse
-from llmeter.results import Result, _get_stats_from_results, _get_test_stats
+from llmeter.results import Result, _get_stats_from_results, _get_run_stats
 
 sample_responses_successful = [
     InvocationResponse(

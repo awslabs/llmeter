@@ -5,7 +5,7 @@ import json
 import logging
 import os
 from dataclasses import asdict, dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from functools import cached_property
 from numbers import Number
 from typing import Any, Sequence
@@ -19,8 +19,22 @@ from .utils import summary_stats_from_list
 logger = logging.getLogger(__name__)
 
 
-def datetime_serializer(obj):
+def utc_datetime_serializer(obj):
+    """
+    Serialize datetime objects to UTC ISO format strings.
+
+    Args:
+        obj: Object to serialize. If datetime, converts to ISO format string with 'Z' timezone.
+             Otherwise returns string representation.
+
+    Returns:
+        str: ISO format string with 'Z' timezone for datetime objects, or string representation
+             for other objects.
+    """
     if isinstance(obj, datetime):
+        # Convert to UTC if timezone is set
+        if obj.tzinfo is not None:
+            obj = obj.astimezone(UTC)
         return obj.isoformat(timespec="seconds").replace("+00:00", "Z")
     return str(obj)
 
@@ -44,7 +58,7 @@ class Result:
     end_time: datetime | None = None
 
     def __str__(self):
-        return json.dumps(self.stats, indent=4, default=datetime_serializer)
+        return json.dumps(self.stats, indent=4, default=utc_datetime_serializer)
 
     def __post_init__(self):
         """Initialize the Result instance."""
@@ -104,7 +118,7 @@ class Result:
         stats_path = output_path / "stats.json"
         with summary_path.open("w") as f, stats_path.open("w") as s:
             f.write(self.to_json(indent=4))
-            s.write(json.dumps(self.stats, indent=4, default=datetime_serializer))
+            s.write(json.dumps(self.stats, indent=4, default=utc_datetime_serializer))
 
         responses_path = output_path / "responses.jsonl"
         if not responses_path.exists():
@@ -117,7 +131,7 @@ class Result:
         summary = {
             k: o for k, o in asdict(self).items() if k not in ["responses", "stats"]
         }
-        return json.dumps(summary, default=datetime_serializer, **kwargs)
+        return json.dumps(summary, default=utc_datetime_serializer, **kwargs)
 
     def to_dict(self, include_responses: bool = False):
         """Return the results as a dictionary."""
@@ -163,7 +177,7 @@ class Result:
                 if key in summary and summary[key] and isinstance(summary[key], str):
                     try:
                         summary[key] = datetime.fromisoformat(
-                            summary[key].replace("Z", "+00:00")
+                            summary[key]
                         )
                     except ValueError:
                         pass

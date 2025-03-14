@@ -232,7 +232,7 @@ class LatencyHeatmap:
         self._results = heatmap_results
         return heatmap_results
 
-    def plot_heatmap(
+    def plot_heatmaps(
         self, n_bins_x: int | None, n_bins_y: int | None, show: bool = True
     ):
         if not self._results:
