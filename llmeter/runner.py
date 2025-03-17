@@ -575,6 +575,13 @@ class Runner(_RunConfig):
         if self.output_path and not kwargs.get("output_path"):
             # Run output path is nested under run name subfolder unless explicitly set:
             run_params["output_path"] = Path(self.output_path) / run_params["run_name"]
+        # Validate that clients parameter is set and is a positive integer
+        clients = run_params.get("clients")
+        if clients is None:
+            print(run_params)
+            raise ValueError("Number of clients must be set")
+        if not isinstance(clients, int) or clients <= 0:
+            raise ValueError("Number of clients must be a positive integer")
 
         return _Run(**run_params)
 
