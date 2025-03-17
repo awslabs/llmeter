@@ -1,9 +1,10 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
+from datetime import datetime, timezone
 from itertools import filterfalse
 from math import isnan
 from statistics import StatisticsError, mean, median, quantiles
-from typing import Sequence
+from typing import Any, Sequence
 
 
 class DeferredError:
@@ -54,7 +55,7 @@ def summary_stats_from_list(
         result = dict(average=mean(clean_data))
         # Rather than always using n=100-based quantiles, we'll adapt between a few specific bases
         # depending on the requested percentiles - and calculate these splits only as needed:
-        qbases = {k: None for k in [4, 10, 100]}
+        q_bases: dict[int, Any] = {k: None for k in [4, 10, 100]}
         for p in percentiles:
             if len(clean_data) == 1:
                 result[f"p{p}"] = clean_data[0]
@@ -62,15 +63,24 @@ def summary_stats_from_list(
                 result[f"p{p}"] = median(clean_data)
             else:
                 try:
-                    qbase = next(k for k in qbases if p % (100 / k) == 0)
+                    q_base = next(k for k in q_bases if p % (100 / k) == 0)
                 except StopIteration as e:
                     raise ValueError(
                         f"Invalid percentile {p} must be a whole number between 1-99"
                     ) from e
-                if qbases[qbase] is None:
-                    qbases[qbase] = quantiles(clean_data, n=qbase)
-                result[f"p{p}"] = qbases[qbase][int(p * qbase / 100) - 1]
+                if q_bases[q_base] is None:
+                    q_bases[q_base] = quantiles(clean_data, n=q_base)
+                result[f"p{p}"] = q_bases[q_base][int(p * q_base / 100) - 1]
         return result
 
     except StatisticsError:
         return {}
+
+
+def now_utc() -> datetime:
+    """Returns the current UTC datetime.
+
+    Returns:
+        datetime: Current UTC datetime object
+    """
+    return datetime.now(timezone.utc)

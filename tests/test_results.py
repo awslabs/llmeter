@@ -8,7 +8,7 @@ import pytest
 from upath import UPath
 
 from llmeter.endpoints.base import InvocationResponse
-from llmeter.results import Result, _get_stats_from_results, _get_test_stats
+from llmeter.results import Result, _get_stats_from_results, _get_run_stats
 
 sample_responses_successful = [
     InvocationResponse(
@@ -47,7 +47,7 @@ def test_get_test_stats():
         n_requests=5,
         total_test_time=100,
     )
-    stats = _get_test_stats(result)
+    stats = _get_run_stats(result)
 
     assert stats["failed_requests"] == 0
     assert stats["failed_requests_rate"] == 0
@@ -62,7 +62,7 @@ def test_get_test_stats():
         n_requests=5,
         total_test_time=100,
     )
-    stats = _get_test_stats(result)
+    stats = _get_run_stats(result)
 
     assert stats["failed_requests"] == 2
     assert pytest.approx(stats["failed_requests_rate"], 0.01) == 0.2
@@ -77,7 +77,7 @@ def test_get_test_stats():
         n_requests=5,
         total_test_time=10,
     )
-    stats = _get_test_stats(result)
+    stats = _get_run_stats(result)
 
     assert stats["failed_requests"] == 5
     assert stats["failed_requests_rate"] == 1
@@ -92,7 +92,7 @@ def test_get_test_stats():
         n_requests=3,
         total_test_time=0,
     )
-    stats = _get_test_stats(result)
+    stats = _get_run_stats(result)
 
     assert stats["failed_requests"] == 0
     assert stats["failed_requests_rate"] == 0

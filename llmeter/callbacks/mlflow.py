@@ -99,6 +99,7 @@ class MlflowCallback(Callback):
                 for k, v in result.stats.items()
                 if k not in self.parameters_names
                 if v is not None
+                if isinstance(v, (int, float))
             },
             step=self.step,
             synchronous=False,

@@ -23,7 +23,7 @@ pip install llmeter
 
 LLMeter also offers extra features that require additional dependencies. Currently these extras include:
 
-- **plotting**: Add methods to generate charts and heatmaps to summarize the results
+- **plotting**: Add methods to generate charts to summarize the results
 - **openai**: Enable testing endpoints offered by OpenAI
 - **litellm**: Enable testing a range of different models through [LiteLLM](https://github.com/BerriAI/litellm)
 - **mlflow**: Enable logging LLMeter experiments to [MLFlow](https://mlflow.org/)
@@ -57,34 +57,105 @@ endpoint = LiteLLM("{provider}/{model_id}")
 You can then run the high-level "experiments" offered by LLMeter:
 
 ```python
-# For example a heatmap of latency by input & output token count:
-from llmeter.experiments import LatencyHeatmap
-latency_heatmap = LatencyHeatmap(
-    endpoint=endpoint,
-    clients=10,
-    source_file="examples/MaryShelleyFrankenstein.txt",
-    ...
-)
-heatmap_results = await latency_heatmap.run()
-latency_heatmap.plot_heatmap()
-
-# ...Or testing how throughput varies with concurrent request count:
+# Testing how throughput varies with concurrent request count:
 from llmeter.experiments import LoadTest
-sweep_test = LoadTest(
+load_test = LoadTest(
     endpoint=endpoint,
     payload={...},
     sequence_of_clients=[1, 5, 20, 50, 100, 500],
+    output_path="local or S3 path"
 )
-sweep_results = await sweep_test.run()
-sweep_test.plot_sweep_results()
+load_test_results = await load_test.run()
+load_test_results.plot_results()
 ```
+
+Where `payload` can be a single dictionary, a list of dictionary, or a path to a JSON Line file that contains a payload for every line.
 
 Alternatively, you can use the low-level `llmeter.runner.Runner` class to run and analyze request
 batches - and build your own custom experiments.
 
+```python
+from llmeter.runner import Runner
+
+endpoint_test = Runner(
+    endpoint,
+    tokenizer=tokenizer,
+    output_path="local or S3 path",
+)
+result = await endpoint_test.run(
+    payload={...},
+    n_requests=3,
+    clients=3,
+)
+
+print(result.stats)
+```
+
 Additional functionality like cost modelling and MLFlow experiment tracking is enabled through `llmeter.callbacks`, and you can write your own callbacks to hook other custom logic into LLMeter test runs.
 
 For more details, check out our selection of end-to-end code examples in the [examples](https://github.com/awslabs/llmeter/tree/main/examples) folder!
+
+## Analyze and compare results
+
+You can analyze the results of a single run or a load test by generating interactive charts. You can find examples in in the [examples](examples) folder.
+
+### Load testing
+
+You can generate a collection of standard charts to visualize the result of a load test:
+
+```python
+# Load test results
+from llmeter.experiments import LoadTestResult
+load_test_result = LoadTestResult.load("local or S3 path", test_name="Test result")
+
+figures = load_test_result.plot_results()
+```
+
+| ![Average input tokens](docs/average_input_tokens_clients.png)  |  ![Average output tokens](docs/average_output_tokens_clients.png) |
+|---|---|
+|![Error rate](docs/error_rate.png)   |  ![Request per minute](docs/requests_per_minute.png) |
+|---|---|
+| ![Time to first token](docs/time_to_first_token.png)| ![Time to last token](docs/time_to_last_token.png)|
+
+You can see how to compare two load test in [Compare load test](<examples/Compare load tests.ipynb>).
+
+### Single Run visualizations
+
+Metrics like _time to first token_ (TTFT) and _time per output token_ (TPOT) are described as distributions. While statistical descriptions of these distributions (median, 90th percentile, average, etc.) are a convenient way to compare them, visualizations provide insights on the endpoint behavior.
+
+#### Boxplot
+
+```python
+import plotly.graph_objects as go
+from llmeter.plotting import boxplot_by_dimension
+
+result = Result.load("local or S3 path")
+
+fig = go.Figure()
+trace = boxplot_by_dimension(result=result, dimension="time_to_first_token")
+fig.add_trace(trace)
+```
+
+Multiple traces can easily be combined into the same figure.
+
+![alt text](docs/boxplots.png)
+
+#### Histograms
+
+```python
+import plotly.graph_objects as go
+from llmeter.plotting import histogram_by_dimension
+
+result = Result.load("local or S3 path")
+
+fig = go.Figure()
+trace = histogram_by_dimension(result=result, dimension="time_to_first_token", xbins={"size":0.02})
+fig.add_trace(trace)
+```
+
+Multiple traces can easily be combined into the same figure.
+
+![alt text](docs/hist.png)
 
 ## Security
 

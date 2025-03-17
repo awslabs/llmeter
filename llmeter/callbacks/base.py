@@ -1,8 +1,9 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
-from abc import ABC, abstractmethod
+
 import os
+from abc import ABC
 from typing import final
 
 from ..endpoints.base import InvocationResponse
@@ -22,15 +23,15 @@ class Callback(ABC):
     a file (by implementing `save_to_file`), and loading back (via `load_from_file`).
     """
 
-    # async def before_invoke(self, payload: dict) -> None:
-    #     """Lifecycle hook called before every `Endpoint.invoke()` request in a Run.
+    async def before_invoke(self, payload: dict) -> None:
+        """Lifecycle hook called before every `Endpoint.invoke()` request in a Run.
 
-    #     Args:
-    #         payload: The payload to be sent to the endpoint.
-    #     Returns:
-    #         None: If you'd like to modify the request `payload`, edit the dictionary in-place.
-    #     """
-    #     pass
+        Args:
+            payload: The payload to be sent to the endpoint.
+        Returns:
+            None: If you'd like to modify the request `payload`, edit the dictionary in-place.
+        """
+        pass
 
     async def after_invoke(self, response: InvocationResponse) -> None:
         """Lifecycle hook called after every `Endpoint.invoke()` request in a Run.
@@ -67,7 +68,6 @@ class Callback(ABC):
         """
         pass
 
-    @abstractmethod
     def save_to_file(self, path: os.PathLike | str) -> None:
         """Save this Callback to file
 
@@ -77,7 +77,7 @@ class Callback(ABC):
         Args:
             path: (Local or Cloud) path where the callback is saved
         """
-        pass
+        raise NotImplementedError("TODO: Callback.save_to_file is not yet implemented!")
 
     @staticmethod
     @final
@@ -97,7 +97,6 @@ class Callback(ABC):
         )
 
     @classmethod
-    @abstractmethod
     def _load_from_file(cls, path: os.PathLike | str) -> Callback:
         """Load this Callback from file
 
@@ -109,4 +108,6 @@ class Callback(ABC):
         Returns:
             callback: The loaded Callback object
         """
-        pass
+        raise NotImplementedError(
+            "TODO: Callback._load_from_file is not yet implemented!"
+        )

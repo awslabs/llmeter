@@ -5,9 +5,10 @@ import json
 import logging
 import os
 from dataclasses import asdict, dataclass
+from datetime import UTC, datetime
 from functools import cached_property
 from numbers import Number
-from typing import Sequence
+from typing import Any, Sequence
 
 import jmespath
 from upath import UPath as Path
@@ -16,6 +17,26 @@ from .endpoints import InvocationResponse
 from .utils import summary_stats_from_list
 
 logger = logging.getLogger(__name__)
+
+
+def utc_datetime_serializer(obj):
+    """
+    Serialize datetime objects to UTC ISO format strings.
+
+    Args:
+        obj: Object to serialize. If datetime, converts to ISO format string with 'Z' timezone.
+             Otherwise returns string representation.
+
+    Returns:
+        str: ISO format string with 'Z' timezone for datetime objects, or string representation
+             for other objects.
+    """
+    if isinstance(obj, datetime):
+        # Convert to UTC if timezone is set
+        if obj.tzinfo is not None:
+            obj = obj.astimezone(UTC)
+        return obj.isoformat(timespec="seconds").replace("+00:00", "Z")
+    return str(obj)
 
 
 @dataclass
@@ -33,11 +54,11 @@ class Result:
     provider: str | None = None
     run_name: str | None = None
     run_description: str | None = None
-    start_time: float | None = None
-    end_time: float | None = None
+    start_time: datetime | None = None
+    end_time: datetime | None = None
 
     def __str__(self):
-        return json.dumps(self.stats, indent=4, default=str)
+        return json.dumps(self.stats, indent=4, default=utc_datetime_serializer)
 
     def __post_init__(self):
         """Initialize the Result instance."""
@@ -97,7 +118,7 @@ class Result:
         stats_path = output_path / "stats.json"
         with summary_path.open("w") as f, stats_path.open("w") as s:
             f.write(self.to_json(indent=4))
-            s.write(json.dumps(self.stats, indent=4, default=str))
+            s.write(json.dumps(self.stats, indent=4, default=utc_datetime_serializer))
 
         responses_path = output_path / "responses.jsonl"
         if not responses_path.exists():
@@ -110,7 +131,7 @@ class Result:
         summary = {
             k: o for k, o in asdict(self).items() if k not in ["responses", "stats"]
         }
-        return json.dumps(summary, default=str, **kwargs)
+        return json.dumps(summary, default=utc_datetime_serializer, **kwargs)
 
     def to_dict(self, include_responses: bool = False):
         """Return the results as a dictionary."""
@@ -151,6 +172,15 @@ class Result:
         with open(responses_path, "r") as f, summary_path.open("r") as g:
             responses = [InvocationResponse(**json.loads(line)) for line in f if line]
             summary = json.load(g)
+            # Convert datetime strings back to datetime objects
+            for key in ["start_time", "end_time"]:
+                if key in summary and summary[key] and isinstance(summary[key], str):
+                    try:
+                        summary[key] = datetime.fromisoformat(
+                            summary[key]
+                        )
+                    except ValueError:
+                        pass
         return cls(responses=responses, **summary)
 
     @cached_property
@@ -186,7 +216,7 @@ class Result:
         )
         return {
             **self.to_dict(),
-            **_get_test_stats(self),
+            **_get_run_stats(self),
             **{f"{k}-{j}": v for k, o in results_stats.items() for j, v in o.items()},
         }
 
@@ -219,10 +249,63 @@ class Result:
     def __repr__(self) -> str:
         return self.to_json()
 
+    def get_dimension(
+        self,
+        dimension: str,
+        filter_dimension: str | None = None,
+        filter_value: Any = None,
+    ):
+        """
+        Get the values of a specific dimension from the responses.
+
+        Args:
+            dimension (str): The name of the dimension to retrieve.
+            filter_dimension (str, optional): Name of dimension to filter on. Defaults to None.
+            filter_value (any, optional): Value to match for the filter dimension. Defaults to None.
+
+        Returns:
+            list: A list of values for the specified dimension across all responses.
+
+        Raises:
+            ValueError: If the specified dimension is not found in any response.
+        """
+        if filter_dimension is not None:
+            values = [
+                getattr(response, dimension)
+                for response in self.responses
+                if getattr(response, filter_dimension) == filter_value
+            ]
+        else:
+            values = [getattr(response, dimension) for response in self.responses]
+
+        if not any(values):
+            # raise ValueError(f"Dimension {dimension} not found in any response")
+            logger.warning(f"Dimension {dimension} not found in any response")
+        return values
+
 
 def _get_stats_from_results(
     results: Result | Sequence[InvocationResponse], metrics: Sequence[str]
 ):
+    """
+    Calculate statistics for specified metrics from a collection of experiment results.
+
+    Args:
+        results (Result | Sequence[InvocationResponse]): Either a Result object containing
+            a run Result or a sequence of InvocationResponse objects.
+        metrics (Sequence[str]): A sequence of metric names to calculate statistics for.
+            These metrics should be attributes available in the InvocationResponse objects.
+
+    Returns:
+        dict: A dictionary containing calculated statistics for each specified metric.
+            The dictionary is structured as {metric_name: metric_statistics}.
+
+    Example:
+        >>> results = Result(responses=[...])  # Result object with responses
+        >>> metrics = ["time_to_first_token", "time_to_last_token"]
+        >>> stats = _get_stats_from_results(results, metrics)
+    """
+
     stats = {}
     data = [
         (p if isinstance(p, dict) else p.to_dict())
@@ -234,7 +317,32 @@ def _get_stats_from_results(
     return stats
 
 
-def _get_test_stats(results: Result):
+def _get_run_stats(results: Result):
+    """
+    Calculate key performance statistics from a test run Result object.
+
+    This function processes the test results to compute various performance metrics
+    including failure rates and throughput measurements.
+
+    Args:
+        results (Result): A Result object containing test responses and metadata.
+            Expected to have the following attributes:
+            - responses: List of response objects with error information
+            - total_requests: Total number of requests made
+            - total_test_time: Total duration of the test run
+
+    Returns:
+        Dict[str, float]: A dictionary containing the following statistics:
+            - 'failed_requests': Number of failed requests
+            - 'failed_requests_rate': Ratio of failed requests to total requests
+            - 'requests_per_minute': Average number of requests processed per minute
+
+    Note:
+        - Failed requests are determined by the presence of an error field in responses
+        - If total_requests or total_test_time is zero, related rates will be None
+        - Uses jmespath for JSON path searching in response data
+    """
+
     stats = {}
     data = [p.to_dict() for p in results.responses]
     stats["failed_requests"] = len(jmespath.search("[:].error", data=data))
@@ -244,5 +352,19 @@ def _get_test_stats(results: Result):
     stats["requests_per_minute"] = (
         results.total_test_time
         and results.total_requests / results.total_test_time * 60
+    )
+    stats["total_input_tokens"] = sum(
+        jmespath.search("[:].num_tokens_input", data=data)
+    )
+    stats["total_output_tokens"] = sum(
+        jmespath.search("[:].num_tokens_output", data=data)
+    )
+    stats["average_input_tokens_per_minute"] = (
+        results.total_test_time
+        and stats["total_input_tokens"] / results.total_test_time * 60
+    )
+    stats["average_output_tokens_per_minute"] = (
+        results.total_test_time
+        and stats["total_output_tokens"] / results.total_test_time * 60
     )
     return stats

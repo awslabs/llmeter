@@ -10,6 +10,7 @@ import os
 import random
 import time
 from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
 from dataclasses import InitVar, asdict, dataclass, fields, replace
 from datetime import datetime
 from itertools import cycle
@@ -18,6 +19,8 @@ from uuid import uuid4
 
 from tqdm.auto import tqdm, trange
 from upath import UPath as Path
+
+from llmeter.utils import now_utc
 
 if TYPE_CHECKING:
     # Avoid circular import: We only need typing for Callback
@@ -49,7 +52,7 @@ class _RunConfig:
     """
 
     endpoint: Endpoint | dict | None = None
-    output_path: Path | None = None
+    output_path: str | Path | None = None
     tokenizer: Tokenizer | Any | None = None
     clients: int = 1
     n_requests: int | None = None
@@ -172,6 +175,24 @@ class _Run(_RunConfig):
         self._n_requests = self.n_requests or len(self.payload)
 
     @staticmethod
+    async def _compute_time_per_output_token(response: InvocationResponse):
+        """
+        Compute the time per output token for the given response.
+
+        Args:
+            response (InvocationResponse): The response to compute time per output token for.
+        """
+        if response.time_per_output_token is None:
+            if (
+                response.time_to_last_token
+                and response.num_tokens_output
+                and response.time_to_first_token
+            ):
+                response.time_per_output_token = (
+                    response.time_to_last_token - response.time_to_first_token
+                ) / (response.num_tokens_output - 1)
+
+    @staticmethod
     async def _update_token_counts(tokenizer: Tokenizer, response: InvocationResponse):
         """
         Update the token counts for the given response.
@@ -179,10 +200,13 @@ class _Run(_RunConfig):
         Args:
             response (InvocationResponse): The response to update token counts for.
         """
+        if response.error is not None:
+            return
+
         if response.num_tokens_input is None:
             text = response.input_prompt
             if text is None:
-                response.num_tokens_input = 0
+                response.num_tokens_input = None
             if not isinstance(text, str):
                 try:
                     text = str(text)
@@ -193,7 +217,7 @@ class _Run(_RunConfig):
         if response.num_tokens_output is None:
             text = response.response_text
             if text is None:
-                response.num_tokens_output = 0
+                response.num_tokens_output = None
             if not isinstance(text, str):
                 try:
                     text = str(text)
@@ -222,6 +246,7 @@ class _Run(_RunConfig):
             logger.debug(f"Got {response.id} from queue")
 
             await self._update_token_counts(self._tokenizer, response)
+            await self._compute_time_per_output_token(response)
             if self.callbacks is not None:
                 [await cb.after_invoke(response) for cb in self.callbacks]
 
@@ -281,14 +306,9 @@ class _Run(_RunConfig):
             ),
         ):
             try:
-                # before_invoke callback implementations may modify the payload
-                # so we need to make a copy to avoid side effects
-                # this callback invocation is not async, so it will affect the overall timing estimate
-
-                # if self.callbacks is not None:
-                #     p = p.copy()
-                #     [k.before_invoke(p) for k in self.callbacks]
+                p = asyncio.run(process_before_invoke_callbacks(self.callbacks, p))
                 response = self._endpoint.invoke(p)
+
             except Exception as e:
                 logger.exception(f"Error with invocation with payload {p}: {e}")
                 response = InvocationResponse.error_output(
@@ -403,7 +423,7 @@ class _Run(_RunConfig):
             total_requests=self._n_requests * self.clients,
             clients=self.clients,
             n_requests=self._n_requests,
-            output_path=self.output_path,
+            output_path=self.output_path,  # type: ignore
             model_id=self._endpoint.model_id,
             provider=self._endpoint.provider,
             endpoint_name=self._endpoint.endpoint_name,
@@ -431,18 +451,20 @@ class _Run(_RunConfig):
         )
 
         try:
+            run_start_time = now_utc()
             _, (total_test_time, start_time, end_time) = await asyncio.gather(
                 self._process_results_from_q(
-                    output_path=self.output_path / "responses.jsonl"
+                    output_path=Path(self.output_path) / "responses.jsonl"
                     if self.output_path
                     else None,
                 ),
                 self._invoke_n_c(
-                    payload=self.payload, # type: ignore
+                    payload=self.payload,  # type: ignore
                     n_requests=self._n_requests,
                     clients=self.clients,
                 ),
             )
+            run_end_time = now_utc()
 
         except asyncio.CancelledError:
             logger.error(
@@ -457,8 +479,8 @@ class _Run(_RunConfig):
             result,
             responses=self._responses,
             total_test_time=total_test_time,
-            start_time=start_time,
-            end_time=end_time,
+            start_time=run_start_time,
+            end_time=run_end_time,
         )
 
         if self.callbacks is not None:
@@ -468,6 +490,26 @@ class _Run(_RunConfig):
             result.save()
 
         return result
+
+
+async def process_before_invoke_callbacks(
+    callbacks: list[Callback] | None, payload: dict
+) -> dict:
+    """
+    Process the `before_run` callbacks for a Run.
+
+    This method is expected to be called *exactly once* after the _Run object is created.
+    Attempting to re-use a _Run object may result in undefined behavior.
+
+    Args:
+        callbacks (list[Callback]): The list of callbacks to process.
+    """
+    if callbacks is not None:
+        p = deepcopy(payload)
+
+        [await cb.before_invoke(p) for cb in callbacks]
+        return p
+    return payload
 
 
 @dataclass
@@ -532,7 +574,14 @@ class Runner(_RunConfig):
             run_params["run_name"] = f"{datetime.now():%Y%m%d-%H%M}"
         if self.output_path and not kwargs.get("output_path"):
             # Run output path is nested under run name subfolder unless explicitly set:
-            run_params["output_path"] = self.output_path / run_params["run_name"]
+            run_params["output_path"] = Path(self.output_path) / run_params["run_name"]
+        # Validate that clients parameter is set and is a positive integer
+        clients = run_params.get("clients")
+        if clients is None:
+            print(run_params)
+            raise ValueError("Number of clients must be set")
+        if not isinstance(clients, int) or clients <= 0:
+            raise ValueError("Number of clients must be a positive integer")
 
         return _Run(**run_params)
 
@@ -623,3 +672,15 @@ class Runner(_RunConfig):
         assert isinstance(run.payload, list)
         assert isinstance(run.run_name, str)
         return await run._run()
+
+    def add_callback(self, callback: Callback):
+        """
+        Add a callback to the runner's list of callbacks.
+
+        Args:
+            callback (Callback): The callback to be added.
+        """
+        if self.callbacks is None:
+            self.callbacks = [callback]
+        else:
+            self.callbacks.append(callback)

@@ -6,18 +6,19 @@ import os
 from dataclasses import dataclass, field
 from datetime import datetime
 from math import ceil
-from typing import Callable
+from typing import Callable, Literal
 
-from tokenizers import Tokenizer
 from tqdm.auto import tqdm
 from upath import UPath as Path
 
 from llmeter.callbacks.base import Callback
+from llmeter.results import Result
 
 from .endpoints.base import Endpoint
-from .plotting import plot_heatmap, plot_sweep_results
+from .plotting import plot_heatmap, plot_load_test_results, color_sequences
 from .prompt_utils import CreatePromptCollection
 from .runner import Runner
+from .tokenizers import Tokenizer
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +27,77 @@ _disable_tqdm = False
 if os.getenv("LLMETER_DISABLE_ALL_PROGRESS_BARS") == "1":
     logger.info("Disabling tqdm progress bars")
     _disable_tqdm = True
+
+
+@dataclass
+class LoadTestResult:
+    results: dict[int, Result]
+    test_name: str
+    output_path: os.PathLike | str | None = None
+
+    def plot_results(
+        self, show: bool = True, format: Literal["html", "png"] = "html"
+    ):
+        figs = plot_load_test_results(self)
+
+        # add individual color sequence for each plot
+        c_seqs = [
+            color_sequences.Bluered,
+            color_sequences.Turbo,
+            color_sequences.Sunsetdark_r,
+            color_sequences.Blackbody,
+            color_sequences.Viridis,
+            color_sequences.Plasma,
+        ]
+
+        for i, (_, f) in enumerate(figs.items()):
+            f.update_layout(colorway=c_seqs[i % len(c_seqs)])
+
+        output_path = Path(self.output_path)
+        if output_path:
+            # save figure to the output path
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            for k, f in figs.items():
+                f.write_html(output_path / f"{k}.{format}")
+
+        if show:
+            [f.show() for _, f in figs.items()]
+        return figs
+
+    @classmethod
+    def load(cls, load_path: Path | str | None, test_name: str | None = None) -> "LoadTestResult":
+        """Load test results from a directory.
+
+        Args:
+            load_path: Directory path containing the load test results subdirectories
+            test_name: Optional name for the test. If not provided, will use the directory name
+
+        Returns:
+            LoadTestResult: A LoadTestResult object containing the loaded results
+
+        Raises:
+            FileNotFoundError: If load_path does not exist or is None/empty
+            ValueError: If no results are found in the directory
+        """
+        if not load_path:
+            raise FileNotFoundError("Load path cannot be None or empty")
+
+        if isinstance(load_path, str):
+            load_path = Path(load_path)
+
+        if not load_path.exists():
+            raise FileNotFoundError(f"Load path {load_path} does not exist")
+
+        results = [Result.load(x) for x in load_path.iterdir() if x.is_dir()]
+
+        if not results:
+            raise ValueError(f"No results found in {load_path}")
+
+        return LoadTestResult(
+            results={r.clients: r for r in results},
+            test_name=test_name or load_path.name,
+            output_path=load_path.parent,
+        )
 
 
 @dataclass
@@ -41,7 +113,6 @@ class LoadTest:
     callbacks: list[Callback] | None = None
 
     def __post_init__(self) -> None:
-        self._runner = Runner(endpoint=self.endpoint, tokenizer=self.tokenizer)  # type: ignore
         self._test_name = self.test_name or f"{datetime.now():%Y%m%d-%H%M}"
 
     def _get_n_requests(self, clients):
@@ -54,12 +125,15 @@ class LoadTest:
             output_path = Path(output_path or self.output_path) / self._test_name
         except Exception:
             output_path = None
+        _runner = Runner(
+            endpoint=self.endpoint, tokenizer=self.tokenizer, output_path=output_path
+        )
+
         self._results = [
-            await self._runner.run(
+            await _runner.run(
                 payload=self.payload,
                 clients=c,
                 n_requests=self._get_n_requests(c),
-                output_path=output_path,
                 run_name=f"{c:05.0f}-clients",
                 callbacks=self.callbacks,
             )
@@ -67,16 +141,11 @@ class LoadTest:
                 self.sequence_of_clients, desc="Configurations", disable=_disable_tqdm
             )
         ]
-        return self._results
-
-    def plot_sweep_results(self):
-        if not self._results:
-            raise ValueError("No results to plot")
-        return plot_sweep_results(
-            self._results,
-            output_path=Path(self.output_path) / self._test_name
-            if self.output_path
-            else None,
+        # return self._results
+        return LoadTestResult(
+            results={r.clients: r for r in self._results},
+            test_name=self._test_name,
+            output_path=output_path,
         )
 
 
@@ -146,7 +215,7 @@ class LatencyHeatmap:
 
         self._runner = Runner(
             endpoint=self.endpoint,
-            output_path=self.output_path,
+            output_path=Path(self.output_path),
             tokenizer=self.tokenizer,
         )
 
@@ -158,17 +227,36 @@ class LatencyHeatmap:
             * len(self.output_lengths)
             * self.requests_per_combination
             // self.clients,
-            output_path=output_path or self.output_path,
+            output_path=Path(output_path) or self.output_path,
         )
         self._results = heatmap_results
         return heatmap_results
 
-    def plot_heatmap(self):
+    def plot_heatmaps(
+        self, n_bins_x: int | None, n_bins_y: int | None, show: bool = True
+    ):
         if not self._results:
             raise ValueError("No results to plot")
-        return plot_heatmap(
+        f1 = plot_heatmap(
             self._results,
-            bins_input_tokens=len(self.input_lengths),
-            bins_output_tokens=len(self.output_lengths),
-            output_path=self._results.output_path,
+            "time_to_first_token",
+            n_bins_x=n_bins_x,
+            n_bins_y=n_bins_y,
+            # output_path=self._results.output_path,
+            show_scatter=True,
         )
+
+        f2 = plot_heatmap(
+            self._results,
+            "time_to_last_token",
+            n_bins_x=n_bins_x,
+            n_bins_y=n_bins_y,
+            # output_path=self._results.output_path,
+            show_scatter=True,
+        )
+
+        if show:
+            f1.show()
+            f2.show()
+
+        return f1, f2
