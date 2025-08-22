@@ -176,9 +176,7 @@ class Result:
             for key in ["start_time", "end_time"]:
                 if key in summary and summary[key] and isinstance(summary[key], str):
                     try:
-                        summary[key] = datetime.fromisoformat(
-                            summary[key]
-                        )
+                        summary[key] = datetime.fromisoformat(summary[key])
                     except ValueError:
                         pass
         return cls(responses=responses, **summary)
