@@ -51,8 +51,8 @@ class LoadTestResult:
         for i, (_, f) in enumerate(figs.items()):
             f.update_layout(colorway=c_seqs[i % len(c_seqs)])
 
-        output_path = Path(self.output_path)
-        if output_path:
+        if self.output_path is not None:
+            output_path = Path(self.output_path)
             # save figure to the output path
             output_path.parent.mkdir(parents=True, exist_ok=True)
             for k, f in figs.items():
@@ -137,6 +137,7 @@ class LoadTest:
                 n_requests=self._get_n_requests(c),
                 run_name=f"{c:05.0f}-clients",
                 callbacks=self.callbacks,
+                output_path=output_path,
             )
             for c in tqdm(
                 self.sequence_of_clients, desc="Configurations", disable=_disable_tqdm
@@ -216,11 +217,16 @@ class LatencyHeatmap:
 
         self._runner = Runner(
             endpoint=self.endpoint,
-            output_path=Path(self.output_path),
+            output_path=Path(self.output_path) if self.output_path is not None else None,
             tokenizer=self.tokenizer,
         )
 
     async def run(self, output_path=None):
+        # Handle None output_path properly
+        final_output_path = output_path or self.output_path
+        if final_output_path is not None:
+            final_output_path = Path(final_output_path)
+        
         heatmap_results = await self._runner.run(
             payload=self.payload,
             clients=self.clients,
@@ -228,7 +234,7 @@ class LatencyHeatmap:
             * len(self.output_lengths)
             * self.requests_per_combination
             // self.clients,
-            output_path=Path(output_path) or self.output_path,
+            output_path=final_output_path,
         )
         self._results = heatmap_results
         return heatmap_results

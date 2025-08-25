@@ -24,7 +24,12 @@ class DeferredError:
     """
 
     def __init__(self, exception):
-        self.exc = exception
+        # Ensure the exception is a BaseException instance
+        if isinstance(exception, BaseException):
+            self.exc = exception
+        else:
+            # If it's not a BaseException, wrap it in an ImportError
+            self.exc = ImportError(str(exception))
 
     def __getattr__(self, name):
         """Called by Python interpreter before using any method or property on the object.
