@@ -2,6 +2,9 @@
 examples/outputs/
 test_output/
 
+# Test files generated during testing
+test_file.json*
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

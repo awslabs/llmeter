@@ -115,16 +115,16 @@ class LiteLLMStreaming(LiteLLMBase):
     def invoke(self, payload, **kwargs):
         # Make a copy of payload to avoid modifying the original
         payload_copy = payload.copy()
-        
+
         # Create a clean kwargs dict without conflicting parameters
         clean_kwargs = {}
         for key, value in kwargs.items():
             if key not in ["stream", "stream_options"]:
                 clean_kwargs[key] = value
-        
+
         # Ensure streaming is enabled
         payload_copy["stream"] = True
-        
+
         # Handle stream_options - merge if exists in kwargs, otherwise set default
         if "stream_options" in kwargs:
             existing_options = kwargs.get("stream_options", {})
@@ -138,7 +138,9 @@ class LiteLLMStreaming(LiteLLMBase):
 
         try:
             start_t = time.perf_counter()
-            response = completion(model=self.litellm_model, **payload_copy, **clean_kwargs)
+            response = completion(
+                model=self.litellm_model, **payload_copy, **clean_kwargs
+            )
         except Exception as e:
             logger.exception(e)
             response = InvocationResponse.error_output(
@@ -161,20 +163,20 @@ class LiteLLMStreaming(LiteLLMBase):
         time_to_first_token = None
         output_text = ""
         id = None
-        
+
         for chunk in client_response:
             content = chunk.choices[0].delta.content or ""  # type: ignore
             output_text += content
-            
+
             # Record time to first token only when we get actual content
             if time_flag and content:
                 time_to_first_token = time.perf_counter() - start_t
                 time_flag = False
-            
+
             # Always capture the ID from the first chunk
             if id is None:
                 id = chunk.id
-                
+
             try:
                 usage = chunk.usage  # type: ignore
             except AttributeError:

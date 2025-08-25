@@ -332,9 +332,6 @@ class TestBedrock:
         assert result.num_tokens_input is None
         assert result.num_tokens_output is None
 
-
-
-
     def test__parse_converse_response_invalid_output_structure(self):
         """
         Test _parse_converse_response with an invalid 'output' structure.
@@ -349,7 +346,6 @@ class TestBedrock:
         assert isinstance(result, InvocationResponse)
         assert result.error is not None
         assert "missing required field" in str(result.error).lower()
-
 
     def test__parse_converse_response_invalid_usage_type(self):
         """
@@ -579,7 +575,6 @@ class TestBedrock:
         with pytest.raises(ValueError):
             BedrockBase.create_payload("test", max_tokens=-1)
 
-
     def test_create_payload_list_with_non_string(self):
         """
         Test create_payload with a list containing non-string elements.
@@ -696,7 +691,7 @@ class TestBedrock:
         assert result.error == "API error"
         assert result.input_payload == {
             "messages": [{"role": "user", "content": [{"text": "Hello"}]}],
-            "modelId": "test_model", 
+            "modelId": "test_model",
             "inferenceConfig": {},
         }
 
@@ -715,7 +710,6 @@ class TestBedrock:
         assert isinstance(response, InvocationResponse)
         assert response.error is not None
         assert "generic error" in str(response.error).lower()
-
 
     def test_invoke_incorrect_payload_format(self):
         """

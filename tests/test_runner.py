@@ -42,7 +42,9 @@ def mock_tokenizer():
 
 @pytest.fixture
 def runner(mock_endpoint: MagicMock, mock_tokenizer: MagicMock):
-    with patch.object(Runner, '_count_tokens_no_wait', create=True) as mock_count_tokens:
+    with patch.object(
+        Runner, "_count_tokens_no_wait", create=True
+    ) as mock_count_tokens:
         mock_count_tokens.return_value = 3
         mock_runner = Runner(endpoint=mock_endpoint, tokenizer=mock_tokenizer)
         return mock_runner
@@ -61,23 +63,25 @@ def run(mock_endpoint: MagicMock, mock_tokenizer: MagicMock):
         run_name="test_run",
         run_description=None,
         timeout=60,
-        callbacks=None
+        callbacks=None,
     )
     mock_run._responses = []
     mock_run._progress_bar = MagicMock()
     mock_run._queue = AsyncMock()
     mock_run._queue.task_done = MagicMock()
-    
+
     # Mock the _invoke_n_c method to return a simple result
     async def mock_invoke_n_c(payload, n_requests, clients):
         return 1.0, [], []
+
     mock_run._invoke_n_c = mock_invoke_n_c
-    
+
     # Mock the _process_results_from_q method
     async def mock_process_results_from_q(output_path=None):
         pass
+
     mock_run._process_results_from_q = mock_process_results_from_q
-    
+
     return mock_run
 
 
@@ -104,7 +108,7 @@ async def test_count_tokens_from_q(run: _Run):
         num_tokens_input=5,
         num_tokens_output=5,
     )
-    
+
     # Directly add response to simulate the queue processing
     run._responses.append(response)
 
@@ -143,8 +147,12 @@ async def test_run(runner: Runner):
 @pytest.mark.asyncio
 async def test_invoke_n_no_wait(run: _Run):
     # Mock the endpoint to return specific responses
-    response1 = InvocationResponse(id="1", input_prompt="test1", response_text="response1")
-    response2 = InvocationResponse(id="2", input_prompt="test2", response_text="response2")
+    response1 = InvocationResponse(
+        id="1", input_prompt="test1", response_text="response1"
+    )
+    response2 = InvocationResponse(
+        id="2", input_prompt="test2", response_text="response2"
+    )
     run._endpoint.invoke.side_effect = [response1, response2]
 
     # Mock the queue and callbacks to avoid asyncio.run() issues
@@ -173,7 +181,7 @@ async def test_invoke_n_c(run: _Run):
             InvocationResponse(id="2", input_prompt="test2", response_text="response2"),
         ]
         return 1.5, responses, []  # total_time, responses, errors
-    
+
     # Replace the fixture mock with our test-specific mock
     run._invoke_n_c = mock_invoke_n_c
 
@@ -239,8 +247,11 @@ async def test_run_callback_triggered(run: _Run):
 
     # Create a mock result with responses
     from llmeter.results import Result
+
     mock_result = Result(
-        responses=[InvocationResponse(id="1", input_prompt="test", response_text="response")],
+        responses=[
+            InvocationResponse(id="1", input_prompt="test", response_text="response")
+        ],
         total_requests=1,
         clients=1,
         n_requests=1,
@@ -250,7 +261,7 @@ async def test_run_callback_triggered(run: _Run):
         total_test_time=1.0,
         endpoint_name="test_endpoint",
         model_id="test_model",
-        provider="test_provider"
+        provider="test_provider",
     )
 
     # Override the _run method to return our mock result and trigger callbacks
@@ -497,11 +508,13 @@ def test_prepare_run_combinations(
     output_path: None | Literal["/tmp/output"],
     run_name: None | Literal["test_run"],
     run_description: None | Literal["Test description"] | Literal["File input test"],
+    tmp_path: Path,
     callbacks=[],
 ):
     if payload == "test_file.jsonl":
-        payload_file = Path(payload)
+        payload_file = tmp_path / payload
         payload_file.write_text('{"prompt": "test1"}\n{"prompt": "test2"}')
+        payload = str(payload_file)
 
     run = runner._prepare_run(
         payload=payload,
@@ -623,7 +636,7 @@ async def test_count_tokens_from_q_different_scenarios(run: _Run):
         num_tokens_input=5,
         num_tokens_output=5,
     )
-    
+
     # Directly add responses to simulate the queue processing
     run._responses.extend([response1, response2])
 
@@ -693,8 +706,14 @@ def test_prepare_run_more_edge_cases(
     output_path: None | Literal["/tmp/output"],
     run_name: None | Literal["custom_run"],
     run_description: None | Literal["Custom description"],
+    tmp_path: Path,
     callbacks=[],
 ):
+    if payload == "test_file.jsonl":
+        payload_file = tmp_path / payload
+        payload_file.write_text('{"prompt": "test1"}\n{"prompt": "test2"}')
+        payload = str(payload_file)
+        
     run_config = runner._prepare_run(
         payload=payload,
         n_requests=n_requests,
@@ -924,8 +943,12 @@ async def test_count_tokens_from_q_with_custom_output_path(run: _Run, tmp_path: 
     custom_output_path.mkdir(parents=True, exist_ok=True)
 
     # Directly add responses to simulate the queue processing
-    response1 = InvocationResponse(id="1", input_prompt="test1", response_text="response1")
-    response2 = InvocationResponse(id="2", input_prompt="test2", response_text="response2")
+    response1 = InvocationResponse(
+        id="1", input_prompt="test1", response_text="response1"
+    )
+    response2 = InvocationResponse(
+        id="2", input_prompt="test2", response_text="response2"
+    )
     run._responses.extend([response1, response2])
 
     # Create the output file to simulate the process
