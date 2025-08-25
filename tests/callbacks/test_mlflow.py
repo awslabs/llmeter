@@ -28,7 +28,7 @@ def sample_result():
 
 @pytest.fixture
 def mlflow_callback():
-    with patch('llmeter.callbacks.mlflow.mlflow') as mock_mlflow:
+    with patch("llmeter.callbacks.mlflow.mlflow") as mock_mlflow:
         mock_mlflow.__version__ = "2.0.0"
         callback = MlflowCallback(step=1)
         yield callback
@@ -36,7 +36,7 @@ def mlflow_callback():
 
 @pytest.fixture
 def mlflow_callback_nested():
-    with patch('llmeter.callbacks.mlflow.mlflow') as mock_mlflow:
+    with patch("llmeter.callbacks.mlflow.mlflow") as mock_mlflow:
         mock_mlflow.__version__ = "2.0.0"
         callback = MlflowCallback(step=1, nested=True)
         yield callback
@@ -90,7 +90,9 @@ async def test_log_llmeter_run(mlflow_callback, sample_result):
 async def test_log_nested_run(mlflow_callback_nested, sample_result):
     with patch("llmeter.callbacks.mlflow.mlflow.start_run") as mock_start_run, patch(
         "llmeter.callbacks.mlflow.mlflow.log_params"
-    ) as mock_log_params, patch("llmeter.callbacks.mlflow.mlflow.log_metrics") as mock_log_metrics:
+    ) as mock_log_params, patch(
+        "llmeter.callbacks.mlflow.mlflow.log_metrics"
+    ) as mock_log_metrics:
         mock_context = MagicMock()
         mock_start_run.return_value.__enter__.return_value = mock_context
 
@@ -123,15 +125,20 @@ def test_initialization():
     # Test that the ImportError is raised correctly when mlflow is not available
     # We need to patch the mlflow import to simulate it not being available
     from llmeter.utils import DeferredError
-    
-    with patch('llmeter.callbacks.mlflow.mlflow', DeferredError("Please install mlflow (or mlflow-skinny) to use the MlflowCallback")):
+
+    with patch(
+        "llmeter.callbacks.mlflow.mlflow",
+        DeferredError(
+            "Please install mlflow (or mlflow-skinny) to use the MlflowCallback"
+        ),
+    ):
         with pytest.raises(ImportError, match="Please install mlflow"):
             MlflowCallback(step=5, nested=True)
 
 
 def test_initialization_with_mlflow():
     """Test that MlflowCallback initializes correctly when mlflow is available."""
-    with patch('llmeter.callbacks.mlflow.mlflow') as mock_mlflow:
+    with patch("llmeter.callbacks.mlflow.mlflow") as mock_mlflow:
         mock_mlflow.__version__ = "2.0.0"
         callback = MlflowCallback(step=5, nested=True)
         assert callback.step == 5

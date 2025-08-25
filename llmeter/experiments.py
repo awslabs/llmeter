@@ -66,7 +66,9 @@ class LoadTestResult:
         return figs
 
     @classmethod
-    def load(cls, load_path: Path | str | None, test_name: str | None = None) -> "LoadTestResult":
+    def load(
+        cls, load_path: Path | str | None, test_name: str | None = None
+    ) -> "LoadTestResult":
         """Load test results from a directory.
 
         Args:
@@ -217,7 +219,9 @@ class LatencyHeatmap:
 
         self._runner = Runner(
             endpoint=self.endpoint,
-            output_path=Path(self.output_path) if self.output_path is not None else None,
+            output_path=Path(self.output_path)
+            if self.output_path is not None
+            else None,
             tokenizer=self.tokenizer,
         )
 
@@ -226,7 +230,7 @@ class LatencyHeatmap:
         final_output_path = output_path or self.output_path
         if final_output_path is not None:
             final_output_path = Path(final_output_path)
-        
+
         heatmap_results = await self._runner.run(
             payload=self.payload,
             clients=self.clients,
