@@ -66,9 +66,7 @@ class LoadTestResult:
         return figs
 
     @classmethod
-    def load(
-        cls, load_path: Path | str | None, test_name: str | None = None
-    ) -> "LoadTestResult":
+    def load(cls, load_path: Path | str | None, test_name: str | None = None) -> "LoadTestResult":
         """Load test results from a directory.
 
         Args:

@@ -149,15 +149,15 @@ class _Run(_RunConfig):
     """
 
     def __post_init__(self, disable_client_progress_bar, disable_clients_progress_bar):
-        assert self.run_name is not None, (
-            "Test Run must be created with an explicit run_name"
-        )
+        assert (
+            self.run_name is not None
+        ), "Test Run must be created with an explicit run_name"
 
         super().__post_init__(disable_client_progress_bar, disable_clients_progress_bar)
 
-        assert self.endpoint is not None, (
-            "Test Run must be created with an explicit Endpoint"
-        )
+        assert (
+            self.endpoint is not None
+        ), "Test Run must be created with an explicit Endpoint"
 
         self._validate_and_prepare_payload()
         self._responses = []
@@ -402,7 +402,7 @@ class _Run(_RunConfig):
         end_t = time.perf_counter()
         total_test_time = end_t - start_t
         logger.info(
-            f"Generated {clients} connections with {n_requests} invocations each in {total_test_time * 1000:.2f} seconds"
+            f"Generated {clients} connections with {n_requests} invocations each in {total_test_time*1000:.2f} seconds"
         )
 
         # Signal the token counting task to exit
@@ -473,7 +473,7 @@ class _Run(_RunConfig):
             return result
 
         self._progress_bar.close()
-        logger.info(f"Test completed in {total_test_time * 1000:.2f} seconds.")
+        logger.info(f"Test completed in {total_test_time*1000:.2f} seconds.")
 
         result = replace(
             result,

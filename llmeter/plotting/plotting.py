@@ -157,7 +157,7 @@ def plot_heatmap(
             "x": "Number of input tokens",
             "y": "Number of output tokens",
         },
-        title=f"LLMeter: average {dimension.replace('_', ' ').capitalize()}",
+        title=f'LLMeter: average {dimension.replace("_", " ").capitalize()}',
         width=800,
         height=800,
     )
@@ -234,9 +234,7 @@ def stat_clients(load_test_result: LoadTestResult, stat: str, **scatter_kwargs):
     return go.Scatter(**default_kwargs)
 
 
-def error_clients_fig(
-    load_test_result: LoadTestResult, log_scale=False, **scatter_kwargs
-):
+def error_clients_fig(load_test_result: LoadTestResult, log_scale=False, **scatter_kwargs):
     """
     Create a figure showing error rate vs number of clients.
 
@@ -249,9 +247,7 @@ def error_clients_fig(
         plotly.graph_objects.Figure: Figure showing error rate vs number of clients
     """
     fig = go.Figure()
-    fig.add_trace(
-        stat_clients(load_test_result, "failed_requests_rate", **scatter_kwargs)
-    )
+    fig.add_trace(stat_clients(load_test_result, "failed_requests_rate", **scatter_kwargs))
     fig.update_layout(
         title="Error rate vs number of clients",
         xaxis_title="Number of clients",
@@ -265,9 +261,7 @@ def error_clients_fig(
     return fig
 
 
-def rpm_clients_fig(
-    load_test_result: LoadTestResult, log_scale=False, **scatter_kwargs
-):
+def rpm_clients_fig(load_test_result: LoadTestResult, log_scale=False, **scatter_kwargs):
     """
     Create a figure showing requests per minute vs number of clients.
 
@@ -280,9 +274,7 @@ def rpm_clients_fig(
         plotly.graph_objects.Figure: Figure showing requests per minute vs number of clients
     """
     fig = go.Figure()
-    fig.add_trace(
-        stat_clients(load_test_result, "requests_per_minute", **scatter_kwargs)
-    )
+    fig.add_trace(stat_clients(load_test_result, "requests_per_minute", **scatter_kwargs))
     fig.update_layout(
         title="Requests per minute vs number of clients",
         xaxis_title="Number of clients",
@@ -303,9 +295,7 @@ def average_input_tokens_clients_fig(
 ):
     fig = go.Figure()
     fig.add_trace(
-        stat_clients(
-            load_test_result, "average_input_tokens_per_minute", **scatter_kwargs
-        )
+        stat_clients(load_test_result, "average_input_tokens_per_minute", **scatter_kwargs)
     )
     fig.update_layout(
         title="Average input tokens per minute vs number of clients",
@@ -327,9 +317,7 @@ def average_output_tokens_clients_fig(
 ):
     fig = go.Figure()
     fig.add_trace(
-        stat_clients(
-            load_test_result, "average_output_tokens_per_minute", **scatter_kwargs
-        )
+        stat_clients(load_test_result, "average_output_tokens_per_minute", **scatter_kwargs)
     )
     fig.update_layout(
         title="Average output tokens per minute vs number of clients",
@@ -424,7 +412,7 @@ def latency_clients_fig(
             title=f"{dimension.replace('_', ' ').capitalize()} vs number of clients",
             xaxis_title="Number of clients",
             xaxis_tickformat="s",
-            yaxis_title=f"{dimension.replace('_', ' ').capitalize()} (s)",
+            yaxis_title=f'{dimension.replace("_", " ").capitalize()} (s)',
             yaxis_tickformat=".2s",
         )
         if log_scale:
@@ -451,18 +439,14 @@ def plot_load_test_results(
     Returns:
         dict: Dictionary containing the following plots:
             - time_to_first_token: Figure showing time to first token vs number of clients
-            - time_to_last_token: Figure showing time to last token vs number of clients
+            - time_to_last_token: Figure showing time to last token vs number of clients  
             - requests_per_minute: Figure showing requests per minute vs number of clients
             - error_rate: Figure showing error rate vs number of clients
             - average_input_tokens_clients: Figure showing average input tokens per minute vs clients
             - average_output_tokens_clients: Figure showing average output tokens per minute vs clients
     """
-    f1 = latency_clients_fig(
-        load_test_result, "time_to_first_token", log_scale=log_scale
-    )
-    f2 = latency_clients_fig(
-        load_test_result, "time_to_last_token", log_scale=log_scale
-    )
+    f1 = latency_clients_fig(load_test_result, "time_to_first_token", log_scale=log_scale)
+    f2 = latency_clients_fig(load_test_result, "time_to_last_token", log_scale=log_scale)
     f3 = rpm_clients_fig(load_test_result, log_scale=log_scale)
     f4 = error_clients_fig(load_test_result, log_scale=log_scale)
     f5 = average_input_tokens_clients_fig(load_test_result, log_scale=log_scale)
