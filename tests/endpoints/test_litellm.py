@@ -3,8 +3,8 @@
 
 from unittest.mock import MagicMock, patch
 
-from llmeter.endpoints.litellm import LiteLLM, LiteLLMStreaming, LiteLLMBase
 from llmeter.endpoints.base import InvocationResponse
+from llmeter.endpoints.litellm import LiteLLM, LiteLLMBase, LiteLLMStreaming
 
 
 class TestLiteLLMBase:
