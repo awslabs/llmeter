@@ -2,9 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import pytest
+
 import llmeter
 import llmeter.endpoints
-from llmeter.endpoints.base import InvocationResponse, Endpoint
+from llmeter.endpoints.base import Endpoint, InvocationResponse
 
 # Tests for InvocationResponse
 

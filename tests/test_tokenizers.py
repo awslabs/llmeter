@@ -1,11 +1,16 @@
-import pytest
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 import json
+
+import pytest
+
 from llmeter.tokenizers import (
-    Tokenizer,
     DummyTokenizer,
-    save_tokenizer,
-    _to_dict,
+    Tokenizer,
     _load_tokenizer_from_info,
+    _to_dict,
+    save_tokenizer,
 )
 
 
