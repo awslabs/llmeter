@@ -2,13 +2,14 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from math import ceil
-import pytest
-from unittest.mock import AsyncMock, MagicMock, patch
 from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
 
-from llmeter.experiments import LoadTest, LatencyHeatmap, LoadTestResult
-from llmeter.runner import Runner
+import pytest
+
+from llmeter.experiments import LatencyHeatmap, LoadTest, LoadTestResult
 from llmeter.results import Result
+from llmeter.runner import Runner
 
 
 @pytest.fixture
@@ -179,8 +180,8 @@ class TestLoadTestResult:
 
         assert figs == {"fig1": mock_fig1, "fig2": mock_fig2}
         mock_plot.assert_called_once_with(load_test_result)
-        mock_fig1.write_html.assert_called_once()
-        mock_fig2.write_html.assert_called_once()
+        mock_fig1.write_image.assert_called_once()
+        mock_fig2.write_image.assert_called_once()
 
     @patch("llmeter.experiments.plot_load_test_results")
     def test_plot_results_png(self, mock_plot):
@@ -194,7 +195,7 @@ class TestLoadTestResult:
 
         load_test_result.plot_results(show=False, format="png")
 
-        mock_fig.write_html.assert_called_once_with(Path("/tmp/test") / "test_fig.png")
+        mock_fig.write_image.assert_called_once_with(Path("/tmp/test") / "test_fig.png")
 
     @patch("llmeter.experiments.plot_load_test_results")
     def test_plot_results_show(self, mock_plot):

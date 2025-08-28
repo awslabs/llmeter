@@ -5,7 +5,7 @@ import asyncio
 import json
 import time
 from typing import Literal
-from unittest.mock import AsyncMock, call, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
 from upath import UPath as Path
@@ -713,7 +713,7 @@ def test_prepare_run_more_edge_cases(
         payload_file = tmp_path / payload
         payload_file.write_text('{"prompt": "test1"}\n{"prompt": "test2"}')
         payload = str(payload_file)
-        
+
     run_config = runner._prepare_run(
         payload=payload,
         n_requests=n_requests,

@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 # Python Built-Ins:
 from __future__ import annotations
+
 from numbers import Number
 from typing import Literal, Sequence
 

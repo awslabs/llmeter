@@ -3,8 +3,8 @@
 import pytest
 
 from llmeter.callbacks.cost.dimensions import (
-    InputTokens,
     EndpointTime,
+    InputTokens,
     OutputTokens,
     RequestCostDimensionBase,
     RunCostDimensionBase,

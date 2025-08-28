@@ -1,10 +1,13 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 import time
 import uuid
 from unittest.mock import Mock, patch
 
-from mock import MagicMock
 import pytest
 from botocore.exceptions import ClientError
+from mock import MagicMock
 
 from llmeter.endpoints.bedrock import (
     BedrockBase,
@@ -565,7 +568,7 @@ class TestBedrock:
         This should raise a TypeError.
         """
         with pytest.raises(TypeError):
-            BedrockBase.create_payload(123)
+            BedrockBase.create_payload(str(123))
 
     def test_create_payload_invalid_max_tokens(self):
         """
@@ -581,7 +584,7 @@ class TestBedrock:
         This should raise a TypeError when trying to create the payload.
         """
         with pytest.raises(TypeError):
-            BedrockBase.create_payload(["valid", 123, "also valid"])
+            BedrockBase.create_payload(["valid", str(123), "also valid"])
 
     def test_create_payload_very_large_max_tokens(self):
         """

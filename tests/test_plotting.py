@@ -1,35 +1,39 @@
-import pytest
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+from unittest.mock import MagicMock, PropertyMock, patch
+
 import numpy as np
-from unittest.mock import patch, MagicMock, PropertyMock
+import pytest
+
+from llmeter.endpoints.base import InvocationResponse
+from llmeter.experiments import LoadTestResult
 from llmeter.plotting import plot_heatmap
+from llmeter.plotting.heatmap import (
+    Heatmap,
+    Interval,
+    _bin_responses_by_tokens,
+    _calculate_maps,
+    _counts_and_errors,
+    _cut,
+    _get_heatmap_stats,
+    _map_nested_dicts,
+    _sort_map_labels,
+    initialize_map,
+)
 from llmeter.plotting.plotting import (
-    scatter_histogram_2d,
-    histogram_by_dimension,
-    boxplot_by_dimension,
-    stat_clients,
-    error_clients_fig,
-    rpm_clients_fig,
     average_input_tokens_clients_fig,
     average_output_tokens_clients_fig,
+    boxplot_by_dimension,
+    error_clients_fig,
+    histogram_by_dimension,
     latency_clients,
     latency_clients_fig,
-    plot_load_test_results,
-)
-from llmeter.plotting.heatmap import (
-    Interval,
-    Heatmap,
-    _cut,
-    initialize_map,
-    _bin_responses_by_tokens,
-    _counts_and_errors,
-    _calculate_maps,
-    _sort_map_labels,
-    _map_nested_dicts,
-    _get_heatmap_stats,
+    rpm_clients_fig,
+    scatter_histogram_2d,
+    stat_clients,
 )
 from llmeter.runner import Result
-from llmeter.experiments import LoadTestResult
-from llmeter.endpoints.base import InvocationResponse
 
 
 @pytest.fixture
@@ -73,7 +77,7 @@ def sample_load_test_result():
         }
 
         # Mock get_dimension method
-        def mock_get_dimension(dimension):
+        def mock_get_dimension(dimension, filter_dimension=None, filter_value=None):
             if dimension == "time_to_first_token":
                 return [r.time_to_first_token for r in responses]
             elif dimension == "time_to_last_token":
@@ -138,7 +142,7 @@ def test_plot_heatmap_invalid_dimension(mock_px, sample_result: Result):
     mock_px.density_heatmap.return_value = MagicMock()
 
     # Mock get_dimension to return valid data for required dimensions but fail for invalid ones
-    def mock_get_dimension(dimension):
+    def mock_get_dimension(dimension, filter_dimension=None, filter_value=None):
         if dimension in ["num_tokens_input", "num_tokens_output"]:
             return [1, 2, 3, 4, 5]  # Return valid data for required dimensions
         else:
@@ -333,37 +337,7 @@ def test_latency_clients_fig(mock_go, sample_load_test_result: LoadTestResult):
     assert fig == mock_fig
 
 
-@patch("llmeter.plotting.plotting.latency_clients_fig")
-@patch("llmeter.plotting.plotting.rpm_clients_fig")
-@patch("llmeter.plotting.plotting.error_clients_fig")
-@patch("llmeter.plotting.plotting.average_input_tokens_clients_fig")
-@patch("llmeter.plotting.plotting.average_output_tokens_clients_fig")
-def test_plot_load_test_results(
-    mock_avg_out,
-    mock_avg_in,
-    mock_error,
-    mock_rpm,
-    mock_latency,
-    sample_load_test_result: LoadTestResult,
-):
-    """Test plot_load_test_results function."""
-    # Mock all the individual plotting functions
-    mock_latency.return_value = MagicMock()
-    mock_rpm.return_value = MagicMock()
-    mock_error.return_value = MagicMock()
-    mock_avg_in.return_value = MagicMock()
-    mock_avg_out.return_value = MagicMock()
-
-    result = plot_load_test_results(sample_load_test_result)
-
-    assert isinstance(result, dict)
-    assert len(result) == 6
-    assert "time_to_first_token" in result
-    assert "time_to_last_token" in result
-    assert "requests_per_minute" in result
-    assert "error_rate" in result
-    assert "average_input_tokens_clients" in result
-    assert "average_output_tokens_clients" in result
+# Removed redundant test - now covered comprehensively in test_load_test_plotting.py
 
 
 # Test heatmap.py functions
