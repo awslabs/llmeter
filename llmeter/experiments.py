@@ -58,7 +58,7 @@ class LoadTestResult:
             for k, f in figs.items():
                 if format == "html":
                     f.write_html(output_path / f"{k}.{format}")
-                elif format == "png":
+                else:
                     f.write_image(output_path / f"{k}.{format}")
 
         if show:
