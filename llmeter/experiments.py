@@ -35,9 +35,7 @@ class LoadTestResult:
     test_name: str
     output_path: os.PathLike | str | None = None
 
-    def plot_results(
-        self, show: bool = True, format: Literal["html", "png"] = "html"
-    ):
+    def plot_results(self, show: bool = True, format: Literal["html", "png"] = "html"):
         figs = plot_load_test_results(self)
 
         # add individual color sequence for each plot
@@ -58,7 +56,10 @@ class LoadTestResult:
             # save figure to the output path
             output_path.parent.mkdir(parents=True, exist_ok=True)
             for k, f in figs.items():
-                f.write_html(output_path / f"{k}.{format}")
+                if format == "html":
+                    f.write_html(output_path / f"{k}.{format}")
+                else:
+                    f.write_image(output_path / f"{k}.{format}")
 
         if show:
             [f.show() for _, f in figs.items()]
