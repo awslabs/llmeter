@@ -204,11 +204,11 @@ class OpenAICompletionStreamEndpoint(OpenAIEndpoint):
         time_to_first_token = time.perf_counter() - start_t
         if response_id is None:
             response_id = first_chunk.id  # type: ignore
-        response_text = first_chunk.choices[0].delta.content
+        response_text = first_chunk.choices[0].delta.content or ""
 
         for chunk in client_response:
             if chunk.choices[0].delta.content is not None:  # type: ignore
-                response_text += chunk.choices[0].delta.content  # type: ignore
+                response_text += chunk.choices[0].delta.content or ""  # type: ignore
             if hasattr(chunk, "usage") and chunk.usage is not None:  # type: ignore
                 prompt_tokens = chunk.usage.prompt_tokens  # type: ignore
                 completion_tokens = chunk.usage.completion_tokens  # type: ignore
