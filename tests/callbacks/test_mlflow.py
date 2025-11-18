@@ -28,18 +28,24 @@ def sample_result():
 
 @pytest.fixture
 def mlflow_callback():
-    return MlflowCallback(step=1)
+    with patch("llmeter.callbacks.mlflow.mlflow") as mock_mlflow:
+        mock_mlflow.__version__ = "2.0.0"
+        callback = MlflowCallback(step=1)
+        yield callback
 
 
 @pytest.fixture
 def mlflow_callback_nested():
-    return MlflowCallback(step=1, nested=True)
+    with patch("llmeter.callbacks.mlflow.mlflow") as mock_mlflow:
+        mock_mlflow.__version__ = "2.0.0"
+        callback = MlflowCallback(step=1, nested=True)
+        yield callback
 
 
 @pytest.mark.asyncio
 async def test_log_llmeter_run(mlflow_callback, sample_result):
-    with patch("mlflow.log_params") as mock_log_params, patch(
-        "mlflow.log_metrics"
+    with patch("llmeter.callbacks.mlflow.mlflow.log_params") as mock_log_params, patch(
+        "llmeter.callbacks.mlflow.mlflow.log_metrics"
     ) as mock_log_metrics, patch(
         "llmeter.results.Result.stats", new_callable=PropertyMock
     ) as mock_stats:
@@ -82,9 +88,11 @@ async def test_log_llmeter_run(mlflow_callback, sample_result):
 
 @pytest.mark.asyncio
 async def test_log_nested_run(mlflow_callback_nested, sample_result):
-    with patch("mlflow.start_run") as mock_start_run, patch(
-        "mlflow.log_params"
-    ) as mock_log_params, patch("mlflow.log_metrics") as mock_log_metrics:
+    with patch("llmeter.callbacks.mlflow.mlflow.start_run") as mock_start_run, patch(
+        "llmeter.callbacks.mlflow.mlflow.log_params"
+    ) as mock_log_params, patch(
+        "llmeter.callbacks.mlflow.mlflow.log_metrics"
+    ) as mock_log_metrics:
         mock_context = MagicMock()
         mock_start_run.return_value.__enter__.return_value = mock_context
 
@@ -113,13 +121,28 @@ async def test_after_run_non_nested(mlflow_callback, sample_result):
 
 
 def test_initialization():
-    callback = MlflowCallback(step=5, nested=True)
-    assert callback.step == 5
-    assert callback.nested is True
+    """Test that MlflowCallback raises ImportError when mlflow is not available."""
+    # Test that the ImportError is raised correctly when mlflow is not available
+    # We need to patch the mlflow import to simulate it not being available
+    from llmeter.utils import DeferredError
 
-    callback = MlflowCallback()
-    assert callback.step is None
-    assert callback.nested is False
+    with patch(
+        "llmeter.callbacks.mlflow.mlflow",
+        DeferredError(
+            "Please install mlflow (or mlflow-skinny) to use the MlflowCallback"
+        ),
+    ):
+        with pytest.raises(ImportError, match="Please install mlflow"):
+            MlflowCallback(step=5, nested=True)
+
+
+def test_initialization_with_mlflow():
+    """Test that MlflowCallback initializes correctly when mlflow is available."""
+    with patch("llmeter.callbacks.mlflow.mlflow") as mock_mlflow:
+        mock_mlflow.__version__ = "2.0.0"
+        callback = MlflowCallback(step=5, nested=True)
+        assert callback.step == 5
+        assert callback.nested is True
 
 
 # @pytest.mark.asyncio

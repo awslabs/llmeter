@@ -6,7 +6,11 @@ from .sagemaker import SageMakerEndpoint, SageMakerStreamEndpoint  # noqa: F401
 
 spec = importlib.util.find_spec("openai")
 if spec:
-    from .openai import OpenAIEndpoint, OpenAICompletionEndpoint , OpenAICompletionStreamEndpoint # noqa: F401
+    from .openai import (
+        OpenAIEndpoint as OpenAIEndpoint,
+        OpenAICompletionEndpoint as OpenAICompletionEndpoint,
+        OpenAICompletionStreamEndpoint as OpenAICompletionStreamEndpoint,
+    )
 
 spec = importlib.util.find_spec("litellm")
 if spec:

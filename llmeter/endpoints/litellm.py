@@ -79,16 +79,19 @@ class LiteLLM(LiteLLMBase):
     def invoke(self, payload, **kwargs):
         try:
             response = completion(model=self.litellm_model, **payload, **kwargs)
-            assert isinstance(response, ModelResponse)
+            if not isinstance(response, ModelResponse):
+                raise ValueError(f"Expected ModelResponse, got {type(response)}")
             response = self._parse_converse_response(response)
             response.input_prompt = self._parse_payload(payload)
             return response
 
         except Exception as e:
             logger.exception(e)
-            return InvocationResponse.error_output(
-                id=uuid4().hex, error=str(e), input_prompt=self._parse_payload(payload)
+            response = InvocationResponse.error_output(
+                input_payload=payload, error=e, id=uuid4().hex
             )
+            response.input_prompt = self._parse_payload(payload)
+            return response
 
     def _parse_converse_response(
         self, client_response: ModelResponse
@@ -102,29 +105,52 @@ class LiteLLM(LiteLLMBase):
             response.num_tokens_input = usage.prompt_tokens
             response.num_tokens_output = usage.completion_tokens
         except AttributeError:
-            pass
+            response.num_tokens_input = None
+            response.num_tokens_output = None
 
         return response
 
 
 class LiteLLMStreaming(LiteLLMBase):
     def invoke(self, payload, **kwargs):
-        if ("stream" not in kwargs) or ("stream" not in payload):
-            kwargs["stream"] = True
+        # Make a copy of payload to avoid modifying the original
+        payload_copy = payload.copy()
 
-        if ("stream_options" not in kwargs) or ("stream_options" not in payload):
-            kwargs["stream_options"] = {"include_usage": True}
+        # Create a clean kwargs dict without conflicting parameters
+        clean_kwargs = {}
+        for key, value in kwargs.items():
+            if key not in ["stream", "stream_options"]:
+                clean_kwargs[key] = value
+
+        # Ensure streaming is enabled
+        payload_copy["stream"] = True
+
+        # Handle stream_options - merge if exists in kwargs, otherwise set default
+        if "stream_options" in kwargs:
+            existing_options = kwargs.get("stream_options", {})
+            payload_copy["stream_options"] = {**existing_options, "include_usage": True}
+        elif "stream_options" not in payload_copy:
+            payload_copy["stream_options"] = {"include_usage": True}
+        else:
+            # Merge with existing stream_options in payload if present
+            existing_options = payload_copy.get("stream_options", {})
+            payload_copy["stream_options"] = {**existing_options, "include_usage": True}
 
         try:
             start_t = time.perf_counter()
-            response = completion(model=self.litellm_model, **payload, **kwargs)
+            response = completion(
+                model=self.litellm_model, **payload_copy, **clean_kwargs
+            )
         except Exception as e:
             logger.exception(e)
-            return InvocationResponse.error_output(
-                id=uuid4().hex, error=str(e), input_prompt=self._parse_payload(payload)
+            response = InvocationResponse.error_output(
+                input_payload=payload, error=e, id=uuid4().hex
             )
+            response.input_prompt = self._parse_payload(payload)
+            return response
 
-        assert isinstance(response, CustomStreamWrapper)
+        if not isinstance(response, CustomStreamWrapper):
+            raise ValueError(f"Expected CustomStreamWrapper, got {type(response)}")
         response = self._parse_stream(response, start_t)
         response.input_prompt = self._parse_payload(payload)
         return response
@@ -136,12 +162,21 @@ class LiteLLMStreaming(LiteLLMBase):
         time_flag = True
         time_to_first_token = None
         output_text = ""
+        id = None
+
         for chunk in client_response:
-            output_text += chunk.choices[0].delta.content or ""  # type: ignore
-            if time_flag:
+            content = chunk.choices[0].delta.content or ""  # type: ignore
+            output_text += content
+
+            # Record time to first token only when we get actual content
+            if time_flag and content:
                 time_to_first_token = time.perf_counter() - start_t
                 time_flag = False
+
+            # Always capture the ID from the first chunk
+            if id is None:
                 id = chunk.id
+
             try:
                 usage = chunk.usage  # type: ignore
             except AttributeError:

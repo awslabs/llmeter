@@ -2,9 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import pytest
+
 import llmeter
 import llmeter.endpoints
-from llmeter.endpoints.base import InvocationResponse, Endpoint
+from llmeter.endpoints.base import Endpoint, InvocationResponse
 
 # Tests for InvocationResponse
 
@@ -43,10 +44,10 @@ def test_invocation_response_to_json():
 
 def test_invocation_response_error_output():
     error_response = InvocationResponse.error_output(
-        input_payload={"input":"Test prompt"}, error="Test error"
+        input_payload={"input": "Test prompt"}, error="Test error"
     )
     assert error_response.response_text is None
-    assert error_response.input_payload == {"input":"Test prompt"}
+    assert error_response.input_payload == {"input": "Test prompt"}
     assert error_response.error == "Test error"
     assert error_response.id is not None
 

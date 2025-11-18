@@ -3,12 +3,12 @@
 """Unit tests for SageMaker-specific cost modelling utilities"""
 
 # Python Built-Ins:
-from unittest.mock import call, Mock, patch
+from unittest.mock import Mock, call, patch
 
 # External Dependencies:
 import boto3
-from moto import mock_aws
 import pytest
+from moto import mock_aws
 
 # Local Dependencies:
 from llmeter.callbacks.cost.providers.sagemaker import (
