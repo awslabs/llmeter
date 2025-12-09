@@ -5,7 +5,7 @@ import json
 import logging
 import os
 from dataclasses import asdict, dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from functools import cached_property
 from numbers import Number
 from typing import Any, Sequence
@@ -34,7 +34,7 @@ def utc_datetime_serializer(obj):
     if isinstance(obj, datetime):
         # Convert to UTC if timezone is set
         if obj.tzinfo is not None:
-            obj = obj.astimezone(UTC)
+            obj = obj.astimezone(timezone.utc)
         return obj.isoformat(timespec="seconds").replace("+00:00", "Z")
     return str(obj)
 
