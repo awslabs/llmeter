@@ -39,12 +39,16 @@ class BedrockBase(Endpoint):
         max_attempts: int = 3,
     ):
         super().__init__(
-            model_id=model_id, endpoint_name=endpoint_name or "", provider="bedrock"
+            model_id=model_id,
+            endpoint_name=endpoint_name or "amazon bedrock",
+            provider="bedrock",
         )
 
-        self.endpoint_name = "amazon bedrock"
-
-        self.region = region or boto3.session.Session().region_name
+        self.region = (
+            region
+            or (bedrock_boto3_client and bedrock_boto3_client.meta.region_name)
+            or boto3.session.Session().region_name
+        )
         logger.info(f"Using AWS region: {self.region}")
 
         self._bedrock_client = bedrock_boto3_client
@@ -55,7 +59,7 @@ class BedrockBase(Endpoint):
             )
         self._inference_config = inference_config
 
-    def _parse_payload(self, payload):
+    def _parse_payload(self, payload: dict) -> str:
         """
         Parse the payload to extract text content.
 
@@ -268,8 +272,8 @@ class BedrockConverseStream(BedrockConverse):
             payload["inferenceConfig"] = self._inference_config or {}
 
         payload["modelId"] = self.model_id
-        start_t = time.perf_counter()
         try:
+            start_t = time.perf_counter()
             client_response = self._bedrock_client.converse_stream(**payload)  # type: ignore
         except (ClientError, Exception) as e:
             logger.error(e)
@@ -341,16 +345,6 @@ class BedrockConverseStream(BedrockConverse):
                         id=uuid4().hex,
                         error=f"Metadata parsing error: {e}",
                     )
-
-            # compute time per output token if the model supports it
-            if (
-                response.num_tokens_output
-                and response.time_to_last_token
-                and response.time_to_first_token
-            ):
-                response.time_per_output_token = (
-                    response.time_to_last_token - response.time_to_first_token
-                ) / (response.num_tokens_output - 1)
 
             response.retries = client_response["ResponseMetadata"]["RetryAttempts"]
 
