@@ -198,14 +198,12 @@ class OpenAICompletionStreamEndpoint(OpenAIEndpoint):
                 - Time to first token and last token
         """
 
-        response_id = None
         prompt_tokens = None
         completion_tokens = None
 
         first_chunk = next(client_response)  # type: ignore
         time_to_first_token = time.perf_counter() - start_t
-        if response_id is None:
-            response_id = first_chunk.id  # type: ignore
+        response_id = first_chunk.id  # type: ignore
         response_text = first_chunk.choices[0].delta.content or ""
 
         for chunk in client_response:

@@ -702,3 +702,70 @@ class TestOpenAIEndpointEdgeCases:
             if response.time_to_last_token is not None:
                 assert response.time_to_last_token >= 0.01
                 assert response.time_to_last_token < 1.0  # Should be less than 1 second
+
+    def test_stream_response_with_multiple_content_chunks(self):
+        """Test streaming response with multiple content chunks including empty ones."""
+        endpoint = OpenAICompletionStreamEndpoint(
+            model_id="gpt-3.5-turbo", api_key="test_key"
+        )
+
+        # Create chunks with various content patterns
+        chunk1 = MagicMock()
+        chunk1.id = "chatcmpl-test123"
+        chunk1.choices = [MagicMock()]
+        chunk1.choices[0].delta.content = "Hello"
+
+        chunk2 = MagicMock()
+        chunk2.id = "chatcmpl-test123"
+        chunk2.choices = [MagicMock()]
+        chunk2.choices[0].delta.content = ""  # Empty string content
+
+        chunk3 = MagicMock()
+        chunk3.id = "chatcmpl-test123"
+        chunk3.choices = [MagicMock()]
+        chunk3.choices[0].delta.content = " world"
+
+        chunk4 = MagicMock()
+        chunk4.id = "chatcmpl-test123"
+        chunk4.choices = [MagicMock()]
+        chunk4.choices[0].delta.content = None  # None content
+        chunk4.usage = MagicMock()
+        chunk4.usage.prompt_tokens = 5
+        chunk4.usage.completion_tokens = 3
+
+        with patch.object(endpoint._client.chat.completions, "create") as mock_create:
+            mock_create.return_value = iter([chunk1, chunk2, chunk3, chunk4])
+
+            payload = {"messages": [{"role": "user", "content": "Test"}]}
+            response = endpoint.invoke(payload)
+
+            assert response.response_text == "Hello world"
+            assert response.num_tokens_input == 5
+            assert response.num_tokens_output == 3
+
+    def test_stream_response_usage_none_value(self):
+        """Test streaming response when usage attribute exists but is None."""
+        endpoint = OpenAICompletionStreamEndpoint(
+            model_id="gpt-3.5-turbo", api_key="test_key"
+        )
+
+        chunk1 = MagicMock()
+        chunk1.id = "chatcmpl-test123"
+        chunk1.choices = [MagicMock()]
+        chunk1.choices[0].delta.content = "Hello"
+
+        chunk2 = MagicMock()
+        chunk2.id = "chatcmpl-test123"
+        chunk2.choices = [MagicMock()]
+        chunk2.choices[0].delta.content = " world"
+        chunk2.usage = None  # usage attribute exists but is None
+
+        with patch.object(endpoint._client.chat.completions, "create") as mock_create:
+            mock_create.return_value = iter([chunk1, chunk2])
+
+            payload = {"messages": [{"role": "user", "content": "Test"}]}
+            response = endpoint.invoke(payload)
+
+            assert response.response_text == "Hello world"
+            assert response.num_tokens_input is None
+            assert response.num_tokens_output is None
