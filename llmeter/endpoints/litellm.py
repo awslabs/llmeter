@@ -105,8 +105,7 @@ class LiteLLM(LiteLLMBase):
             response.num_tokens_input = usage.prompt_tokens
             response.num_tokens_output = usage.completion_tokens
         except AttributeError:
-            response.num_tokens_input = None
-            response.num_tokens_output = None
+            pass
 
         return response
 
