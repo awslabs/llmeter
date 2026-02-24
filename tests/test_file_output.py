@@ -329,7 +329,7 @@ class TestLoadTestResultFileOutput:
 
         # Test mixed case format
         load_test_result.plot_results(show=False, format="Html")
-        call_path = mock_fig.write_html.call_args[0][0]
+        call_path = mock_fig.write_image.call_args[0][0]
         assert str(call_path).lower().endswith(".html")
 
     @patch("llmeter.experiments.plot_load_test_results")

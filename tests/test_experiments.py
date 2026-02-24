@@ -230,7 +230,7 @@ class TestLoadTestResult:
 
         load_test_result.plot_results(show=False, format="png")
 
-        mock_fig.write_html.assert_called_once_with(Path("/tmp/test") / "test_fig.png")
+        mock_fig.write_image.assert_called_once_with(Path("/tmp/test") / "test_fig.png")
 
     @patch("llmeter.experiments.plot_load_test_results")
     def test_plot_results_show(self, mock_plot):

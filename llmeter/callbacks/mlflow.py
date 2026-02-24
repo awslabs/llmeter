@@ -7,10 +7,8 @@ from .base import Callback
 
 try:
     import mlflow
-except ImportError:
-    mlflow = DeferredError(
-        "Please install mlflow (or mlflow-skinny) to use the MlflowCallback"
-    )
+except ImportError as e:
+    mlflow = DeferredError(e)
 
 
 class MlflowCallback(Callback):

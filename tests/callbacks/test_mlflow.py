@@ -130,11 +130,9 @@ def test_initialization():
 
     with patch(
         "llmeter.callbacks.mlflow.mlflow",
-        DeferredError(
-            "Please install mlflow (or mlflow-skinny) to use the MlflowCallback"
-        ),
+        DeferredError(ImportError()),
     ):
-        with pytest.raises(ImportError, match="Please install mlflow"):
+        with pytest.raises(ImportError):
             MlflowCallback(step=5, nested=True)
 
 
