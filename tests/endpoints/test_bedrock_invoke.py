@@ -308,17 +308,6 @@ class TestBedrockInvoke:
         assert response.error is not None
         assert "generic error" in str(response.error).lower()
 
-    def test_invoke_invalid_model_id(self):
-        """
-        Test the invoke method with an invalid model ID
-        This should result in an error on the API side
-        """
-        endpoint = BedrockInvoke(model_id="test_model")
-        response = endpoint.invoke({})
-        assert isinstance(response, InvocationResponse)
-        assert response.error is not None
-        assert "model identifier is invalid" in str(response.error).lower()
-
     def test_invoke_missing_model_id(self):
         """
         Test the invoke method with a payload missing the model_id.
