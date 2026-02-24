@@ -88,8 +88,8 @@ class TestLoadTestResultFileOutput:
 
         load_test_result.plot_results(show=False, format="html")
 
-        assert mock_fig.write_image.call_count == 2
-        calls = mock_fig.write_image.call_args_list
+        assert mock_fig.write_html.call_count == 2
+        calls = mock_fig.write_html.call_args_list
         assert str(calls[0][0][0]).endswith("error_rate.html")
         assert str(calls[1][0][0]).endswith("requests_per_minute.html")
 
@@ -232,7 +232,7 @@ class TestLoadTestResultFileOutput:
 
         # Test HTML format
         load_test_result.plot_results(show=False, format="html")
-        call_path = mock_fig.write_image.call_args[0][0]
+        call_path = mock_fig.write_html.call_args[0][0]
         assert str(call_path).endswith(".html")
 
         mock_fig.reset_mock()
@@ -260,7 +260,7 @@ class TestLoadTestResultFileOutput:
 
         # Test HTML format - all files should be .html
         load_test_result.plot_results(show=False, format="html")
-        calls = mock_fig.write_image.call_args_list
+        calls = mock_fig.write_html.call_args_list
         assert len(calls) == 6
         for call in calls:
             file_path = str(call[0][0])
@@ -294,7 +294,7 @@ class TestLoadTestResultFileOutput:
 
         # Test with HTML format
         load_test_result.plot_results(show=False, format="html")
-        calls = mock_fig.write_image.call_args_list
+        calls = mock_fig.write_html.call_args_list
 
         # Verify each expected plot file has correct format
         created_files = [str(call[0][0]) for call in calls]
@@ -329,7 +329,7 @@ class TestLoadTestResultFileOutput:
 
         # Test mixed case format
         load_test_result.plot_results(show=False, format="Html")
-        call_path = mock_fig.write_image.call_args[0][0]
+        call_path = mock_fig.write_html.call_args[0][0]
         assert str(call_path).lower().endswith(".html")
 
     @patch("llmeter.experiments.plot_load_test_results")
