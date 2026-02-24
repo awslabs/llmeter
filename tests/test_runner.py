@@ -92,11 +92,7 @@ def test_runner_initialization(runner: Runner):
 
 def test_count_tokens_no_wait(runner: Runner):
     # Test the tokenizer encode method directly since _count_tokens_no_wait doesn't exist
-    # Test the tokenizer encode method directly since _count_tokens_no_wait doesn't exist
     runner._tokenizer.encode.return_value = [1, 2, 3]
-    result = len(runner._tokenizer.encode("test text"))
-    assert result == 3
-    runner._tokenizer.encode.assert_called_once_with("test text")
     result = len(runner._tokenizer.encode("test text"))
     assert result == 3
     runner._tokenizer.encode.assert_called_once_with("test text")
@@ -183,10 +179,6 @@ async def test_invoke_n_no_wait(run: _Run):
 
 @pytest.mark.asyncio
 async def test_invoke_n_c(run: _Run):
-    # Remove the fixture override and create a proper mock
-    async def mock_invoke_n_c(payload, n_requests, clients):
-        # Simulate the actual behavior
-        responses = [
     # Remove the fixture override and create a proper mock
     async def mock_invoke_n_c(payload, n_requests, clients):
         # Simulate the actual behavior
@@ -525,14 +517,11 @@ def test_prepare_run_combinations(
     run_name: None | Literal["test_run"],
     run_description: None | Literal["Test description"] | Literal["File input test"],
     tmp_path: Path,
-    tmp_path: Path,
     callbacks=[],
 ):
     if payload == "test_file.jsonl":
         payload_file = tmp_path / payload
-        payload_file = tmp_path / payload
         payload_file.write_text('{"prompt": "test1"}\n{"prompt": "test2"}')
-        payload = str(payload_file)
         payload = str(payload_file)
 
     run = runner._prepare_run(
@@ -750,7 +739,6 @@ def test_prepare_run_more_edge_cases(
     run_name: None | Literal["custom_run"],
     run_description: None | Literal["Custom description"],
     tmp_path: Path,
-    tmp_path: Path,
     callbacks=[],
 ):
     if payload == "test_file.jsonl":
@@ -906,7 +894,6 @@ def test_prepare_run_more_edge_cases2(
             )
     elif clients == -1 or None:
         with pytest.raises((AssertionError, ValueError)):
-        with pytest.raises((AssertionError, ValueError)):
             runner._prepare_run(
                 payload=payload,
                 n_requests=n_requests,
@@ -1003,8 +990,6 @@ async def test_count_tokens_from_q_with_custom_output_path(run: _Run, tmp_path: 
             f.write(response.to_json() + "\n")
 
     assert len(run._responses) == 2
-    assert output_file.exists()
-    with open(output_file, "r") as f:
     assert output_file.exists()
     with open(output_file, "r") as f:
         lines = f.readlines()

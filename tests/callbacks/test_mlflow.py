@@ -46,8 +46,6 @@ def mlflow_callback_nested():
 async def test_log_llmeter_run(mlflow_callback, sample_result):
     with patch("llmeter.callbacks.mlflow.mlflow.log_params") as mock_log_params, patch(
         "llmeter.callbacks.mlflow.mlflow.log_metrics"
-    with patch("llmeter.callbacks.mlflow.mlflow.log_params") as mock_log_params, patch(
-        "llmeter.callbacks.mlflow.mlflow.log_metrics"
     ) as mock_log_metrics, patch(
         "llmeter.results.Result.stats", new_callable=PropertyMock
     ) as mock_stats:

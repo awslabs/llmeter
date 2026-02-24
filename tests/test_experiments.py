@@ -3,7 +3,6 @@
 
 from math import ceil
 from pathlib import Path
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -24,15 +23,6 @@ def mock_runner():
 
 
 def test_load_test_post_init(mock_endpoint):
-    load_test = LoadTest(
-        endpoint=mock_endpoint,
-        payload={"input": "test"},
-        sequence_of_clients=[1, 2, 3],
-    )
-    # LoadTest doesn't create Runner in __post_init__, only in run()
-    assert load_test.endpoint == mock_endpoint
-    assert load_test.payload == {"input": "test"}
-    assert load_test.sequence_of_clients == [1, 2, 3]
     load_test = LoadTest(
         endpoint=mock_endpoint,
         payload={"input": "test"},
@@ -94,7 +84,6 @@ def test_latency_heatmap_post_init(mock_endpoint):
                 clients=2,
                 requests_per_combination=1,
                 output_path="/tmp/test_output",
-                output_path="/tmp/test_output",
             )
             assert len(heatmap.payload) == 2
             mock_create_prompt.assert_called_once()
@@ -117,7 +106,6 @@ async def test_latency_heatmap_run(mock_endpoint, mock_runner):
                 input_lengths=[10, 50],
                 output_lengths=[128, 256],
                 output_path="/tmp/test_output",
-                output_path="/tmp/test_output",
             )
 
             results = await heatmap.run()
@@ -132,29 +120,6 @@ def test_latency_heatmap_with_different_params(mock_endpoint, tmp_path):
     def create_payload_fn(input_text, max_tokens, **kwargs):
         return {"input": input_text, "max_tokens": max_tokens, **kwargs}
 
-    with patch("llmeter.experiments.CreatePromptCollection") as mock_create_prompt:
-        mock_create_prompt.return_value.create_collection.return_value = [
-            ("input1", 128),
-            ("input2", 256),
-        ]
-        heatmap = LatencyHeatmap(
-            endpoint=mock_endpoint,
-            source_file=tmp_path / "test_file.txt",
-            clients=4,
-            requests_per_combination=2,
-            input_lengths=[100, 200, 300],
-            output_lengths=[512, 1024],
-            create_payload_fn=create_payload_fn,
-            create_payload_kwargs={"temperature": 0.7},
-            tokenizer=MagicMock(),
-            output_path="/tmp/test_output",
-        )
-        assert heatmap.clients == 4
-        assert heatmap.requests_per_combination == 2
-        assert heatmap.input_lengths == [100, 200, 300]
-        assert heatmap.output_lengths == [512, 1024]
-        assert heatmap.create_payload_kwargs == {"temperature": 0.7}
-        assert heatmap.tokenizer is not None
     with patch("llmeter.experiments.CreatePromptCollection") as mock_create_prompt:
         mock_create_prompt.return_value.create_collection.return_value = [
             ("input1", 128),

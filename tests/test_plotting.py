@@ -45,11 +45,6 @@ def sample_result():
             time_to_last_token=np.random.random(),
             time_to_first_token=np.random.random(),
             error=None,
-            num_tokens_output=np.random.randint(10, 100),
-            num_tokens_input=np.random.randint(10, 100),
-            time_to_last_token=np.random.random(),
-            time_to_first_token=np.random.random(),
-            error=None,
         )
         for _ in range(50)
     ]
