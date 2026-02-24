@@ -50,6 +50,8 @@ moto = { extras = [
 ], version = "^5.0.16" }
 pytest-reportlog = "^0.4.0"
 pytest-cov = "^5.0.0"
+pillow = "^12.1.1"
+aws-bedrock-token-generator = "^1.1.0"
 
 [build-system]
 requires = ["poetry-core"]
@@ -65,6 +67,10 @@ mlflow = ["mlflow-skinny"]
 [tool.pytest.ini_options]
 asyncio_default_fixture_loop_scope = "function"
 filterwarnings = ["ignore::DeprecationWarning"]
+markers = [
+    "integ: marks tests as integration tests (deselected by default)"
+]
+addopts = "-m 'not integ'"
 
 [tool.bandit]
 exclude_dirs = ["tests"]
