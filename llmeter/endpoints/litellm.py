@@ -88,7 +88,7 @@ class LiteLLM(LiteLLMBase):
         except Exception as e:
             logger.exception(e)
             response = InvocationResponse.error_output(
-                input_payload=payload, error=e, id=uuid4().hex
+                input_payload=payload, error=str(e), id=uuid4().hex
             )
             response.input_prompt = self._parse_payload(payload)
             return response
@@ -144,7 +144,7 @@ class LiteLLMStreaming(LiteLLMBase):
         except Exception as e:
             logger.exception(e)
             response = InvocationResponse.error_output(
-                input_payload=payload, error=e, id=uuid4().hex
+                input_payload=payload, error=str(e), id=uuid4().hex
             )
             response.input_prompt = self._parse_payload(payload)
             return response
