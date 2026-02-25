@@ -68,9 +68,8 @@ mlflow = ["mlflow-skinny"]
 asyncio_default_fixture_loop_scope = "function"
 filterwarnings = ["ignore::DeprecationWarning"]
 markers = [
-    "integ: marks tests as integration tests (deselected by default)"
+    "integ: marks tests as integration tests (enabled by default, disabled in CI)"
 ]
-addopts = "-m 'not integ'"
 
 [tool.bandit]
 exclude_dirs = ["tests"]
