@@ -19,7 +19,7 @@ Integration tests are **opt-in by default** to avoid AWS costs and credential re
 To run all integration tests:
 
 ```bash
-poetry run pytest -m integ
+uv run pytest -m integ
 ```
 
 ### Skip Integration Tests (Default)
@@ -27,7 +27,7 @@ poetry run pytest -m integ
 By default, integration tests are skipped when running the regular test suite:
 
 ```bash
-poetry run pytest
+uv run pytest
 ```
 
 This is configured in `pyproject.toml` with `addopts = "-m 'not integ'"`.
@@ -38,16 +38,16 @@ To run tests from a specific file:
 
 ```bash
 # Bedrock Converse API tests
-poetry run pytest -m integ tests/integ/test_bedrock_converse.py
+uv run pytest -m integ tests/integ/test_bedrock_converse.py
 
 # Bedrock Invoke API tests
-poetry run pytest -m integ tests/integ/test_bedrock_invoke.py
+uv run pytest -m integ tests/integ/test_bedrock_invoke.py
 
 # OpenAI SDK with Bedrock tests
-poetry run pytest -m integ tests/integ/test_openai_bedrock.py
+uv run pytest -m integ tests/integ/test_openai_bedrock.py
 
 # Error handling tests
-poetry run pytest -m integ tests/integ/test_error_handling.py
+uv run pytest -m integ tests/integ/test_error_handling.py
 ```
 
 ### Run All Tests (Including Integration)
@@ -55,7 +55,7 @@ poetry run pytest -m integ tests/integ/test_error_handling.py
 To run all tests including integration tests:
 
 ```bash
-poetry run pytest -m ""
+uv run pytest -m ""
 ```
 
 ## AWS Requirements
@@ -127,7 +127,7 @@ export AWS_REGION=us-west-2
 export BEDROCK_TEST_MODEL=us.anthropic.claude-3-5-sonnet-20241022-v2:0
 
 # Run integration tests
-poetry run pytest -m integ
+uv run pytest -m integ
 ```
 
 ## AWS Costs
@@ -208,18 +208,20 @@ jobs:
         with:
           python-version: '3.11'
       
-      - name: Install Poetry
-        run: pip install poetry
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
       
       - name: Install dependencies
-        run: poetry install
+        run: uv sync
       
       - name: Run Integration Tests
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           AWS_REGION: us-east-1
-        run: poetry run pytest -m integ
+        run: uv run pytest -m integ
 ```
 
 ### Best Practices for CI/CD
@@ -248,7 +250,7 @@ If you see "AWS credentials not available" when running integration tests:
 
 3. Ensure you're running tests with the `-m integ` flag:
    ```bash
-   poetry run pytest -m integ
+   uv run pytest -m integ
    ```
 
 ### Model Not Available
@@ -275,7 +277,7 @@ If you encounter rate limiting errors:
 2. Consider adding delays between test runs
 3. Use pytest-rerunfailures for automatic retries:
    ```bash
-   poetry run pytest -m integ --reruns 2 --reruns-delay 1
+   uv run pytest -m integ --reruns 2 --reruns-delay 1
    ```
 
 ### OpenAI SDK Tests Skipped

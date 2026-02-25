@@ -7,7 +7,7 @@ These tests are marked with @pytest.mark.integ and are skipped by default to avo
 AWS costs and credential requirements during regular development.
 
 To run integration tests:
-    poetry run pytest -m integ
+    uv run pytest -m integ
 
 Required AWS Permissions:
     - bedrock:InvokeModel
