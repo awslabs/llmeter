@@ -13,6 +13,7 @@ from llmeter.callbacks.cost.providers.sagemaker import (
 from llmeter.results import Result
 
 
+@pytest.mark.integ
 @pytest.mark.asyncio
 async def test_real_time_endpoint_compute_auto_price():
     """SageMakerRTEndpointCompute looks up prices from AWS Price List API
@@ -46,6 +47,7 @@ async def test_real_time_endpoint_compute_auto_price():
     assert await dim.calculate(result) == 8.5656
 
 
+@pytest.mark.integ
 @pytest.mark.asyncio
 async def test_real_time_endpoint_storage_auto_price():
     """SageMakerRTEndpointCompute looks up prices from AWS Price List API
