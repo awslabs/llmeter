@@ -327,7 +327,8 @@ class TestLiteLLMStreaming:
         assert result.num_tokens_output == 5
         assert result.time_to_first_token == 0.1
         assert result.time_to_last_token == 0.2
-        assert result.time_per_output_token == 0.025  # (0.2-0.1)/(5-1)
+        # time_per_output_token is computed by the runner, not the endpoint
+        assert result.time_per_output_token is None
 
         # Check that stream options were set
         mock_completion.assert_called_once()
@@ -420,7 +421,8 @@ class TestLiteLLMStreaming:
         assert result.num_tokens_output == 3
         assert result.time_to_first_token == 0.15
         assert result.time_to_last_token == 0.4
-        assert result.time_per_output_token == 0.125  # (0.4-0.15)/(3-1)
+        # time_per_output_token is computed by the runner, not the endpoint
+        assert result.time_per_output_token is None
 
     @patch("time.perf_counter")
     def test_parse_stream_no_usage(self, mock_time):
