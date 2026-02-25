@@ -7,23 +7,21 @@ from .base import Callback
 
 try:
     import mlflow
-except ImportError:
-    mlflow = DeferredError(
-        "Please install mlflow (or mlflow-skinny) to use the MlflowCallback"
-    )
+except ImportError as e:
+    mlflow = DeferredError(e)
 
 
 class MlflowCallback(Callback):
     """LLMeter callback to log test run parameters and metrics to an MLFlow tracking server.
-    
+
     This callback integrates with MLflow to track and log parameters and metrics from LLMeter test runs.
     It can operate either in the current MLflow run context or create nested runs for each test.
-    
+
     Example:
         ```python
         import mlflow
         from llmeter.callbacks import MlflowCallback
-        
+
         with mlflow.start_run():
             runner = Runner(
                 endpoint=endpoint,
@@ -31,12 +29,13 @@ class MlflowCallback(Callback):
             )
             results = await runner.run()
         ```
-    
+
     Attributes:
         step (int | None): Step number for MLflow metrics logging
         nested (bool): Whether to create nested runs for each test
         parameters_names (list): List of parameter names to log to MLflow
     """
+
     parameters_names = [
         "total_requests",
         "clients",
@@ -59,7 +58,7 @@ class MlflowCallback(Callback):
                 `Result.run_name`.
 
         Raises:
-            ImportError: If MLflow is not installed                
+            ImportError: If MLflow is not installed
         """
         super().__init__()
         self.step = step

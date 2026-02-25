@@ -79,7 +79,7 @@ class TestBedrockInvoke:
         """
         endpoint = BedrockInvoke(model_id="test_model")
         with pytest.raises(TypeError, match="Failed to extract"):
-            msg = endpoint._parse_payload({})
+            endpoint._parse_payload({})
 
     def test__parse_payload_custom_input_text_jmespath(self):
         """

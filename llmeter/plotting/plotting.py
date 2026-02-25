@@ -22,8 +22,8 @@ else:
 
 try:
     import kaleido
-except ModuleNotFoundError:
-    kaleido = DeferredError("Please install kaleido to use plotting functions")
+except ModuleNotFoundError as e:
+    kaleido = DeferredError(e)
 
 from typing import TYPE_CHECKING
 

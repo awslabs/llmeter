@@ -24,6 +24,12 @@ class DeferredError:
     """
 
     def __init__(self, exception):
+        # # Ensure the exception is a BaseException instance
+        # if isinstance(exception, BaseException):
+        #     self.exc = exception
+        # else:
+        #     # If it's not a BaseException, wrap it in an ImportError
+        #     self.exc = ImportError(str(exception))
         self.exc = exception
 
     def __getattr__(self, name):

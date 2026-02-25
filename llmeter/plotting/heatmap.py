@@ -131,10 +131,32 @@ def _cut(arr, bins):
          [Interval(1,2.5), Interval(2.5,4)])
     """
     t_max, t_min = max(arr), min(arr)
-    bin_width = ceil((t_max - t_min) / bins)
+
+    # Handle edge case where all values are the same
+    if t_max == t_min:
+        # Create a single bin that contains all values
+        bin_boundaries = [t_min, t_max + 1]  # Add small offset to create valid interval
+        bin_indexes = [0] * len(arr)  # All values go to first bin
+        return [Interval(bin_boundaries[0], bin_boundaries[1]) for _ in arr], [
+            Interval(bin_boundaries[0], bin_boundaries[1])
+        ]
+
+    # Calculate bin width, ensuring we don't get zero width
+    bin_width = max(1, ceil((t_max - t_min) / bins))
     bin_boundaries = [i * bin_width + t_min for i in range(bins + 1)]
-    bin_indexes = [floor((k - t_min) / bin_width) for k in arr]
-    # binned = [Interval(bin_boundaries[k], bin_boundaries[k + 1]) for k in bin_indexes]
+
+    # Ensure the last boundary covers the maximum value
+    if bin_boundaries[-1] <= t_max:
+        bin_boundaries[-1] = t_max + 1
+
+    # Calculate bin indexes, ensuring they're within valid range
+    bin_indexes = []
+    for k in arr:
+        idx = min(floor((k - t_min) / bin_width), bins - 1)
+        # Ensure index is valid
+        idx = max(0, min(idx, len(bin_boundaries) - 2))
+        bin_indexes.append(idx)
+
     return [Interval(bin_boundaries[k], bin_boundaries[k + 1]) for k in bin_indexes], [
         Interval(left, right)
         for left, right in zip(bin_boundaries[:-1], bin_boundaries[1:])

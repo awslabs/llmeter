@@ -38,6 +38,7 @@ sagemaker = "^2.224.0"
 ruff = "^0.6.5"
 tiktoken = "^0.7.0"
 nbformat = "^5.10.4"
+hypothesis = "^6.151.9"
 
 [tool.poetry.group.test.dependencies]
 pytest = "^8.3.3"
