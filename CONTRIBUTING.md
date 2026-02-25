@@ -53,7 +53,7 @@ Contributions via pull requests are much appreciated. Before sending us a pull r
 
 ### Getting Started
 
-We recommend installing the package locally in editable mode for ease of development. 
+We recommend installing the package locally in editable mode for ease of development.
 
 First, ensure you have [uv](https://docs.astral.sh/uv/) installed. Then, to install the package in editable mode along with the development dependencies and all optional dependencies, run:
 
@@ -63,16 +63,16 @@ uv sync --all-extras
 
 This will install all dependencies (including optional ones like plotting, openai, litellm, and mlflow) and create a virtual environment in `.venv/`.
 
-For a minimal installation with just dev dependencies:
+For a minimal installation with just dev and test dependencies:
 
 ```bash
-uv sync
+uv sync --all-groups
 ```
 
-Alternatively, you can use pip for a simpler installation:
+For just dev dependencies without test dependencies:
 
 ```bash
-pip install -e ".[dev]"
+uv sync --group dev
 ```
 
 #### Linting/Formatting

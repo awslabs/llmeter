@@ -41,15 +41,24 @@ dev = [
     "ruff>=0.6.5",
     "tiktoken>=0.7.0",
     "nbformat>=5.10.4",
+    "bandit>=1.7.10",
+    "aws-bedrock-token-generator>=1.1.0",
+]
+test = [
     "hypothesis>=6.151.9",
     "pytest>=8.3.3",
     "pytest-asyncio>=0.24.0",
-    "bandit>=1.7.10",
     "moto>=5.0.16",
     "pytest-reportlog>=0.4.0",
     "pytest-cov>=5.0.0",
     "pillow>=12.1.1",
     "aws-bedrock-token-generator>=1.1.0",
+    "openai>=1.35.1",
+    "litellm>=1.47.1",
+    "plotly>=5.24.1",
+    "kaleido<=0.2.1",
+    "pandas>=2.2.0",
+    "mlflow-skinny>=3.10.0",
 ]
 
 [tool.pytest.ini_options]
