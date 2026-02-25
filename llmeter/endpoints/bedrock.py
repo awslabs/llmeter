@@ -39,10 +39,8 @@ class BedrockBase(Endpoint):
         max_attempts: int = 3,
     ):
         super().__init__(
-            model_id=model_id, endpoint_name=endpoint_name or "", provider="bedrock"
+            model_id=model_id, endpoint_name=endpoint_name or "amazon bedrock", provider="bedrock"
         )
-
-        self.endpoint_name = "amazon bedrock"
 
         self.region = region or boto3.session.Session().region_name
         logger.info(f"Using AWS region: {self.region}")
