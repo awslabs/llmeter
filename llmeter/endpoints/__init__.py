@@ -12,6 +12,10 @@ if spec:
         OpenAICompletionEndpoint,
         OpenAICompletionStreamEndpoint,
     )
+    from .openai_response import (  # noqa: F401
+        ResponseEndpoint,
+        ResponseStreamEndpoint,
+    )
 
 spec = importlib.util.find_spec("litellm")
 if spec:
