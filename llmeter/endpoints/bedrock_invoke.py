@@ -261,7 +261,9 @@ class BedrockInvoke(Endpoint):
             raise TypeError("Payload must be a dictionary")
 
         try:
-            req_body = json.dumps(payload).encode("utf-8")
+            from llmeter.prompt_utils import LLMeterBytesEncoder
+
+            req_body = json.dumps(payload, cls=LLMeterBytesEncoder).encode("utf-8")
             try:
                 start_t = time.perf_counter()
                 client_response = self._bedrock_client.invoke_model(  # type: ignore
@@ -353,7 +355,9 @@ class BedrockInvokeStream(BedrockInvoke):
         )
 
     def invoke(self, payload: dict) -> InvocationResponse:
-        req_body = json.dumps(payload).encode("utf-8")
+        from llmeter.prompt_utils import LLMeterBytesEncoder
+
+        req_body = json.dumps(payload, cls=LLMeterBytesEncoder).encode("utf-8")
         try:
             start_t = time.perf_counter()
             client_response = self._bedrock_client.invoke_model_with_response_stream(  # type: ignore

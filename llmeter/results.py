@@ -14,6 +14,7 @@ import jmespath
 from upath import UPath as Path
 
 from .endpoints import InvocationResponse
+from .prompt_utils import LLMeterBytesEncoder
 from .utils import summary_stats_from_list
 
 logger = logging.getLogger(__name__)
@@ -37,6 +38,39 @@ def utc_datetime_serializer(obj: Any) -> str:
             obj = obj.astimezone(timezone.utc)
         return obj.isoformat(timespec="seconds").replace("+00:00", "Z")
     return str(obj)
+
+
+class InvocationResponseEncoder(LLMeterBytesEncoder):
+    """Extended encoder for InvocationResponse with fallback to str() for non-serializable types.
+    
+    This encoder extends LLMeterBytesEncoder to handle bytes objects (via parent class)
+    and adds a fallback mechanism for other non-serializable types by converting them
+    to strings. This is particularly useful for InvocationResponse objects that may
+    contain various non-standard types.
+    
+    Example:
+        >>> response = InvocationResponse(input_payload={"image": {"bytes": b"\\xff\\xd8"}})
+        >>> json.dumps(asdict(response), cls=InvocationResponseEncoder)
+        '{"input_payload": {"image": {"bytes": {"__llmeter_bytes__": "/9g="}}}}'
+    """
+    
+    def default(self, obj):
+        """Encode objects with bytes support and str() fallback.
+        
+        Args:
+            obj: Object to encode
+            
+        Returns:
+            Encoded representation or None if encoding fails
+        """
+        # First try bytes encoding from parent
+        if isinstance(obj, bytes):
+            return super().default(obj)
+        # Fallback to string representation for other non-serializable types
+        try:
+            return str(obj)
+        except Exception:
+            return None
 
 
 @dataclass
