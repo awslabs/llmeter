@@ -279,7 +279,13 @@ class Endpoint(ABC):
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with output_path.open("w") as f:
             endpoint_conf = self.to_dict()
-            json.dump(endpoint_conf, f, indent=4, default=str)
+
+            def _default_serializer(obj):
+                if isinstance(obj, os.PathLike):
+                    return Path(obj).as_posix()
+                return str(obj)
+
+            json.dump(endpoint_conf, f, indent=4, default=_default_serializer)
         return output_path
 
     def to_dict(self) -> dict:
@@ -289,7 +295,13 @@ class Endpoint(ABC):
         Returns:
             Dict: A dictionary representation of the endpoint configuration.
         """
-        endpoint_conf = {k: v for k, v in vars(self).items() if not k.startswith("_")}
+        endpoint_conf = {}
+        for k, v in vars(self).items():
+            if k.startswith("_"):
+                continue
+            if isinstance(v, os.PathLike):
+                v = Path(v).as_posix()
+            endpoint_conf[k] = v
         endpoint_conf["endpoint_type"] = self.__class__.__name__
         return endpoint_conf
 

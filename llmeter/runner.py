@@ -121,8 +121,13 @@ class _RunConfig:
         if not isinstance(self.tokenizer, dict):
             config_copy.tokenizer = Tokenizer.to_dict(self.tokenizer)
 
+        def _default_serializer(obj):
+            if isinstance(obj, os.PathLike):
+                return Path(obj).as_posix()
+            return str(obj)
+
         with run_config_path.open("w") as f:
-            f.write(json.dumps(asdict(config_copy), default=str, indent=4))
+            f.write(json.dumps(asdict(config_copy), default=_default_serializer, indent=4))
 
     @classmethod
     def load(cls, load_path: Path | str, file_name: str = "run_config.json"):

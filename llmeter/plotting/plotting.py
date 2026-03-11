@@ -22,7 +22,7 @@ else:
 
 try:
     import kaleido
-except ModuleNotFoundError as e:
+except ImportError as e:
     kaleido = DeferredError(e)
 
 from typing import TYPE_CHECKING

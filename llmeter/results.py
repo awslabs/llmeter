@@ -37,6 +37,8 @@ def utc_datetime_serializer(obj: Any) -> str:
         if obj.tzinfo is not None:
             obj = obj.astimezone(timezone.utc)
         return obj.isoformat(timespec="seconds").replace("+00:00", "Z")
+    if isinstance(obj, os.PathLike):
+        return Path(obj).as_posix()
     return str(obj)
 
 
@@ -66,6 +68,8 @@ class InvocationResponseEncoder(LLMeterBytesEncoder):
         # First try bytes encoding from parent
         if isinstance(obj, bytes):
             return super().default(obj)
+        if isinstance(obj, os.PathLike):
+            return Path(obj).as_posix()
         # Fallback to string representation for other non-serializable types
         try:
             return str(obj)
@@ -160,7 +164,7 @@ class Result:
         if not responses_path.exists():
             with responses_path.open("w") as f:
                 for response in self.responses:
-                    f.write(json.dumps(asdict(response)) + "\n")
+                    f.write(json.dumps(asdict(response), cls=InvocationResponseEncoder) + "\n")
 
     def to_json(self, **kwargs):
         """Return the results as a JSON string."""

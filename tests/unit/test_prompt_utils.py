@@ -1805,9 +1805,6 @@ class TestPerformance:
         # Serialize first
         serialized = json.dumps(payload, cls=LLMeterBytesEncoder)
 
-        # Get the size of the serialized data
-        serialized_size = sys.getsizeof(serialized)
-
         # Deserialize
         from llmeter.prompt_utils import llmeter_bytes_decoder
 

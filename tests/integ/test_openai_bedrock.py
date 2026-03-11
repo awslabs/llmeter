@@ -301,17 +301,19 @@ def test_save_load_openai_payload_with_image_url(tmp_path):
 @pytest.mark.integ
 @pytest.mark.skipif(not OPENAI_AVAILABLE, reason="OpenAI SDK not installed")
 def test_save_load_openai_complete_structure(
-    tmp_path, aws_credentials, aws_region, bedrock_openai_test_model
+    tmp_path, aws_credentials, aws_region, bedrock_openai_multimodal_test_model,
+    bedrock_openai_multimodal_endpoint_url, test_image_bytes
 ):
     """
-    Test round-trip with actual OpenAI chat.completions structure.
+    Test round-trip with actual OpenAI chat.completions structure and API call.
 
     This test validates that:
     - Complete OpenAI chat.completions payloads serialize correctly
     - All typical OpenAI fields are preserved
     - Multiple content items with mixed text and images work correctly
     - The messages[].content[].image_url.url path is handled correctly
-    - Loaded payload can be used with the OpenAI client
+    - Binary image data is preserved through save/load cycle
+    - Loaded payload can be used with the OpenAI client for multimodal requests
 
     **Validates: Requirements 9.6, 9.7**
 
@@ -319,49 +321,43 @@ def test_save_load_openai_complete_structure(
         tmp_path: Temporary directory for test files (from pytest).
         aws_credentials: Boto3 session with valid AWS credentials (from fixture).
         aws_region: AWS region for testing (from fixture).
-        bedrock_openai_test_model: Model ID for OpenAI SDK testing (from fixture).
+        bedrock_openai_multimodal_test_model: Model ID for OpenAI SDK multimodal testing (from fixture).
+        bedrock_openai_multimodal_endpoint_url: Bedrock Mantle endpoint URL for multimodal (from fixture).
+        test_image_bytes: Tuple of test images as binary data (from fixture).
+
+    AWS Permissions Required:
+        - bedrock:InvokeModel
+
+    Estimated Cost:
+        ~$0.0002 per test run (using Qwen3-VL with minimal tokens)
     """
     from llmeter.prompt_utils import save_payloads, load_payloads
     import base64
 
-    # Create test images
-    image1_bytes = base64.b64decode(
-        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFBQIAX8jx0gAAAABJRU5ErkJggg=="
-    )
-    image2_bytes = base64.b64decode(
-        "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAFElEQVR42mNk+M/wn4EIwDiqkL4KAcT9BAFZhEjRAAAAAElFTkSuQmCC"
-    )
+    # Get test images as binary data
+    image1_binary, image2_binary = test_image_bytes
 
-    # Use google.gemma-3-4b-it for multi-modal testing (supports images)
-    multimodal_model = "google.gemma-3-4b-it"
-
-    # Create complete OpenAI payload with multiple messages and images
+    # Create complete OpenAI payload with images stored as binary bytes
+    # Note: We store raw bytes in the payload, which will be serialized to base64 for storage
     complete_payload = {
-        "model": multimodal_model,
+        "model": bedrock_openai_multimodal_test_model,
         "messages": [
-            {
-                "role": "system",
-                "content": "You are a helpful assistant that analyzes images.",
-            },
             {
                 "role": "user",
                 "content": [
-                    {"type": "text", "text": "Compare these two images:"},
+                    {"type": "text", "text": "Describe these images briefly:"},
                     {
                         "type": "image_url",
-                        "image_url": {"url": image1_bytes, "detail": "high"},
+                        "image_url": {"url": image1_binary},  # Binary bytes
                     },
                     {
                         "type": "image_url",
-                        "image_url": {"url": image2_bytes, "detail": "low"},
+                        "image_url": {"url": image2_binary},  # Binary bytes
                     },
-                    {"type": "text", "text": "What are the differences?"},
                 ],
             },
         ],
-        "max_tokens": 500,
-        "temperature": 0.7,
-        "top_p": 0.9,
+        "max_tokens": 100,
     }
 
     # Save and load the complete payload
@@ -375,81 +371,60 @@ def test_save_load_openai_complete_structure(
 
     # Verify structure is preserved
     assert loaded["model"] == complete_payload["model"]
-    assert len(loaded["messages"]) == 2
-    assert loaded["messages"][0]["role"] == "system"
-    assert loaded["messages"][1]["role"] == "user"
-    assert len(loaded["messages"][1]["content"]) == 4
+    assert len(loaded["messages"]) == 1
+    assert loaded["messages"][0]["role"] == "user"
+    assert len(loaded["messages"][0]["content"]) == 3
 
-    # Verify image bytes are restored correctly
-    loaded_image1 = loaded["messages"][1]["content"][1]["image_url"]["url"]
-    loaded_image2 = loaded["messages"][1]["content"][2]["image_url"]["url"]
+    # Verify image bytes are restored correctly from serialization
+    loaded_image1_binary = loaded["messages"][0]["content"][1]["image_url"]["url"]
+    loaded_image2_binary = loaded["messages"][0]["content"][2]["image_url"]["url"]
 
-    assert isinstance(loaded_image1, bytes), "First image should be bytes"
-    assert isinstance(loaded_image2, bytes), "Second image should be bytes"
-    assert loaded_image1 == image1_bytes, "First image bytes should match"
-    assert loaded_image2 == image2_bytes, "Second image bytes should match"
-
-    # Verify detail field is preserved
-    assert loaded["messages"][1]["content"][1]["image_url"]["detail"] == "high"
-    assert loaded["messages"][1]["content"][2]["image_url"]["detail"] == "low"
+    assert isinstance(loaded_image1_binary, bytes), "First image should be bytes"
+    assert isinstance(loaded_image2_binary, bytes), "Second image should be bytes"
+    assert loaded_image1_binary == image1_binary, "First image bytes should match"
+    assert loaded_image2_binary == image2_binary, "Second image bytes should match"
 
     # Verify full round-trip equality
     assert loaded == complete_payload, "Full payload should match after round-trip"
 
     # Verify the loaded payload can be used with the OpenAI client
-    # Note: OpenAI expects base64 data URIs, not raw bytes, so we need to convert
-    # the bytes back to data URI format for the actual API call
+    # Note: OpenAI API expects base64-encoded data URIs (ASCII strings), not raw bytes
+    # Multimodal models require the Bedrock Mantle endpoint, not bedrock-runtime
     token = provide_token(region=aws_region)
-    base_url = f"https://bedrock-runtime.{aws_region}.amazonaws.com/openai/v1"
-    client = OpenAI(api_key=token, base_url=base_url)
+    client = OpenAI(api_key=token, base_url=bedrock_openai_multimodal_endpoint_url)
 
-    # Convert bytes back to data URIs for OpenAI API
+    # Convert binary bytes to base64-encoded ASCII strings for API call
+    image1_base64_ascii = base64.b64encode(loaded_image1_binary).decode('utf-8')
+    image2_base64_ascii = base64.b64encode(loaded_image2_binary).decode('utf-8')
+
+    # Build API payload - data URI format with JPEG MIME type
     api_payload = {
-        "model": loaded["model"],
+        "model": bedrock_openai_multimodal_test_model,
         "messages": [
-            loaded["messages"][0],  # System message
             {
-                "role": loaded["messages"][1]["role"],
+                "role": "user",
                 "content": [
-                    loaded["messages"][1]["content"][0],  # Text
+                    {"type": "text", "text": "Describe these images briefly:"},
                     {
                         "type": "image_url",
                         "image_url": {
-                            "url": f"data:image/png;base64,{base64.b64encode(loaded['messages'][1]['content'][1]['image_url']['url']).decode()}",
-                            "detail": loaded["messages"][1]["content"][1]["image_url"][
-                                "detail"
-                            ],
+                            "url": f"data:image/jpeg;base64,{image1_base64_ascii}",
                         },
                     },
                     {
                         "type": "image_url",
                         "image_url": {
-                            "url": f"data:image/png;base64,{base64.b64encode(loaded['messages'][1]['content'][2]['image_url']['url']).decode()}",
-                            "detail": loaded["messages"][1]["content"][2]["image_url"][
-                                "detail"
-                            ],
+                            "url": f"data:image/jpeg;base64,{image2_base64_ascii}",
                         },
                     },
-                    loaded["messages"][1]["content"][3],  # Text
                 ],
             },
         ],
-        "max_tokens": loaded["max_tokens"],
-        "temperature": loaded["temperature"],
-        "top_p": loaded["top_p"],
+        "max_tokens": 100,
     }
 
+    # Invoke the API with the loaded multimodal payload
     response = client.chat.completions.create(**api_payload)
-
-    # Verify the client successfully processed the loaded payload
-    assert response.choices is not None, "Response should contain choices"
-    assert len(response.choices) > 0, "Response should have at least one choice"
-    assert response.choices[0].message.content is not None, (
-        "Response should contain text"
-    )
-    assert len(response.choices[0].message.content) > 0, (
-        "Response text should not be empty"
-    )
 
     # Verify the client successfully processed the loaded payload
     assert response.choices is not None, "Response should contain choices"

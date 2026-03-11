@@ -60,7 +60,9 @@ def to_dict_recursive_generic(obj: object, **kwargs) -> dict:
         result.update({k: getattr(obj, k) for k in dir(obj)})
     result.update(kwargs)
     for k, v in result.items():
-        if hasattr(v, "to_dict"):
+        if isinstance(v, os.PathLike):
+            result[k] = Path(v).as_posix()
+        elif hasattr(v, "to_dict"):
             result[k] = v.to_dict()
         elif isinstance(v, dict):
             result[k] = to_dict_recursive_generic(v)
@@ -192,6 +194,12 @@ class JSONableBase:
         Returns:
             output_path: Universal Path representation of the target file.
         """
+        if default is None:
+            def default(obj):
+                if isinstance(obj, os.PathLike):
+                    return Path(obj).as_posix()
+                return str(obj)
+
         output_path = Path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with output_path.open("w") as f:
