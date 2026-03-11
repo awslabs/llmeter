@@ -53,7 +53,8 @@ class Tokenizer(ABC):
         """
         if tokenizer_path is None:
             return DummyTokenizer()
-        with open(tokenizer_path, "r") as f:
+        tokenizer_path = UPath(tokenizer_path)
+        with tokenizer_path.open("r") as f:
             tokenizer_info = json.load(f)
 
         return _load_tokenizer_from_info(tokenizer_info)
@@ -122,7 +123,7 @@ def save_tokenizer(tokenizer: Any, output_path: UPath | str):
 
     output_path = UPath(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(output_path, "w") as f:
+    with output_path.open("w") as f:
         json.dump(tokenizer_info, f)
 
     return output_path

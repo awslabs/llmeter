@@ -138,7 +138,7 @@ class _RunConfig:
             file_name: File name within `output_path` for the run configuration JSON.
         """
         load_path = Path(load_path)
-        with open(load_path / file_name) as f:
+        with (load_path / file_name).open() as f:
             config = json.load(f)
         config["endpoint"] = Endpoint.load(config["endpoint"])
         config["tokenizer"] = Tokenizer.load(config["tokenizer"])
