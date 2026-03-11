@@ -9,9 +9,115 @@ import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
 
+from ..prompt_utils import (
+    detect_format_from_bytes,
+    detect_format_from_file,
+    read_file,
+)
 from .base import Endpoint, InvocationResponse
 
 logger = logging.getLogger(__name__)
+
+
+def _mime_to_format(mime_type: str) -> str | None:
+    """Convert MIME type to Bedrock format string.
+
+    Maps MIME types to format names used by Bedrock Converse API.
+
+    Args:
+        mime_type: MIME type (e.g., "image/jpeg", "application/pdf")
+
+    Returns:
+        str | None: Format string (e.g., "jpeg", "png", "pdf") or None if not recognized
+    """
+    mime_map = {
+        "image/jpeg": "jpeg",
+        "image/png": "png",
+        "image/gif": "gif",
+        "image/webp": "webp",
+        "application/pdf": "pdf",
+        "video/mp4": "mp4",
+        "video/quicktime": "mov",
+        "video/x-msvideo": "avi",
+        "audio/mpeg": "mp3",
+        "audio/wav": "wav",
+        "audio/x-wav": "wav",
+        "audio/ogg": "ogg",
+    }
+    return mime_map.get(mime_type)
+
+
+def _build_content_blocks(
+    user_message: str | list[str] | None,
+    images: list[bytes] | list[str] | None,
+    documents: list[bytes] | list[str] | None,
+    videos: list[bytes] | list[str] | None,
+    audio: list[bytes] | list[str] | None,
+) -> list[dict]:
+    """Build content blocks from parameters.
+
+    Returns list of content block dictionaries in Bedrock Converse API format.
+
+    Args:
+        user_message: Text message(s)
+        images: List of image bytes or file paths
+        documents: List of document bytes or file paths
+        videos: List of video bytes or file paths
+        audio: List of audio bytes or file paths
+
+    Returns:
+        list[dict]: Content blocks
+
+    Raises:
+        ValueError: If format cannot be auto-detected from bytes
+    """
+    content = []
+
+    # Add text blocks first
+    if user_message:
+        messages = [user_message] if isinstance(user_message, str) else user_message
+        for msg in messages:
+            content.append({"text": msg})
+
+    # Add media blocks in order: images, videos, audio, documents
+    for media_list, media_type in [
+        (images, "image"),
+        (videos, "video"),
+        (audio, "audio"),
+        (documents, "document"),
+    ]:
+        if media_list:
+            for item in media_list:
+                if isinstance(item, bytes):
+                    # Bytes provided directly - detect MIME type from content
+                    data = item
+                    mime_type = detect_format_from_bytes(data)
+                    if mime_type is None:
+                        raise ValueError(
+                            f"Cannot detect format from bytes for {media_type}. "
+                            "Either install puremagic for content-based detection "
+                            "or provide file path for extension-based detection."
+                        )
+                    fmt = _mime_to_format(mime_type)
+                    if fmt is None:
+                        raise ValueError(
+                            f"Unsupported MIME type '{mime_type}' for {media_type}"
+                        )
+                else:
+                    # File path - read and detect MIME type from file
+                    data = read_file(item)
+                    mime_type = detect_format_from_file(item)
+                    if mime_type is None:
+                        raise ValueError(f"Cannot detect format from file: {item}")
+                    fmt = _mime_to_format(mime_type)
+                    if fmt is None:
+                        raise ValueError(
+                            f"Unsupported MIME type '{mime_type}' for file: {item}"
+                        )
+
+                content.append({media_type: {"format": fmt, "source": {"bytes": data}}})
+
+    return content
 
 
 class BedrockBase(Endpoint):
@@ -101,42 +207,157 @@ class BedrockBase(Endpoint):
             return ""
 
     @staticmethod
-    def create_payload(user_message: str | list[str], max_tokens: int = 256, **kwargs):
+    def create_payload(
+        user_message: str | list[str] | None = None,
+        max_tokens: int | None = None,
+        *,
+        images: list[bytes] | list[str] | None = None,
+        documents: list[bytes] | list[str] | None = None,
+        videos: list[bytes] | list[str] | None = None,
+        audio: list[bytes] | list[str] | None = None,
+        **kwargs,
+    ):
         """
-        Create a payload for the Bedrock Converse API request.
+        Create a payload for the Bedrock Converse API request with optional multi-modal content.
+
+        ⚠️ SECURITY WARNING: Format detection is for testing/development convenience ONLY.
+        This method does NOT validate file safety, integrity, or protect against malicious
+        content. DO NOT use with untrusted files (user uploads, external sources) without
+        proper validation, sanitization, and security measures.
 
         Args:
-            user_message (str | Sequence[str]): The user's message or a sequence of messages.
-            max_tokens (int, optional): The maximum number of tokens to generate. Defaults to 256.
+            user_message (str | list[str] | None): The user's message or a sequence of messages.
+            max_tokens (int | None): The maximum number of tokens to generate. Defaults to 256.
+            images (list[bytes] | list[str] | None): List of image bytes or file paths (keyword-only).
+            documents (list[bytes] | list[str] | None): List of document bytes or file paths (keyword-only).
+            videos (list[bytes] | list[str] | None): List of video bytes or file paths (keyword-only).
+            audio (list[bytes] | list[str] | None): List of audio bytes or file paths (keyword-only).
             **kwargs: Additional keyword arguments to include in the payload.
 
         Returns:
             dict: The formatted payload for the Bedrock API request.
 
         Raises:
-            TypeError: If user_message is not a string or list of strings
-            ValueError: If max_tokens is not a positive integer
-        """
-        if not isinstance(user_message, (str, list)):
-            raise TypeError("user_message must be a string or list of strings")
+            TypeError: If parameters have invalid types
+            ValueError: If parameters have invalid values
+            FileNotFoundError: If a file path doesn't exist
+            IOError: If a file cannot be read
 
-        if isinstance(user_message, list):
-            if not all(isinstance(msg, str) for msg in user_message):
-                raise TypeError("All messages must be strings")
-            if not user_message:
-                raise ValueError("user_message list cannot be empty")
+        Security:
+            - Format detection (puremagic/extension) is NOT security validation
+            - Malicious files can have misleading extensions or forged magic bytes
+            - This method does NOT scan for malware or sanitize content
+            - Users MUST validate and sanitize untrusted files before calling this method
+            - Intended for testing/development with trusted files only
+            - NOT intended for production user uploads without proper security measures
+
+        Examples:
+            # Text only (backward compatible)
+            create_payload(user_message="Hello")
+            create_payload("Hello", 256)  # Positional args still work
+
+            # Single image from file path (trusted source)
+            create_payload(
+                user_message="What's in this image?",
+                images=["photo.jpg"]
+            )
+
+            # Multiple images from bytes (trusted source)
+            create_payload(
+                user_message="Compare these images",
+                images=[image_bytes1, image_bytes2]
+            )
+
+            # Mixed content (trusted source)
+            create_payload(
+                user_message="Analyze this",
+                images=["chart.png"],
+                documents=["report.pdf"]
+            )
+        """
+        # Set default for max_tokens if not provided
+        if max_tokens is None:
+            max_tokens = 256
+
+        # Check if any multi-modal content is provided
+        has_multimodal = any([images, documents, videos, audio])
+
+        # Backward compatibility: if only user_message provided, use old logic
+        if not has_multimodal:
+            if user_message is None:
+                raise ValueError("user_message is required when no media is provided")
+
+            if not isinstance(user_message, (str, list)):
+                raise TypeError("user_message must be a string or list of strings")
+
+            if isinstance(user_message, list):
+                if not all(isinstance(msg, str) for msg in user_message):
+                    raise TypeError("All messages must be strings")
+                if not user_message:
+                    raise ValueError("user_message list cannot be empty")
+
+            if not isinstance(max_tokens, int) or max_tokens <= 0:
+                raise ValueError("max_tokens must be a positive integer")
+
+            if isinstance(user_message, str):
+                user_message = [user_message]
+
+            try:
+                payload: dict = {
+                    "messages": [
+                        {"role": "user", "content": [{"text": k}]} for k in user_message
+                    ],
+                }
+                payload.update(kwargs)
+                if payload.get("inferenceConfig") is None:
+                    payload["inferenceConfig"] = {}
+
+                payload["inferenceConfig"] = {
+                    **payload["inferenceConfig"],
+                    "maxTokens": max_tokens,
+                }
+                return payload
+
+            except Exception as e:
+                logger.error(f"Error creating payload: {e}")
+                raise RuntimeError(f"Failed to create payload: {str(e)}")
+
+        # Multi-modal path: validate types
+        if images is not None and not isinstance(images, list):
+            raise TypeError("images must be a list")
+        if documents is not None and not isinstance(documents, list):
+            raise TypeError("documents must be a list")
+        if videos is not None and not isinstance(videos, list):
+            raise TypeError("videos must be a list")
+        if audio is not None and not isinstance(audio, list):
+            raise TypeError("audio must be a list")
+
+        # Validate list items are bytes or str
+        for media_list, media_name in [
+            (images, "images"),
+            (documents, "documents"),
+            (videos, "videos"),
+            (audio, "audio"),
+        ]:
+            if media_list:
+                for item in media_list:
+                    if not isinstance(item, (bytes, str)):
+                        raise TypeError(
+                            f"Items in {media_name} list must be bytes or str (file path), "
+                            f"got {type(item).__name__}"
+                        )
 
         if not isinstance(max_tokens, int) or max_tokens <= 0:
             raise ValueError("max_tokens must be a positive integer")
 
-        if isinstance(user_message, str):
-            user_message = [user_message]
-
         try:
+            # Build content blocks
+            content_blocks = _build_content_blocks(
+                user_message, images, documents, videos, audio
+            )
+
             payload: dict = {
-                "messages": [
-                    {"role": "user", "content": [{"text": k}]} for k in user_message
-                ],
+                "messages": [{"role": "user", "content": content_blocks}],
             }
             payload.update(kwargs)
             if payload.get("inferenceConfig") is None:
@@ -150,7 +371,7 @@ class BedrockBase(Endpoint):
 
         except Exception as e:
             logger.error(f"Error creating payload: {e}")
-            raise RuntimeError(f"Failed to create payload: {str(e)}")
+            raise
 
 
 class BedrockConverse(BedrockBase):

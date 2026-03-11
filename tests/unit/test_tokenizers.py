@@ -13,6 +13,19 @@ from llmeter.tokenizers import (
     save_tokenizer,
 )
 
+# Check for optional dependencies
+try:
+    import transformers  # noqa: F401
+    TRANSFORMERS_AVAILABLE = True
+except ImportError:
+    TRANSFORMERS_AVAILABLE = False
+
+try:
+    import tiktoken  # noqa: F401
+    TIKTOKEN_AVAILABLE = True
+except ImportError:
+    TIKTOKEN_AVAILABLE = False
+
 
 # Mock classes for testing
 class MockTransformersTokenizer:
@@ -118,15 +131,29 @@ def test_save_tokenizer(tmp_path):
 
 
 # Test _load_tokenizer_from_info function
-@pytest.mark.skip(reason="transformers is not installed")
+@pytest.mark.skipif(not TRANSFORMERS_AVAILABLE, reason="transformers is not installed")
 def test_load_tokenizer_from_info_transformers(monkeypatch):
+    # Mock AutoTokenizer.from_pretrained to return our mock
+    def mock_from_pretrained(name):
+        return MockTransformersTokenizer()
+    
+    from transformers import AutoTokenizer
+    monkeypatch.setattr(AutoTokenizer, "from_pretrained", mock_from_pretrained)
+    
     tokenizer_info = {"tokenizer_module": "transformers", "name": "mock-transformer"}
     tokenizer = _load_tokenizer_from_info(tokenizer_info)
     assert isinstance(tokenizer, MockTransformersTokenizer)
 
 
-@pytest.mark.skip(reason="tiktoken is not installed")
+@pytest.mark.skipif(not TIKTOKEN_AVAILABLE, reason="tiktoken is not installed")
 def test_load_tokenizer_from_info_tiktoken(monkeypatch):
+    # Mock get_encoding to return our mock
+    def mock_get_encoding(name):
+        return MockTiktokenTokenizer()
+    
+    import tiktoken
+    monkeypatch.setattr(tiktoken, "get_encoding", mock_get_encoding)
+    
     tokenizer_info = {"tokenizer_module": "tiktoken", "name": "mock-tiktoken"}
     tokenizer = _load_tokenizer_from_info(tokenizer_info)
     assert isinstance(tokenizer, MockTiktokenTokenizer)

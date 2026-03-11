@@ -117,9 +117,58 @@ def bedrock_openai_test_model():
 
 
 @pytest.fixture(scope="session")
+def bedrock_openai_multimodal_test_model():
+    """
+    Get test model ID for OpenAI SDK multimodal tests.
+
+    The model ID can be overridden via the BEDROCK_OPENAI_MULTIMODAL_TEST_MODEL environment variable.
+    Defaults to qwen.qwen3-vl-235b-a22b-instruct which supports images and is available in Bedrock.
+
+    Note: This model is specifically for testing multimodal content (images, video, etc.)
+    via Bedrock's OpenAI-compatible endpoint.
+
+    Returns:
+        str: OpenAI multimodal model ID for Bedrock OpenAI SDK testing.
+    """
+    return os.environ.get(
+        "BEDROCK_OPENAI_MULTIMODAL_TEST_MODEL", "qwen.qwen3-vl-235b-a22b-instruct"
+    )
+
+
+@pytest.fixture
+def test_image_bytes():
+    """
+    Create test images as binary JPEG data for multimodal testing.
+
+    Returns two small JPEG images (32x32 pixels) as bytes objects.
+    These are used to test binary content serialization and API calls.
+    JPEG format is used for broad model compatibility.
+
+    Returns:
+        tuple: (image1_bytes, image2_bytes) - Two JPEG images as bytes
+    """
+    import io
+    from PIL import Image
+
+    # 32x32 red square JPEG - binary format
+    img1 = Image.new("RGB", (32, 32), color=(255, 0, 0))
+    buf1 = io.BytesIO()
+    img1.save(buf1, format="JPEG")
+    image1_bytes = buf1.getvalue()
+
+    # 32x32 blue square JPEG - binary format
+    img2 = Image.new("RGB", (32, 32), color=(0, 0, 255))
+    buf2 = io.BytesIO()
+    img2.save(buf2, format="JPEG")
+    image2_bytes = buf2.getvalue()
+
+    return image1_bytes, image2_bytes
+
+
+@pytest.fixture(scope="session")
 def bedrock_openai_endpoint_url(aws_region):
     """
-    Construct Bedrock OpenAI-compatible endpoint URL.
+    Construct Bedrock OpenAI-compatible endpoint URL for standard models.
 
     Args:
         aws_region: AWS region from the aws_region fixture.
@@ -128,6 +177,23 @@ def bedrock_openai_endpoint_url(aws_region):
         str: Bedrock OpenAI-compatible endpoint URL.
     """
     return f"https://bedrock-runtime.{aws_region}.amazonaws.com/openai/v1"
+
+
+@pytest.fixture(scope="session")
+def bedrock_openai_multimodal_endpoint_url(aws_region):
+    """
+    Construct Bedrock OpenAI-compatible endpoint URL for multimodal models (Bedrock Mantle).
+
+    This endpoint supports non-OpenAI models (e.g., Qwen, Kimi) via the OpenAI-compatible
+    interface and is required for multimodal content (images, video).
+
+    Args:
+        aws_region: AWS region from the aws_region fixture.
+
+    Returns:
+        str: Bedrock Mantle endpoint URL for multimodal testing.
+    """
+    return f"https://bedrock-mantle.{aws_region}.api.aws/v1"
 
 
 @pytest.fixture

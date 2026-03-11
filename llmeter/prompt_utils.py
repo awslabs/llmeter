@@ -13,54 +13,185 @@ from typing import Any, Callable, Iterator
 from upath import UPath as Path
 
 from .tokenizers import DummyTokenizer, Tokenizer
+from .utils import DeferredError
 
 logger = logging.getLogger(__name__)
+
+# Optional dependency: puremagic for content-based format detection
+try:
+    import puremagic
+except ImportError as e:
+    logger.debug(
+        "puremagic not available. Format detection will fall back to file extensions. "
+        "Install with: pip install 'llmeter[multimodal]'"
+    )
+    puremagic = DeferredError(e)
+
+
+# Multi-modal content utilities
+
+
+def read_file(file_path: str) -> bytes:
+    """Read binary content from a file.
+
+    Args:
+        file_path: Path to the file
+
+    Returns:
+        bytes: File content
+
+    Raises:
+        FileNotFoundError: If file doesn't exist
+        IOError: If file cannot be read
+    """
+    try:
+        with open(file_path, "rb") as f:
+            return f.read()
+    except FileNotFoundError:
+        raise FileNotFoundError(f"File not found: {file_path}")
+    except Exception as e:
+        raise IOError(f"Failed to read file {file_path}: {e}")
+
+
+def detect_format_from_extension(file_path: str) -> str | None:
+    """Detect MIME type from file extension.
+
+    Args:
+        file_path: Path to the file
+
+    Returns:
+        str | None: MIME type or None if extension not recognized
+
+    Examples:
+        >>> detect_format_from_extension("image.jpg")
+        "image/jpeg"
+        >>> detect_format_from_extension("document.pdf")
+        "application/pdf"
+    """
+    extension = Path(file_path).suffix.lower()
+
+    # Map common extensions to MIME types
+    extension_to_mime = {
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".png": "image/png",
+        ".gif": "image/gif",
+        ".webp": "image/webp",
+        ".pdf": "application/pdf",
+        ".mp4": "video/mp4",
+        ".mov": "video/quicktime",
+        ".avi": "video/x-msvideo",
+        ".mp3": "audio/mpeg",
+        ".wav": "audio/wav",
+        ".ogg": "audio/ogg",
+    }
+
+    return extension_to_mime.get(extension)
+
+
+def detect_format_from_bytes(content: bytes) -> str | None:
+    """Detect MIME type from bytes content using puremagic.
+
+    Args:
+        content: Binary content
+
+    Returns:
+        str | None: MIME type or None if detection fails or puremagic not available
+
+    Examples:
+        >>> detect_format_from_bytes(b"\\xff\\xd8\\xff\\xe0")  # JPEG magic bytes
+        "image/jpeg"
+    """
+    try:
+        # Get MIME type from content using puremagic (v2.0+ API)
+        mime_type = puremagic.from_string(content, mime=True)
+        return mime_type if mime_type else None
+    except (ImportError, AttributeError):
+        # puremagic not available or DeferredError raised
+        return None
+    except Exception:
+        pass
+
+    return None
+
+
+def detect_format_from_file(file_path: str) -> str | None:
+    """Detect MIME type from file using puremagic or extension fallback.
+
+    Args:
+        file_path: Path to the file
+
+    Returns:
+        str | None: MIME type or None if format cannot be detected
+
+    Examples:
+        >>> detect_format_from_file("photo.jpg")
+        "image/jpeg"
+    """
+    # Try puremagic first if available
+    try:
+        matches = puremagic.magic_file(file_path)
+        if matches:
+            # Extract MIME type from first match
+            mime_type = (
+                matches[0].mime_type if hasattr(matches[0], "mime_type") else None
+            )
+            if mime_type:
+                return mime_type
+    except (ImportError, AttributeError):
+        # puremagic not available or DeferredError raised
+        pass
+    except Exception:
+        pass
+
+    # Fallback to extension-based detection
+    return detect_format_from_extension(file_path)
 
 
 class LLMeterBytesEncoder(json.JSONEncoder):
     """Custom JSON encoder that handles bytes objects by converting them to base64.
-    
+
     This encoder wraps bytes objects in a marker object with the key "__llmeter_bytes__"
     to enable round-trip serialization and deserialization of binary content in payloads.
-    
+
     Example:
         >>> encoder = LLMeterBytesEncoder()
         >>> payload = {"image": {"bytes": b"\\xff\\xd8\\xff\\xe0"}}
         >>> json.dumps(payload, cls=LLMeterBytesEncoder)
         '{"image": {"bytes": {"__llmeter_bytes__": "/9j/4A=="}}}'
     """
-    
+
     def default(self, obj):
         """Encode bytes objects as marker objects with base64 strings.
-        
+
         Args:
             obj: Object to encode
-            
+
         Returns:
             dict: Marker object for bytes, or delegates to parent for other types
-            
+
         Raises:
             TypeError: If object is not JSON serializable
         """
         if isinstance(obj, bytes):
-            return {
-                "__llmeter_bytes__": base64.b64encode(obj).decode("utf-8")
-            }
+            return {"__llmeter_bytes__": base64.b64encode(obj).decode("utf-8")}
+        if isinstance(obj, os.PathLike):
+            return Path(obj).as_posix()
         return super().default(obj)
 
 
 def llmeter_bytes_decoder(dct: dict) -> dict | bytes:
     """Decode marker objects back to bytes during JSON deserialization.
-    
+
     This function is used as an object_hook for json.loads to detect and decode
     marker objects created by LLMeterBytesEncoder back to bytes during deserialization.
-    
+
     Args:
         dct: Dictionary from JSON parsing
-        
+
     Returns:
         bytes if marker detected, otherwise original dict
-        
+
     Example:
         >>> marker = {"__llmeter_bytes__": "/9j/4A=="}
         >>> llmeter_bytes_decoder(marker)
@@ -176,13 +307,13 @@ def load_payloads(
     in a directory. It supports both .json and .jsonl file formats. Binary content
     (bytes objects) that were serialized using LLMeterBytesEncoder are automatically
     restored during deserialization.
-    
+
     Binary Content Handling:
         When loading payloads saved with save_payloads(), marker objects with the key
         "__llmeter_bytes__" are automatically detected and converted back to bytes objects.
         The base64-encoded strings are decoded to restore the original binary data,
         enabling round-trip preservation of multimodal content like images and video.
-        
+
         The marker object format is: {"__llmeter_bytes__": "<base64-string>"}
 
     Args:
@@ -203,7 +334,7 @@ def load_payloads(
 
     Examples:
         Load a Bedrock Converse API payload with image content:
-        
+
         >>> # Assuming a file was saved with save_payloads() containing binary data
         >>> payloads = list(load_payloads("/tmp/output/payload.jsonl"))
         >>> payload = payloads[0]
@@ -214,25 +345,25 @@ def load_payloads(
         >>> # The bytes can be used directly with the API
         >>> print(f"Image size: {len(image_bytes)} bytes")
         Image size: 52341 bytes
-        
+
         Load multiple payloads with video content:
-        
+
         >>> for payload in load_payloads("/tmp/output/multimodal.jsonl"):
         ...     video_content = payload["messages"][0]["content"][1]
         ...     if "video" in video_content:
         ...         video_bytes = video_content["video"]["source"]["bytes"]
         ...         print(f"Loaded video: {len(video_bytes)} bytes")
         Loaded video: 1048576 bytes
-        
+
         Load all payloads from a directory:
-        
+
         >>> # Load all .json and .jsonl files in a directory
         >>> all_payloads = list(load_payloads("/tmp/output/"))
         >>> print(f"Loaded {len(all_payloads)} payloads")
         Loaded 5 payloads
-        
+
         Round-trip example showing binary preservation:
-        
+
         >>> # Original payload with binary data
         >>> original = {
         ...     "modelId": "test-model",
@@ -263,7 +394,9 @@ def load_payloads(
             yield from _load_data_file(file, deserializer)
 
 
-def _load_data_file(file: Path, deserializer: Callable[[str], dict] | None = None) -> Iterator[dict]:
+def _load_data_file(
+    file: Path, deserializer: Callable[[str], dict] | None = None
+) -> Iterator[dict]:
     try:
         with file.open(mode="r") as f:
             if file.suffix.lower() in [".jsonl", ".manifest"]:
@@ -272,7 +405,9 @@ def _load_data_file(file: Path, deserializer: Callable[[str], dict] | None = Non
                         if not line.strip():
                             continue
                         if deserializer is None:
-                            yield json.loads(line.strip(), object_hook=llmeter_bytes_decoder)
+                            yield json.loads(
+                                line.strip(), object_hook=llmeter_bytes_decoder
+                            )
                         else:
                             yield deserializer(line.strip())
                     except json.JSONDecodeError as e:
@@ -302,13 +437,13 @@ def save_payloads(
     This function saves payloads to a JSONL file, with automatic handling of binary
     content (bytes objects) through base64 encoding. Binary data is wrapped in marker
     objects during serialization to enable round-trip preservation.
-    
+
     Binary Content Handling:
         When a payload contains bytes objects (e.g., images, video), they are automatically
         converted to base64-encoded strings and wrapped in a marker object with the key
         "__llmeter_bytes__". This approach enables JSON serialization while preserving
         the ability to restore the original bytes during deserialization with load_payloads().
-        
+
         The marker object format is: {"__llmeter_bytes__": "<base64-string>"}
 
     Args:
@@ -329,7 +464,7 @@ def save_payloads(
 
     Examples:
         Save a Bedrock Converse API payload with image content:
-        
+
         >>> import base64
         >>> # Create a payload with binary image data
         >>> with open("image.jpg", "rb") as f:
@@ -352,9 +487,9 @@ def save_payloads(
         >>> output_path = save_payloads(payload, "/tmp/output")
         >>> print(output_path)
         /tmp/output/payload.jsonl
-        
+
         Save multiple payloads with video content:
-        
+
         >>> with open("video.mp4", "rb") as f:
         ...     video_bytes = f.read()
         >>> payloads = [
@@ -376,9 +511,9 @@ def save_payloads(
         ... ]
         >>> save_payloads(payloads, "/tmp/output", "multimodal.jsonl")
         PosixPath('/tmp/output/multimodal.jsonl')
-        
+
         The saved JSON file will contain marker objects for binary data:
-        
+
         >>> # Example of what gets written to the file:
         >>> # {
         >>> #   "modelId": "anthropic.claude-3-haiku-20240307-v1:0",

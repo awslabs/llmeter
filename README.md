@@ -107,6 +107,159 @@ Additional functionality like cost modelling and MLFlow experiment tracking is e
 
 For more details, check out our selection of end-to-end code examples in the [examples](https://github.com/awslabs/llmeter/tree/main/examples) folder!
 
+## 🖼️ Multi-Modal Payload Support
+
+LLMeter supports creating payloads with multi-modal content including images, videos, audio, and documents alongside text. This enables testing of modern multi-modal AI models.
+
+### Installation for Multi-Modal Support
+
+For enhanced format detection from file content (recommended), install the optional `multimodal` extra:
+
+```terminal
+pip install 'llmeter[multimodal]'
+```
+
+Or with uv:
+
+```terminal
+uv pip install 'llmeter[multimodal]'
+```
+
+This installs the `puremagic` library for content-based format detection using magic bytes. Without it, format detection falls back to file extensions.
+
+### Basic Multi-Modal Usage
+
+```python
+from llmeter.endpoints import BedrockConverse
+
+# Single image from file
+payload = BedrockConverse.create_payload(
+    user_message="What is in this image?",
+    images=["photo.jpg"],
+    max_tokens=256
+)
+
+# Multiple images
+payload = BedrockConverse.create_payload(
+    user_message="Compare these images:",
+    images=["image1.jpg", "image2.png"],
+    max_tokens=512
+)
+
+# Image from bytes (requires puremagic for format detection)
+with open("photo.jpg", "rb") as f:
+    image_bytes = f.read()
+
+payload = BedrockConverse.create_payload(
+    user_message="What is in this image?",
+    images=[image_bytes],
+    max_tokens=256
+)
+
+# Mixed content types
+payload = BedrockConverse.create_payload(
+    user_message="Analyze this presentation and supporting materials",
+    documents=["slides.pdf"],
+    images=["chart.png"],
+    max_tokens=1024
+)
+
+# Video analysis
+payload = BedrockConverse.create_payload(
+    user_message="Describe what happens in this video",
+    videos=["clip.mp4"],
+    max_tokens=1024
+)
+```
+
+### Supported Content Types
+
+- **Images**: JPEG, PNG, GIF, WebP
+- **Documents**: PDF
+- **Videos**: MP4, MOV, AVI
+- **Audio**: MP3, WAV, OGG
+
+Format support varies by model. The library detects formats automatically and lets the API endpoint validate compatibility.
+
+### Endpoint-Specific Format Handling
+
+Different endpoints expect different format strings:
+
+- **Bedrock**: Uses short format strings (e.g., `"jpeg"`, `"png"`, `"pdf"`)
+- **OpenAI**: Uses full MIME types (e.g., `"image/jpeg"`, `"image/png"`)
+- **SageMaker**: Uses Bedrock format by default (model-dependent)
+
+The library handles these differences automatically based on the endpoint you're using.
+
+### ⚠️ Security Warning: Format Detection Is NOT Input Validation
+
+**IMPORTANT**: The format detection in this library is for testing and development convenience ONLY. It is NOT a security mechanism and MUST NOT be used with untrusted files without proper validation.
+
+#### What This Library Does
+
+- Detects likely file format from magic bytes (puremagic) or extension (mimetypes)
+- Reads binary content from files
+- Packages content for API endpoints
+- Provides type checking (bytes vs strings)
+
+#### What This Library Does NOT Do
+
+- ❌ Validate file content safety or integrity
+- ❌ Scan for malicious content or malware
+- ❌ Sanitize or clean file data
+- ❌ Protect against malformed or exploited files
+- ❌ Guarantee format correctness beyond detection heuristics
+- ❌ Validate file size or prevent memory exhaustion
+- ❌ Check for embedded scripts or exploits
+- ❌ Verify file authenticity or source
+
+#### Intended Use Cases
+
+This format detection is designed for:
+
+- **Testing and development**: Loading known-safe test files during development
+- **Internal tools**: Processing files from trusted internal sources
+- **Prototyping**: Quick experimentation with multi-modal models
+- **Controlled environments**: Scenarios where file sources are fully trusted
+
+#### NOT Intended For
+
+This format detection should NOT be used for:
+
+- **Production user uploads**: Files uploaded by end users through web forms or APIs
+- **External file sources**: Files from untrusted URLs, email attachments, or third-party systems
+- **Security-sensitive applications**: Any application where file safety is critical
+- **Public-facing services**: Services that accept files from the internet
+
+#### Recommended Security Practices for Untrusted Files
+
+When working with untrusted files (user uploads, external sources, etc.), you MUST implement proper security measures:
+
+1. **Validate file sources**: Only accept files from trusted, authenticated sources
+2. **Scan for malware**: Use antivirus/malware scanning (e.g., ClamAV) before processing
+3. **Validate file integrity**: Verify checksums, digital signatures, or other integrity mechanisms
+4. **Sanitize content**: Use specialized libraries to validate and sanitize file content:
+   - Images: Re-encode with PIL/Pillow to strip metadata and validate structure
+   - PDFs: Use PDF sanitization libraries to remove scripts and validate structure
+   - Videos: Re-encode with ffmpeg to validate and sanitize
+5. **Limit file sizes**: Enforce maximum file size limits before reading into memory
+6. **Sandbox processing**: Process untrusted files in isolated environments (containers, VMs)
+7. **Validate API responses**: Check that API endpoints successfully processed the content
+8. **Implement rate limiting**: Prevent abuse through excessive file uploads
+9. **Log and monitor**: Track file processing for security auditing
+
+### Backward Compatibility
+
+Text-only payloads continue to work exactly as before:
+
+```python
+# Still works - no changes needed
+payload = BedrockConverse.create_payload(
+    user_message="Hello, world!",
+    max_tokens=256
+)
+```
+
 ## Analyze and compare results
 
 You can analyze the results of a single run or a load test by generating interactive charts. You can find examples in in the [examples](examples) folder.
