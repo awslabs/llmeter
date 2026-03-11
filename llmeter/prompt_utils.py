@@ -45,7 +45,8 @@ def read_file(file_path: str) -> bytes:
         IOError: If file cannot be read
     """
     try:
-        with open(file_path, "rb") as f:
+        _path = Path(file_path)
+        with _path.open("rb") as f:
             return f.read()
     except FileNotFoundError:
         raise FileNotFoundError(f"File not found: {file_path}")
