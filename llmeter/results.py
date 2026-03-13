@@ -63,6 +63,8 @@ class Result:
     def __post_init__(self):
         """Initialize the Result instance."""
         self._contributed_stats = {}
+        if not hasattr(self, "_preloaded_stats"):
+            self._preloaded_stats = None
 
     def _update_contributed_stats(self, stats: dict[str, Number]):
         """
@@ -141,45 +143,123 @@ class Result:
             k: o for k, o in asdict(self).items() if k not in ["responses", "stats"]
         }
 
+    def load_responses(self) -> list[InvocationResponse]:
+        """
+        Load individual invocation responses from disk or cloud storage.
+
+        Reads the 'responses.jsonl' file from the result's output_path directory.
+        This is useful when the Result was loaded with ``load_responses=False`` and
+        you need to access the individual responses on demand.
+
+        Returns:
+            list[InvocationResponse]: The loaded responses. Also updates ``self.responses``
+            in place.
+
+        Raises:
+            ValueError: If no output_path is set on this Result.
+            FileNotFoundError: If 'responses.jsonl' is not found at the output_path.
+        """
+        if not self.output_path:
+            raise ValueError(
+                "No output_path set on this Result. Cannot locate responses file."
+            )
+        responses_path = Path(self.output_path) / "responses.jsonl"
+        with responses_path.open("r") as f:
+            self.responses = [
+                InvocationResponse(**json.loads(line)) for line in f if line
+            ]
+        logger.info("Loaded %d responses from %s", len(self.responses), responses_path)
+        # Invalidate cached stats so they are recomputed with the loaded responses
+        self.__dict__.pop("_builtin_stats", None)
+        return self.responses
+
     @classmethod
-    def load(cls, result_path: os.PathLike | str):
+    def load(cls, result_path: os.PathLike | str, load_responses: bool = True):
         """
         Load run results from disk or cloud storage.
 
         Reads previously saved run results from the specified
-        path. It expects two files to be present in the given directory:
-        'responses.jsonl' containing individual invocation responses, and
-        'summary.json' containing summary information.
+        path. It expects 'summary.json' to be present in the given directory.
+        By default, also loads 'responses.jsonl' containing individual invocation
+        responses.
 
         Args:
             result_path (UPath | str): The path to the directory containing the
                 result files. Can be a string or a UPath object.
+            load_responses (bool): Whether to load individual invocation responses
+                from 'responses.jsonl'. Defaults to True. When False, only the
+                summary and pre-computed stats are loaded, which is significantly
+                faster for large result sets. Use ``result.load_responses()`` to
+                load them on demand later.
 
         Returns:
             Result: An instance of the Result class containing the loaded
             responses and summary data.
 
         Raises:
-            FileNotFoundError: If either 'responses.jsonl' or 'summary.json'
-                is not found in the specified directory.
+            FileNotFoundError: If required files are not found in the specified
+                directory.
             JSONDecodeError: If there's an issue parsing the JSON data in
                 either file.
 
         """
         result_path = Path(result_path)
-        responses_path = result_path / "responses.jsonl"
         summary_path = result_path / "summary.json"
-        with open(responses_path, "r") as f, summary_path.open("r") as g:
-            responses = [InvocationResponse(**json.loads(line)) for line in f if line]
+
+        with summary_path.open("r") as g:
             summary = json.load(g)
-            # Convert datetime strings back to datetime objects
-            for key in ["start_time", "end_time"]:
-                if key in summary and summary[key] and isinstance(summary[key], str):
-                    try:
-                        summary[key] = datetime.fromisoformat(summary[key])
-                    except ValueError:
-                        pass
-        return cls(responses=responses, **summary)
+
+        # Convert datetime strings back to datetime objects
+        for key in ["start_time", "end_time"]:
+            if key in summary and summary[key] and isinstance(summary[key], str):
+                try:
+                    summary[key] = datetime.fromisoformat(summary[key])
+                except ValueError:
+                    pass
+
+        # Ensure output_path is set so load_responses() can find the files later
+        if "output_path" not in summary or summary["output_path"] is None:
+            summary["output_path"] = str(result_path)
+
+        if load_responses:
+            responses_path = result_path / "responses.jsonl"
+            with responses_path.open("r") as f:
+                responses = [
+                    InvocationResponse(**json.loads(line)) for line in f if line
+                ]
+        else:
+            responses = []
+            responses_path = result_path / "responses.jsonl"
+            logger.info(
+                "Loaded summary only (responses not loaded). "
+                "Individual responses are stored at: %s. "
+                "Call result.load_responses() to load them on demand.",
+                responses_path,
+            )
+
+        result = cls(responses=responses, **summary)
+
+        # When skipping responses, load pre-computed stats from stats.json if available
+        # so that result.stats works without needing the responses
+        if not load_responses:
+            stats_path = result_path / "stats.json"
+            if stats_path.exists():
+                with stats_path.open("r") as s:
+                    result._preloaded_stats = json.loads(s.read())
+                    # Convert datetime strings in stats
+                    for key in ["start_time", "end_time"]:
+                        val = result._preloaded_stats.get(key)
+                        if val and isinstance(val, str):
+                            try:
+                                result._preloaded_stats[key] = (
+                                    datetime.fromisoformat(val)
+                                )
+                            except ValueError:
+                                pass
+            else:
+                result._preloaded_stats = None
+
+        return result
 
     @cached_property
     def _builtin_stats(self) -> dict:
@@ -237,7 +317,18 @@ class Result:
         Default stats provided by LLMeter are calculated on first access and then cached. Callbacks
         Callbacks or other mechanisms needing to augment stats should use the
         `_update_contributed_stats()` method.
+
+        When the Result was loaded with ``load_responses=False``, pre-computed stats from
+        ``stats.json`` are returned if available. Call ``load_responses()`` to load the
+        individual responses and recompute stats from the raw data.
         """
+        # Use preloaded stats when responses were not loaded
+        if not self.responses and self._preloaded_stats is not None:
+            stats = self._preloaded_stats.copy()
+            if self._contributed_stats:
+                stats.update(self._contributed_stats)
+            return stats
+
         stats = self._builtin_stats.copy()
 
         if self._contributed_stats:

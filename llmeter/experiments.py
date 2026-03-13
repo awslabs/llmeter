@@ -67,13 +67,18 @@ class LoadTestResult:
 
     @classmethod
     def load(
-        cls, load_path: Path | str | None, test_name: str | None = None
+        cls,
+        load_path: Path | str | None,
+        test_name: str | None = None,
+        load_responses: bool = True,
     ) -> "LoadTestResult":
         """Load test results from a directory.
 
         Args:
             load_path: Directory path containing the load test results subdirectories
             test_name: Optional name for the test. If not provided, will use the directory name
+            load_responses: Whether to load individual invocation responses. Defaults to True.
+                When False, only summaries and pre-computed stats are loaded.
 
         Returns:
             LoadTestResult: A LoadTestResult object containing the loaded results
@@ -91,7 +96,11 @@ class LoadTestResult:
         if not load_path.exists():
             raise FileNotFoundError(f"Load path {load_path} does not exist")
 
-        results = [Result.load(x) for x in load_path.iterdir() if x.is_dir()]
+        results = [
+            Result.load(x, load_responses=load_responses)
+            for x in load_path.iterdir()
+            if x.is_dir()
+        ]
 
         if not results:
             raise ValueError(f"No results found in {load_path}")
