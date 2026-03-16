@@ -217,6 +217,27 @@ def test_stats_property_empty_result():
             assert f"{metric}-{stat}" not in stats
 
 
+def test_stats_json_serializable_with_datetimes():
+    """stats dict should be directly JSON-serializable even with datetime fields."""
+    from datetime import datetime, timezone
+
+    result = Result(
+        responses=sample_responses_successful[:2],
+        total_requests=2,
+        clients=1,
+        n_requests=2,
+        total_test_time=1.0,
+        start_time=datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
+        end_time=datetime(2025, 1, 1, 12, 0, 1, tzinfo=timezone.utc),
+    )
+    stats = result.stats
+    # Should not raise TypeError
+    json_str = json.dumps(stats)
+    parsed = json.loads(json_str)
+    assert parsed["start_time"] == "2025-01-01T12:00:00Z"
+    assert parsed["end_time"] == "2025-01-01T12:00:01Z"
+
+
 @pytest.fixture
 def temp_dir(tmp_path: Path):
     return UPath(tmp_path)
