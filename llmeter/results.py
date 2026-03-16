@@ -174,12 +174,15 @@ class Result:
         return json.dumps(summary, default=utc_datetime_serializer, **kwargs)
 
     def to_dict(self, include_responses: bool = False):
-        """Return the results as a dictionary."""
+        """Return the results as a dictionary with JSON-serializable values."""
+        data = asdict(self)
+        # Serialize datetime objects so stats dict is always JSON-safe
+        for key in ("start_time", "end_time"):
+            if key in data and isinstance(data[key], datetime):
+                data[key] = utc_datetime_serializer(data[key])
         if include_responses:
-            return asdict(self)
-        return {
-            k: o for k, o in asdict(self).items() if k not in ["responses", "stats"]
-        }
+            return data
+        return {k: v for k, v in data.items() if k not in ["responses", "stats"]}
 
     def load_responses(self) -> list[InvocationResponse]:
         """
