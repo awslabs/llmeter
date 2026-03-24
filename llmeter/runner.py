@@ -186,6 +186,7 @@ class _Run(_RunConfig):
             if (
                 response.time_to_last_token
                 and response.num_tokens_output
+                and response.num_tokens_output > 1
                 and response.time_to_first_token
             ):
                 response.time_per_output_token = (
