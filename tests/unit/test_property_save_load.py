@@ -8,6 +8,8 @@ import tempfile
 from pathlib import Path
 from unittest.mock import Mock
 
+import pytest
+
 from hypothesis import given, strategies as st, settings
 from hypothesis.strategies import composite
 
@@ -533,3 +535,142 @@ class TestSaveLoadErrorHandling:
 
             assert saved_path.exists()
             assert saved_path.parent.exists()
+
+
+# Lazy loading property tests
+class TestLazyLoadProperties:
+    """Property-based tests for lazy loading (load_responses=False) functionality."""
+
+    @given(valid_result())
+    @settings(deadline=None, max_examples=10)
+    def test_lazy_load_preserves_summary(self, result):
+        """Loading without responses should preserve all summary fields."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir)
+            result.save(output_path)
+
+            full = Result.load(output_path, load_responses=True)
+            lazy = Result.load(output_path, load_responses=False)
+
+            assert lazy.total_requests == full.total_requests
+            assert lazy.clients == full.clients
+            assert lazy.n_requests == full.n_requests
+            assert lazy.run_name == full.run_name
+            assert lazy.run_description == full.run_description
+            assert lazy.model_id == full.model_id
+
+    @given(valid_result())
+    @settings(deadline=None, max_examples=10)
+    def test_lazy_load_returns_empty_responses(self, result):
+        """Loading without responses should yield an empty responses list."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir)
+            result.save(output_path)
+
+            lazy = Result.load(output_path, load_responses=False)
+            assert lazy.responses == []
+
+    @given(valid_result())
+    @settings(deadline=None, max_examples=10)
+    def test_lazy_load_stats_match_full_load(self, result):
+        """Stats from lazy load (via stats.json) should match full load stats."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir)
+            result.save(output_path)
+
+            full = Result.load(output_path, load_responses=True)
+            lazy = Result.load(output_path, load_responses=False)
+
+            full_stats = full.stats
+            lazy_stats = lazy.stats
+
+            # output_path is expected to differ: lazy load always sets it for
+            # on-demand loading, while full load reads it from summary.json
+            skip_keys = {"output_path"}
+            for key in full_stats:
+                if key in skip_keys:
+                    continue
+                if isinstance(full_stats[key], float):
+                    assert lazy_stats[key] == pytest.approx(
+                        full_stats[key], nan_ok=True
+                    ), f"Mismatch on {key}"
+                else:
+                    assert lazy_stats.get(key) == full_stats[key], f"Mismatch on {key}"
+
+    @given(valid_result())
+    @settings(deadline=None, max_examples=10)
+    def test_load_responses_on_demand_roundtrip(self, result):
+        """Loading responses on demand should recover the same data as a full load."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir)
+            result.save(output_path)
+
+            lazy = Result.load(output_path, load_responses=False)
+            assert lazy.responses == []
+
+            lazy.load_responses()
+            assert len(lazy.responses) == len(result.responses)
+
+            # Verify individual response fields match
+            full = Result.load(output_path, load_responses=True)
+            for orig, loaded in zip(full.responses, lazy.responses):
+                assert orig.id == loaded.id
+                assert orig.response_text == loaded.response_text
+                assert orig.num_tokens_input == loaded.num_tokens_input
+                assert orig.num_tokens_output == loaded.num_tokens_output
+
+    @given(valid_result())
+    @settings(deadline=None, max_examples=10)
+    def test_load_responses_recomputes_stats(self, result):
+        """After load_responses(), stats should be recomputed from actual data."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir)
+            result.save(output_path)
+
+            lazy = Result.load(output_path, load_responses=False)
+            lazy.load_responses()
+
+            full = Result.load(output_path, load_responses=True)
+
+            skip_keys = {"output_path"}
+            for key in full.stats:
+                if key in skip_keys:
+                    continue
+                if isinstance(full.stats[key], float):
+                    assert lazy.stats[key] == pytest.approx(
+                        full.stats[key], nan_ok=True
+                    ), f"Mismatch on {key}"
+                else:
+                    assert lazy.stats.get(key) == full.stats[key], f"Mismatch on {key}"
+
+    @given(valid_result())
+    @settings(deadline=None, max_examples=10)
+    def test_lazy_load_sets_output_path(self, result):
+        """Lazy load should always set output_path for on-demand loading."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir)
+            result.save(output_path)
+
+            lazy = Result.load(output_path, load_responses=False)
+            assert lazy.output_path is not None
+
+    @given(
+        st.lists(valid_result(), min_size=1, max_size=3),
+    )
+    @settings(deadline=None, max_examples=5)
+    def test_lazy_load_multiple_results(self, results):
+        """Multiple results saved and lazy-loaded should all preserve stats."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir)
+
+            for i, result in enumerate(results):
+                result.save(output_path / f"result_{i}")
+
+            for i, result in enumerate(results):
+                result_path = output_path / f"result_{i}"
+                lazy = Result.load(result_path, load_responses=False)
+                full = Result.load(result_path, load_responses=True)
+
+                assert lazy.responses == []
+                assert lazy.total_requests == full.total_requests
+                assert lazy.clients == full.clients
