@@ -251,8 +251,8 @@ class Result:
                         val = result._preloaded_stats.get(key)
                         if val and isinstance(val, str):
                             try:
-                                result._preloaded_stats[key] = (
-                                    datetime.fromisoformat(val)
+                                result._preloaded_stats[key] = datetime.fromisoformat(
+                                    val
                                 )
                             except ValueError:
                                 pass
