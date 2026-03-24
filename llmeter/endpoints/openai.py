@@ -207,7 +207,7 @@ class OpenAICompletionStreamEndpoint(OpenAIEndpoint):
         response_text = first_chunk.choices[0].delta.content or ""
 
         for chunk in client_response:
-            if chunk.choices[0].delta.content is not None:  # type: ignore
+            if chunk.choices and chunk.choices[0].delta.content:  # type: ignore
                 response_text += chunk.choices[0].delta.content or ""  # type: ignore
             if hasattr(chunk, "usage") and chunk.usage is not None:  # type: ignore
                 prompt_tokens = chunk.usage.prompt_tokens  # type: ignore
