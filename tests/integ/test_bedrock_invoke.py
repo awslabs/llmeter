@@ -52,31 +52,36 @@ def test_bedrock_invoke_non_streaming(aws_credentials, aws_region, bedrock_test_
         - bedrock:InvokeModel
 
     Estimated Cost:
-        ~$0.0001 per test run (using Claude 3.5 Sonnet v2 with minimal tokens)
+        ~$0.0001 per test run (using Amazon Nova Lite with minimal tokens)
     """
-    # Create BedrockInvoke endpoint instance with JMESPath expressions for Claude models
-    # Claude models via InvokeModel API use the native Claude Messages API format
+    # Create BedrockInvoke endpoint instance with JMESPath expressions for Amazon Nova models
+    # Nova models via InvokeModel API use a Converse-like native format
     endpoint = BedrockInvoke(
         model_id=bedrock_test_model,
         region=aws_region,
-        # JMESPath for Claude native Messages API format
-        generated_text_jmespath="content[0].text",
-        generated_token_count_jmespath="usage.output_tokens",
-        input_token_count_jmespath="usage.input_tokens",
-        input_text_jmespath="messages[0].content",
+        # JMESPath for Nova native Invoke API response format
+        generated_text_jmespath="output.message.content[0].text",
+        generated_token_count_jmespath="usage.outputTokens",
+        input_token_count_jmespath="usage.inputTokens",
+        input_text_jmespath="messages[0].content[0].text",
     )
 
-    # Create payload in Claude native Messages API format
-    # This is different from the Converse API format
+    # Create payload in Nova native Invoke API format
     invoke_payload = {
-        "anthropic_version": "bedrock-2023-05-31",
-        "max_tokens": 100,
+        "schemaVersion": "messages-v1",
         "messages": [
             {
                 "role": "user",
-                "content": "Hello, this is a test message. Please respond with a brief greeting.",
+                "content": [
+                    {
+                        "text": "Hello, this is a test message. Please respond with a brief greeting."
+                    }
+                ],
             }
         ],
+        "inferenceConfig": {
+            "maxTokens": 100,
+        },
     }
 
     # Invoke the endpoint with test payload
@@ -134,36 +139,41 @@ def test_bedrock_invoke_streaming(aws_credentials, aws_region, bedrock_test_mode
         - bedrock:InvokeModelWithResponseStream
 
     Estimated Cost:
-        ~$0.0001 per test run (using Claude 3.5 Sonnet v2 with minimal tokens)
+        ~$0.0001 per test run (using Amazon Nova Lite with minimal tokens)
     """
     from llmeter.endpoints.bedrock_invoke import BedrockInvokeStream
 
-    # Create BedrockInvokeStream endpoint instance with JMESPath expressions for Claude models
-    # Claude models via InvokeModelWithResponseStream API use the native Claude Messages API format
+    # Create BedrockInvokeStream endpoint instance with JMESPath expressions for Amazon Nova models
+    # Nova models via InvokeModelWithResponseStream API use a Converse-like native format
     endpoint = BedrockInvokeStream(
         model_id=bedrock_test_model,
         region=aws_region,
-        # JMESPath for Claude native Messages API streaming format
-        # delta.text extracts text from content_block_delta chunks
-        generated_text_jmespath="delta.text",
-        # message.usage.output_tokens extracts output tokens from message_delta chunks
-        generated_token_count_jmespath="message.usage.output_tokens",
-        # message.usage.input_tokens extracts input tokens from message_start chunk
-        input_token_count_jmespath="message.usage.input_tokens",
-        input_text_jmespath="messages[0].content",
+        # JMESPath for Nova native streaming format
+        # contentBlockDelta.delta.text extracts text from content block delta chunks
+        generated_text_jmespath="contentBlockDelta.delta.text",
+        # metadata.usage.outputTokens extracts output tokens from the metadata chunk
+        generated_token_count_jmespath="metadata.usage.outputTokens",
+        # metadata.usage.inputTokens extracts input tokens from the metadata chunk
+        input_token_count_jmespath="metadata.usage.inputTokens",
+        input_text_jmespath="messages[0].content[0].text",
     )
 
-    # Create payload in Claude native Messages API format
-    # This is different from the Converse API format
+    # Create payload in Nova native Invoke API format
     invoke_payload = {
-        "anthropic_version": "bedrock-2023-05-31",
-        "max_tokens": 100,
+        "schemaVersion": "messages-v1",
         "messages": [
             {
                 "role": "user",
-                "content": "Hello, this is a test message. Please respond with a brief greeting.",
+                "content": [
+                    {
+                        "text": "Hello, this is a test message. Please respond with a brief greeting."
+                    }
+                ],
             }
         ],
+        "inferenceConfig": {
+            "maxTokens": 100,
+        },
     }
 
     # Invoke the endpoint with test payload
