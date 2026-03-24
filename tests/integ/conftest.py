@@ -93,7 +93,7 @@ def bedrock_test_model():
         str: Bedrock model ID for testing.
     """
     return os.environ.get(
-        "BEDROCK_TEST_MODEL", "us.anthropic.claude-3-5-sonnet-20241022-v2:0"
+        "BEDROCK_TEST_MODEL", "global.amazon.nova-2-lite-v1:0"
     )
 
 
