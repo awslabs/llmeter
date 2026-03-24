@@ -191,9 +191,4 @@ class LiteLLMStreaming(LiteLLMBase):
             time_to_first_token=time_to_first_token,
             time_to_last_token=time_to_last_token,
         )
-        if response.num_tokens_output and time_to_last_token and time_to_first_token:
-            generation_time = time_to_last_token - time_to_first_token
-            response.time_per_output_token = (response.num_tokens_output - 1) and (
-                generation_time / (response.num_tokens_output - 1)
-            )
         return response

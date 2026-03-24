@@ -158,11 +158,6 @@ class SageMakerEndpoint(SageMakerBase):
             time_to_last_token=time_to_last_token,
             input_prompt=input_prompt,
             num_tokens_output=num_tokens_output if num_tokens_output else None,
-            time_per_output_token=(
-                (time_to_last_token / (num_tokens_output - 1))
-                if num_tokens_output
-                else None
-            ),
         )
 
 
@@ -204,8 +199,6 @@ class SageMakerStreamEndpoint(SageMakerBase):
             time_to_first_token=time_to_first_token,
             time_to_last_token=time_to_last_token,
             num_tokens_output=num_tokens_output,
-            time_per_output_token=(time_to_last_token - time_to_first_token)
-            / (num_tokens_output - 1),
         )
 
     def invoke(self, payload: dict) -> InvocationResponse:

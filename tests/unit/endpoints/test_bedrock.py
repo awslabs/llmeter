@@ -61,8 +61,8 @@ class TestBedrock:
         # Check that timing information is set
         assert result.time_to_first_token is not None
         assert result.time_to_last_token is not None
-        assert result.time_per_output_token is not None
-        assert result.time_per_output_token < 0.01
+        # time_per_output_token is computed by the runner, not the endpoint
+        assert result.time_per_output_token is None
         # Verify that time calculations are logical
         assert 0 < result.time_to_first_token < result.time_to_last_token
 
@@ -178,7 +178,8 @@ class TestBedrock:
         assert response.num_tokens_output == 5
         assert response.time_to_first_token is not None
         assert response.time_to_last_token is not None
-        assert response.time_per_output_token is not None
+        # time_per_output_token is computed by the runner, not the endpoint
+        assert response.time_per_output_token is None
         assert response.retries == 0
 
     def test__parse_conversation_stream_6(self):
@@ -224,7 +225,8 @@ class TestBedrock:
         assert result.time_to_last_token is not None
         assert result.num_tokens_input == 10
         assert result.num_tokens_output == 5
-        assert result.time_per_output_token is not None
+        # time_per_output_token is computed by the runner, not the endpoint
+        assert result.time_per_output_token is None
         assert result.retries == 0
 
     def test__parse_conversation_stream_7(self):
