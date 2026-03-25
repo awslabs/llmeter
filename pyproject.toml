@@ -8,7 +8,7 @@ readme = "README.md"
 keywords = ["llm", "genai", "testing", "performance"]
 license = { text = "Apache-2.0" }
 maintainers = [{ name = "llmeter-maintainers", email = "llmeter-maintainers@amazon.com" }]
-requires-python = ">=3.10,<3.13"
+requires-python = ">=3.10,<4"
 dependencies = [
     "tqdm>=4.66.0",
     "jmespath>=0.7.1,<2.0.0",

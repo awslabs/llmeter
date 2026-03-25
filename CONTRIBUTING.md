@@ -107,6 +107,8 @@ Or if not using uv:
 python -m pytest .
 ```
 
+More details on testing in [tests/README.md](tests/README.md).
+
 ## Finding Contributions to Work On
 
 Looking at the existing issues is a great way to find something to contribute on. As our projects, by default, use the default GitHub issue labels, looking for any issues labeled `good first issue` or `help wanted` is a great place to start.
