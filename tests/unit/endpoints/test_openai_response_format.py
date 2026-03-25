@@ -81,7 +81,9 @@ class TestResponseFormatConfiguration:
         mock_response = Mock()
         mock_response.id = "resp_123"
         mock_response.output_text = '{"name": "John", "age": 30}'
-        mock_response.usage = Mock(prompt_tokens=10, completion_tokens=15)
+        mock_response.usage = Mock(spec=["input_tokens", "output_tokens"])
+        mock_response.usage.input_tokens = 10
+        mock_response.usage.output_tokens = 15
 
         mock_client.responses.create.return_value = mock_response
 
@@ -136,7 +138,9 @@ class TestResponseFormatConfiguration:
         mock_response = Mock()
         mock_response.id = "resp_456"
         mock_response.output_text = '{"name": "Alice", "age": 25}'
-        mock_response.usage = Mock(prompt_tokens=12, completion_tokens=8)
+        mock_response.usage = Mock(spec=["input_tokens", "output_tokens"])
+        mock_response.usage.input_tokens = 12
+        mock_response.usage.output_tokens = 8
 
         mock_client.responses.create.return_value = mock_response
 
@@ -170,28 +174,33 @@ class TestResponseFormatConfiguration:
         mock_client = Mock()
         mock_openai_class.return_value = mock_client
 
-        # Mock streaming response chunks
-        chunk1 = Mock()
-        chunk1.id = "resp_789"
-        chunk1.output = [
-            Mock(
-                type="message",
-                content=[Mock(type="output_text", text='{"name": "Bob"')],
-            )
-        ]
-        chunk1.usage = None
+        # Mock streaming response events (Response API uses typed events)
+        # ResponseCreatedEvent with response ID
+        event_created = Mock()
+        event_created.type = "response.created"
+        event_created.response = Mock()
+        event_created.response.id = "resp_789"
 
-        chunk2 = Mock()
-        chunk2.id = "resp_789"
-        chunk2.output = [
-            Mock(
-                type="message",
-                content=[Mock(type="output_text", text=', "age": 35}')],
-            )
-        ]
-        chunk2.usage = Mock(prompt_tokens=10, completion_tokens=12)
+        # Text delta events
+        event_delta1 = Mock()
+        event_delta1.type = "response.output_text.delta"
+        event_delta1.delta = '{"name": "Bob"'
 
-        mock_client.responses.create.return_value = iter([chunk1, chunk2])
+        event_delta2 = Mock()
+        event_delta2.type = "response.output_text.delta"
+        event_delta2.delta = ', "age": 35}'
+
+        # Completed event with usage
+        event_completed = Mock()
+        event_completed.type = "response.completed"
+        event_completed.response = Mock()
+        event_completed.response.usage = Mock(spec=["input_tokens", "output_tokens"])
+        event_completed.response.usage.input_tokens = 10
+        event_completed.response.usage.output_tokens = 12
+
+        mock_client.responses.create.return_value = iter(
+            [event_created, event_delta1, event_delta2, event_completed]
+        )
 
         # Create streaming endpoint and invoke with text.format
         endpoint = ResponseStreamEndpoint(model_id="gpt-4")
@@ -237,7 +246,9 @@ class TestResponseFormatConfiguration:
         mock_response = Mock()
         mock_response.id = "resp_text123"
         mock_response.output_text = "This is a plain text response."
-        mock_response.usage = Mock(prompt_tokens=5, completion_tokens=7)
+        mock_response.usage = Mock(spec=["input_tokens", "output_tokens"])
+        mock_response.usage.input_tokens = 5
+        mock_response.usage.output_tokens = 7
 
         mock_client.responses.create.return_value = mock_response
 
@@ -270,7 +281,9 @@ class TestResponseFormatConfiguration:
         mock_response = Mock()
         mock_response.id = "resp_json123"
         mock_response.output_text = '{"status": "success", "data": [1, 2, 3]}'
-        mock_response.usage = Mock(prompt_tokens=8, completion_tokens=10)
+        mock_response.usage = Mock(spec=["input_tokens", "output_tokens"])
+        mock_response.usage.input_tokens = 8
+        mock_response.usage.output_tokens = 10
 
         mock_client.responses.create.return_value = mock_response
 

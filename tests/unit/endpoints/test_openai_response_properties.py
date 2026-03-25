@@ -118,9 +118,9 @@ def test_property_non_streaming_response_parsing_completeness(
     mock_response.output_text = response_text
 
     if prompt_tokens is not None and completion_tokens is not None:
-        mock_response.usage = Mock(
-            prompt_tokens=prompt_tokens, completion_tokens=completion_tokens
-        )
+        mock_response.usage = Mock(spec=["input_tokens", "output_tokens"])
+        mock_response.usage.input_tokens = prompt_tokens
+        mock_response.usage.output_tokens = completion_tokens
     else:
         mock_response.usage = None
 
@@ -183,40 +183,37 @@ def test_property_streaming_response_assembly(
     mock_client = Mock()
     mock_openai_class.return_value = mock_client
 
-    # Create mock streaming chunks
-    # Note: The implementation processes first chunk separately, then loops through remaining chunks
-    # So for single-chunk responses, usage must be on a "second" chunk or it won't be extracted
-    mock_chunks = []
-    for i, text in enumerate(text_chunks):
-        chunk = Mock(spec=["id", "output"])
-        chunk.id = response_id
+    # Create mock streaming events (Response API uses typed events)
+    mock_events = []
 
-        # Create output array with message and content
-        output_item = Mock()
-        output_item.type = "message"
+    # ResponseCreatedEvent with response ID
+    event_created = Mock()
+    event_created.type = "response.created"
+    event_created.response = Mock()
+    event_created.response.id = response_id
+    mock_events.append(event_created)
 
-        content_item = Mock()
-        content_item.type = "output_text"
-        content_item.text = text
+    # Text delta events for each chunk
+    for text in text_chunks:
+        event_delta = Mock()
+        event_delta.type = "response.output_text.delta"
+        event_delta.delta = text
+        mock_events.append(event_delta)
 
-        output_item.content = [content_item]
-        chunk.output = [output_item]
-
-        mock_chunks.append(chunk)
-
-    # Add a final chunk with usage if provided (this matches real API behavior)
-    # The real API sends usage in a separate final chunk after all content chunks
+    # Completed event with usage if provided
+    event_completed = Mock()
+    event_completed.type = "response.completed"
+    event_completed.response = Mock()
     if prompt_tokens is not None and completion_tokens is not None:
-        usage_chunk = Mock(spec=["id", "output", "usage"])
-        usage_chunk.id = response_id
-        usage_chunk.output = []  # Final usage chunk typically has no content
-        usage_chunk.usage = Mock(
-            prompt_tokens=prompt_tokens, completion_tokens=completion_tokens
-        )
-        mock_chunks.append(usage_chunk)
+        event_completed.response.usage = Mock(spec=["input_tokens", "output_tokens"])
+        event_completed.response.usage.input_tokens = prompt_tokens
+        event_completed.response.usage.output_tokens = completion_tokens
+    else:
+        event_completed.response.usage = None
+    mock_events.append(event_completed)
 
     # Mock the streaming response
-    mock_client.responses.create.return_value = iter(mock_chunks)
+    mock_client.responses.create.return_value = iter(mock_events)
 
     endpoint = ResponseStreamEndpoint(model_id="gpt-4")
     payload = {"input": "Test", "max_tokens": 256}
@@ -286,7 +283,9 @@ def test_property_payload_preservation(
         mock_response = Mock()
         mock_response.id = "resp_test123"
         mock_response.output_text = "Test response"
-        mock_response.usage = Mock(prompt_tokens=10, completion_tokens=5)
+        mock_response.usage = Mock(spec=["input_tokens", "output_tokens"])
+        mock_response.usage.input_tokens = 10
+        mock_response.usage.output_tokens = 5
         mock_client.responses.create.return_value = mock_response
 
     endpoint = ResponseEndpoint(model_id="gpt-4")
@@ -340,7 +339,9 @@ def test_property_input_prompt_extraction(mock_openai_class, input_value):
     mock_response = Mock()
     mock_response.id = "resp_test123"
     mock_response.output_text = "Test response"
-    mock_response.usage = Mock(prompt_tokens=10, completion_tokens=5)
+    mock_response.usage = Mock(spec=["input_tokens", "output_tokens"])
+    mock_response.usage.input_tokens = 10
+    mock_response.usage.output_tokens = 5
     mock_client.responses.create.return_value = mock_response
 
     endpoint = ResponseEndpoint(model_id="gpt-4")
@@ -465,7 +466,9 @@ def test_property_parameter_forwarding(
     mock_response = Mock()
     mock_response.id = "resp_test123"
     mock_response.output_text = "Test response"
-    mock_response.usage = Mock(prompt_tokens=10, completion_tokens=5)
+    mock_response.usage = Mock(spec=["input_tokens", "output_tokens"])
+    mock_response.usage.input_tokens = 10
+    mock_response.usage.output_tokens = 5
     mock_client.responses.create.return_value = mock_response
 
     endpoint = ResponseEndpoint(model_id="gpt-4-test")

@@ -73,17 +73,17 @@ class TestResponseEndpointPayloadCreation:
     def test_create_payload_with_single_string(self):
         """Test create_payload with single string message."""
         payload = ResponseEndpoint.create_payload(
-            user_message="Hello, how are you?", max_tokens=256
+            user_message="Hello, how are you?", max_output_tokens=256
         )
 
         assert isinstance(payload, dict)
         assert payload["input"] == "Hello, how are you?"
-        assert payload["max_tokens"] == 256
+        assert payload["max_output_tokens"] == 256
 
     def test_create_payload_with_sequence_of_strings(self):
         """Test create_payload with sequence of messages."""
         messages = ["First message", "Second message", "Third message"]
-        payload = ResponseEndpoint.create_payload(user_message=messages, max_tokens=512)
+        payload = ResponseEndpoint.create_payload(user_message=messages, max_output_tokens=512)
 
         assert isinstance(payload, dict)
         assert "input" in payload
@@ -95,25 +95,25 @@ class TestResponseEndpointPayloadCreation:
             assert msg["role"] == "user"
             assert msg["content"] == messages[i]
 
-    def test_create_payload_with_max_tokens(self):
-        """Test create_payload with max_tokens parameter."""
+    def test_create_payload_with_max_output_tokens(self):
+        """Test create_payload with max_output_tokens parameter."""
         payload = ResponseEndpoint.create_payload(
-            user_message="Test message", max_tokens=1024
+            user_message="Test message", max_output_tokens=1024
         )
 
-        assert payload["max_tokens"] == 1024
+        assert payload["max_output_tokens"] == 1024
 
-    def test_create_payload_default_max_tokens(self):
-        """Test that max_tokens defaults to 256."""
+    def test_create_payload_default_max_output_tokens(self):
+        """Test that max_output_tokens defaults to 256."""
         payload = ResponseEndpoint.create_payload(user_message="Test")
 
-        assert payload["max_tokens"] == 256
+        assert payload["max_output_tokens"] == 256
 
     def test_create_payload_with_instructions(self):
         """Test create_payload with instructions parameter."""
         payload = ResponseEndpoint.create_payload(
             user_message="Write a story",
-            max_tokens=256,
+            max_output_tokens=256,
             instructions="You are a creative storyteller",
         )
 
@@ -123,7 +123,7 @@ class TestResponseEndpointPayloadCreation:
     def test_create_payload_without_instructions(self):
         """Test create_payload without instructions parameter."""
         payload = ResponseEndpoint.create_payload(
-            user_message="Test message", max_tokens=256
+            user_message="Test message", max_output_tokens=256
         )
 
         assert "instructions" not in payload
@@ -131,7 +131,7 @@ class TestResponseEndpointPayloadCreation:
     def test_create_payload_with_temperature_kwarg(self):
         """Test create_payload with temperature in kwargs."""
         payload = ResponseEndpoint.create_payload(
-            user_message="Test", max_tokens=256, temperature=0.8
+            user_message="Test", max_output_tokens=256, temperature=0.8
         )
 
         assert payload["temperature"] == 0.8
@@ -139,7 +139,7 @@ class TestResponseEndpointPayloadCreation:
     def test_create_payload_with_top_p_kwarg(self):
         """Test create_payload with top_p in kwargs."""
         payload = ResponseEndpoint.create_payload(
-            user_message="Test", max_tokens=256, top_p=0.9
+            user_message="Test", max_output_tokens=256, top_p=0.9
         )
 
         assert payload["top_p"] == 0.9
@@ -148,7 +148,7 @@ class TestResponseEndpointPayloadCreation:
         """Test create_payload with multiple additional kwargs."""
         payload = ResponseEndpoint.create_payload(
             user_message="Test",
-            max_tokens=256,
+            max_output_tokens=256,
             temperature=0.7,
             top_p=0.95,
             frequency_penalty=0.5,
@@ -173,16 +173,18 @@ class TestResponseEndpointResponseParsing:
         mock_client = Mock()
         mock_openai_class.return_value = mock_client
 
-        # Mock complete response
+        # Mock complete response with Response API usage format
         mock_response = Mock()
         mock_response.id = "resp_abc123"
         mock_response.output_text = "I'm doing well, thank you for asking!"
-        mock_response.usage = Mock(prompt_tokens=10, completion_tokens=15)
+        mock_response.usage = Mock(spec=["input_tokens", "output_tokens"])
+        mock_response.usage.input_tokens = 10
+        mock_response.usage.output_tokens = 15
 
         mock_client.responses.create.return_value = mock_response
 
         endpoint = ResponseEndpoint(model_id="gpt-4")
-        payload = {"input": "Hello, how are you?", "max_tokens": 256}
+        payload = {"input": "Hello, how are you?", "max_output_tokens": 256}
         response = endpoint.invoke(payload)
 
         # Verify all fields are extracted correctly
@@ -209,7 +211,7 @@ class TestResponseEndpointResponseParsing:
         mock_client.responses.create.return_value = mock_response
 
         endpoint = ResponseEndpoint(model_id="gpt-4")
-        payload = {"input": "Test", "max_tokens": 256}
+        payload = {"input": "Test", "max_output_tokens": 256}
         response = endpoint.invoke(payload)
 
         # Verify response is parsed correctly with None token counts
@@ -230,12 +232,14 @@ class TestResponseEndpointResponseParsing:
         mock_response = Mock()
         mock_response.id = "resp_empty123"
         mock_response.output_text = ""
-        mock_response.usage = Mock(prompt_tokens=5, completion_tokens=0)
+        mock_response.usage = Mock(spec=["input_tokens", "output_tokens"])
+        mock_response.usage.input_tokens = 5
+        mock_response.usage.output_tokens = 0
 
         mock_client.responses.create.return_value = mock_response
 
         endpoint = ResponseEndpoint(model_id="gpt-4")
-        payload = {"input": "Test", "max_tokens": 256}
+        payload = {"input": "Test", "max_output_tokens": 256}
         response = endpoint.invoke(payload)
 
         # Verify empty content is handled correctly
@@ -254,12 +258,14 @@ class TestResponseEndpointResponseParsing:
         mock_response = Mock()
         mock_response.id = "resp_test_id_12345"
         mock_response.output_text = "Test response"
-        mock_response.usage = Mock(prompt_tokens=5, completion_tokens=5)
+        mock_response.usage = Mock(spec=["input_tokens", "output_tokens"])
+        mock_response.usage.input_tokens = 5
+        mock_response.usage.output_tokens = 5
 
         mock_client.responses.create.return_value = mock_response
 
         endpoint = ResponseEndpoint(model_id="gpt-4")
-        payload = {"input": "Test", "max_tokens": 256}
+        payload = {"input": "Test", "max_output_tokens": 256}
         response = endpoint.invoke(payload)
 
         # Verify response ID is extracted correctly
@@ -274,12 +280,14 @@ class TestResponseEndpointResponseParsing:
         mock_response = Mock()
         mock_response.id = "resp_tokens"
         mock_response.output_text = "Token count test"
-        mock_response.usage = Mock(prompt_tokens=25, completion_tokens=50)
+        mock_response.usage = Mock(spec=["input_tokens", "output_tokens"])
+        mock_response.usage.input_tokens = 25
+        mock_response.usage.output_tokens = 50
 
         mock_client.responses.create.return_value = mock_response
 
         endpoint = ResponseEndpoint(model_id="gpt-4")
-        payload = {"input": "Test", "max_tokens": 256}
+        payload = {"input": "Test", "max_output_tokens": 256}
         response = endpoint.invoke(payload)
 
         # Verify token counts are extracted correctly
@@ -421,7 +429,9 @@ class TestResponseEndpointTimingMeasurements:
         mock_response = Mock()
         mock_response.id = "resp_timing"
         mock_response.output_text = "Timing test response"
-        mock_response.usage = Mock(prompt_tokens=5, completion_tokens=5)
+        mock_response.usage = Mock(spec=["input_tokens", "output_tokens"])
+        mock_response.usage.input_tokens = 5
+        mock_response.usage.output_tokens = 5
 
         mock_client.responses.create.return_value = mock_response
 
@@ -446,7 +456,9 @@ class TestResponseEndpointTimingMeasurements:
         mock_response = Mock()
         mock_response.id = "resp_timing_accuracy"
         mock_response.output_text = "Timing accuracy test"
-        mock_response.usage = Mock(prompt_tokens=5, completion_tokens=5)
+        mock_response.usage = Mock(spec=["input_tokens", "output_tokens"])
+        mock_response.usage.input_tokens = 5
+        mock_response.usage.output_tokens = 5
 
         mock_client.responses.create.return_value = mock_response
 

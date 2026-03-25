@@ -357,7 +357,9 @@ class TestInvocationResponseTypeConsistency:
         mock_response = Mock()
         mock_response.id = "resp_123"
         mock_response.output_text = "Test response"
-        mock_response.usage = Mock(prompt_tokens=10, completion_tokens=5)
+        mock_response.usage = Mock(spec=["input_tokens", "output_tokens"])
+        mock_response.usage.input_tokens = 10
+        mock_response.usage.output_tokens = 5
 
         mock_client.responses.create.return_value = mock_response
 
@@ -382,28 +384,30 @@ class TestInvocationResponseTypeConsistency:
         mock_client = Mock()
         mock_openai_class.return_value = mock_client
 
-        # Mock streaming response chunks
-        chunk1 = Mock()
-        chunk1.id = "resp_stream"
-        chunk1.output = [
-            Mock(
-                type="message",
-                content=[Mock(type="output_text", text="Test ")],
-            )
-        ]
-        chunk1.usage = None
+        # Mock streaming response events
+        event_created = Mock()
+        event_created.type = "response.created"
+        event_created.response = Mock()
+        event_created.response.id = "resp_stream"
 
-        chunk2 = Mock()
-        chunk2.id = "resp_stream"
-        chunk2.output = [
-            Mock(
-                type="message",
-                content=[Mock(type="output_text", text="response")],
-            )
-        ]
-        chunk2.usage = Mock(prompt_tokens=10, completion_tokens=5)
+        event_delta1 = Mock()
+        event_delta1.type = "response.output_text.delta"
+        event_delta1.delta = "Test "
 
-        mock_client.responses.create.return_value = iter([chunk1, chunk2])
+        event_delta2 = Mock()
+        event_delta2.type = "response.output_text.delta"
+        event_delta2.delta = "response"
+
+        event_completed = Mock()
+        event_completed.type = "response.completed"
+        event_completed.response = Mock()
+        event_completed.response.usage = Mock(spec=["input_tokens", "output_tokens"])
+        event_completed.response.usage.input_tokens = 10
+        event_completed.response.usage.output_tokens = 5
+
+        mock_client.responses.create.return_value = iter(
+            [event_created, event_delta1, event_delta2, event_completed]
+        )
 
         # Create endpoint and invoke
         endpoint = ResponseStreamEndpoint(model_id="gpt-4")
@@ -501,7 +505,9 @@ class TestInvocationResponseTypeConsistency:
         mock_response = Mock()
         mock_response.id = "resp_prop"
         mock_response.output_text = "Property test response"
-        mock_response.usage = Mock(prompt_tokens=10, completion_tokens=5)
+        mock_response.usage = Mock(spec=["input_tokens", "output_tokens"])
+        mock_response.usage.input_tokens = 10
+        mock_response.usage.output_tokens = 5
 
         mock_client.responses.create.return_value = mock_response
 
@@ -539,28 +545,30 @@ class TestInvocationResponseTypeConsistency:
         mock_client = Mock()
         mock_openai_class.return_value = mock_client
 
-        # Mock streaming response chunks
-        chunk1 = Mock()
-        chunk1.id = "resp_prop_stream"
-        chunk1.output = [
-            Mock(
-                type="message",
-                content=[Mock(type="output_text", text="Property ")],
-            )
-        ]
-        chunk1.usage = None
+        # Mock streaming response events
+        event_created = Mock()
+        event_created.type = "response.created"
+        event_created.response = Mock()
+        event_created.response.id = "resp_prop_stream"
 
-        chunk2 = Mock()
-        chunk2.id = "resp_prop_stream"
-        chunk2.output = [
-            Mock(
-                type="message",
-                content=[Mock(type="output_text", text="test")],
-            )
-        ]
-        chunk2.usage = Mock(prompt_tokens=10, completion_tokens=5)
+        event_delta1 = Mock()
+        event_delta1.type = "response.output_text.delta"
+        event_delta1.delta = "Property "
 
-        mock_client.responses.create.return_value = iter([chunk1, chunk2])
+        event_delta2 = Mock()
+        event_delta2.type = "response.output_text.delta"
+        event_delta2.delta = "test"
+
+        event_completed = Mock()
+        event_completed.type = "response.completed"
+        event_completed.response = Mock()
+        event_completed.response.usage = Mock(spec=["input_tokens", "output_tokens"])
+        event_completed.response.usage.input_tokens = 10
+        event_completed.response.usage.output_tokens = 5
+
+        mock_client.responses.create.return_value = iter(
+            [event_created, event_delta1, event_delta2, event_completed]
+        )
 
         # Create endpoint and invoke
         endpoint = ResponseStreamEndpoint(model_id="gpt-4")
