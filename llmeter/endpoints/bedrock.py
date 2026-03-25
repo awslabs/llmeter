@@ -3,6 +3,7 @@
 
 import logging
 import time
+from typing import Any
 from uuid import uuid4
 
 import boto3
@@ -101,7 +102,7 @@ class BedrockBase(Endpoint):
             return ""
 
     @staticmethod
-    def create_payload(user_message: str | list[str], max_tokens: int = 256, **kwargs):
+    def create_payload(user_message: str | list[str], max_tokens: int = 256, **kwargs: Any) -> dict:
         """
         Create a payload for the Bedrock Converse API request.
 
@@ -206,7 +207,7 @@ class BedrockConverse(BedrockBase):
                 error=f"Response parsing error: {e}",
             )
 
-    def invoke(self, payload: dict, **kwargs) -> InvocationResponse:
+    def invoke(self, payload: dict, **kwargs: Any) -> InvocationResponse:
         """
         Invoke the Bedrock converse API with the given payload.
 
@@ -260,7 +261,7 @@ class BedrockConverse(BedrockBase):
 
 
 class BedrockConverseStream(BedrockConverse):
-    def invoke(self, payload: dict, **kwargs) -> InvocationResponse:
+    def invoke(self, payload: dict, **kwargs: Any) -> InvocationResponse:
         payload = {**kwargs, **payload}
         if payload.get("inferenceConfig") is None:
             payload["inferenceConfig"] = self._inference_config or {}

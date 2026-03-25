@@ -2,22 +2,41 @@
 
 LLMeter requires Python version 3.10 or higher.
 
-To install the basic metering functionalities, you can install the minimal package using pip install:
+To install the basic metering functionalities, you can install the minimal package using pip:
 
 ```bash
 pip install llmeter
 ```
 
+Or with [uv](https://docs.astral.sh/uv/) (recommended for faster installation):
+
+```bash
+uv pip install llmeter
+```
+
 LLMeter also offers optional extra features that require additional dependencies. Currently these extras include:
 
 - **plotting**: Add methods to generate charts and heatmaps to summarize the results
-- **openai**: Enable testing endpoints offered by OpenAI
+- **openai**: Enable testing any endpoint with an [OpenAI](https://platform.openai.com/)-compatible API, including [Amazon Bedrock](https://aws.amazon.com/bedrock/), [Mantle](https://docs.aws.amazon.com/bedrock/latest/userguide/bedrock-mantle.html), and LLM gateways like [LiteLLM](https://github.com/BerriAI/litellm), [Kong](https://konghq.com/products/kong-ai-gateway), and [KrakenD](https://www.krakend.io/)
 - **litellm**: Enable testing a range of different models through [LiteLLM](https://github.com/BerriAI/litellm)
+- **mlflow**: Enable logging LLMeter experiments to [MLflow](https://mlflow.org/)
 
 You can install one or more of these extra options using pip:
 
 ```bash
-pip install llmeter[plotting, openai, litellm]
+pip install 'llmeter[plotting,openai,litellm,mlflow]'
+```
+
+Or with uv:
+
+```bash
+uv pip install 'llmeter[plotting,openai,litellm,mlflow]'
+```
+
+To install all optional dependencies at once:
+
+```bash
+pip install 'llmeter[all]'
 ```
 
 ## *Where* to install and use LLMeter

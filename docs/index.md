@@ -4,7 +4,6 @@ LLMeter is a pure-python library for simple latency and throughput testing of la
 
 It's designed to be lightweight to install; straightforward to run standard tests; and versatile to integrate - whether in notebooks, CI/CD, or other workflows.
 
-
 ## Key features
 
 ✅ Measure a wide range of LLMs and agents - including a range of Cloud providers and self-hosted models
@@ -15,6 +14,7 @@ It's designed to be lightweight to install; straightforward to run standard test
 
 ✅ Lightweight and straightforward to install on a range of environments
 
+✅ Extend with callbacks for cost modeling, MLflow experiment tracking, and custom logic
 
 ---
 
@@ -26,7 +26,7 @@ It's designed to be lightweight to install; straightforward to run standard test
 
     Install and try out LLMeter
 
-    [:octicons-arrow-right-24: User Guide](user_guide)
+    [:octicons-arrow-right-24: User Guide](user_guide/installation.md)
 
 -   🎯 __Built-in endpoint types__
 
@@ -34,7 +34,7 @@ It's designed to be lightweight to install; straightforward to run standard test
 
     Connect to local or Cloud LLMs
 
-    [:octicons-arrow-right-24: Endpoints](user_guide/connect_endpoints/)
+    [:octicons-arrow-right-24: Endpoints](user_guide/connect_endpoints/index.md)
 
 -   ✏️ __Diving deeper__
 
@@ -42,7 +42,15 @@ It's designed to be lightweight to install; straightforward to run standard test
 
     Best-practices and tips for customizing your experiments
 
-    [:octicons-arrow-right-24: User Guide](user_guide/custom_analytics/)
+    [:octicons-arrow-right-24: User Guide](user_guide/custom_analytics/index.md)
+
+-   🔌 __Callbacks__
+
+    ---
+
+    Extend LLMeter with cost modeling, MLflow tracking, and custom hooks
+
+    [:octicons-arrow-right-24: API Reference](reference/callbacks/index.md)
 
 -   :material-github:{ .lg .middle } __Contribute__
 

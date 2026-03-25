@@ -19,7 +19,7 @@ from .utils import summary_stats_from_list
 logger = logging.getLogger(__name__)
 
 
-def utc_datetime_serializer(obj):
+def utc_datetime_serializer(obj: Any) -> str:
     """
     Serialize datetime objects to UTC ISO format strings.
 
@@ -174,7 +174,7 @@ class Result:
         return self.responses
 
     @classmethod
-    def load(cls, result_path: os.PathLike | str, load_responses: bool = True):
+    def load(cls, result_path: os.PathLike | str, load_responses: bool = True) -> "Result":
         """
         Load run results from disk or cloud storage.
 
@@ -343,7 +343,7 @@ class Result:
         dimension: str,
         filter_dimension: str | None = None,
         filter_value: Any = None,
-    ):
+    ) -> list:
         """
         Get the values of a specific dimension from the responses.
 

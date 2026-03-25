@@ -35,6 +35,7 @@ nav:
   - User Guide:
     - Installation: user_guide/installation.md
     - Key Concepts: user_guide/key_concepts.md
+    - Metrics and Statistics: user_guide/metrics.md
     - Connect to Endpoints:
       - user_guide/connect_endpoints/index.md
     - Run Experiments:
@@ -46,9 +47,15 @@ nav:
       - reference/endpoints/index.md
       - base: reference/endpoints/base.md
       - bedrock: reference/endpoints/bedrock.md
+      - bedrock_invoke: reference/endpoints/bedrock_invoke.md
       - litellm: reference/endpoints/litellm.md
       - openai: reference/endpoints/openai.md
       - sagemaker: reference/endpoints/sagemaker.md
+    - callbacks:
+      - reference/callbacks/index.md
+      - base: reference/callbacks/base.md
+      - cost: reference/callbacks/cost.md
+      - mlflow: reference/callbacks/mlflow.md
     - experiments: reference/experiments.md
     - results: reference/results.md
     - runner: reference/runner.md

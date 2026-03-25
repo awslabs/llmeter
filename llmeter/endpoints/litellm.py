@@ -5,7 +5,7 @@ import json
 import logging
 import os
 import time
-from typing import Sequence
+from typing import Any, Sequence
 from uuid import uuid4
 
 import litellm
@@ -49,8 +49,8 @@ class LiteLLMBase(Endpoint):
         user_message: str | Sequence[str],
         max_tokens: int = 256,
         system_message: str | None = None,
-        **kwargs,
-    ):
+        **kwargs: Any,
+    ) -> dict:
         """
         Create a payload for the LiteLLM `completion()` request.
 
