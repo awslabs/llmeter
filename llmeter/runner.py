@@ -309,6 +309,8 @@ class _Run(_RunConfig):
             try:
                 p = asyncio.run(process_before_invoke_callbacks(self.callbacks, p))
                 response = self._endpoint.invoke(p)
+                if not response.end_time:
+                    response.end_time = now_utc()
 
             except Exception as e:
                 logger.exception(f"Error with invocation with payload {p}: {e}")

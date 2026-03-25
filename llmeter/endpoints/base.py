@@ -1,6 +1,7 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from datetime import datetime
 import importlib
 import json
 import os
@@ -9,6 +10,8 @@ from dataclasses import asdict, dataclass
 from uuid import uuid4
 
 from upath import UPath as Path
+
+from llmeter.utils import now_utc
 
 
 # @dataclass(slots=True)
@@ -20,6 +23,7 @@ class InvocationResponse:
     Attributes:
         response_text (str): The invocation output.
         id (str): A unique identifier for the invocation.
+        end_time (datetime): Timestamp when the response was received.
         time_to_last_token (float): The time taken to generate the response in seconds.
         time_to_first_token (float): The time taken to receive the first token of the response in seconds.
         num_tokens_output (Optional[int]): The number of tokens in the response.
@@ -32,6 +36,7 @@ class InvocationResponse:
     response_text: str | None
     input_payload: dict | None = None
     id: str | None = None
+    end_time: datetime | None = None
     input_prompt: str | dict | None = None
     time_to_first_token: float | None = None
     time_to_last_token: float | None = None
@@ -56,6 +61,7 @@ class InvocationResponse:
     ) -> "InvocationResponse":
         return InvocationResponse(
             id=id or uuid4().hex,
+            end_time=now_utc(),
             response_text=None,
             input_payload=input_payload,
             time_to_last_token=None,

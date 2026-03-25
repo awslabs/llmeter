@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 from __future__ import annotations
 
+from math import ceil
 from typing import TYPE_CHECKING, Any, Literal
 
 from upath import UPath as Path
@@ -198,6 +199,86 @@ def boxplot_by_dimension(
     x = result.get_dimension(dimension)
 
     return go.Box(x=x, name=name or result.run_name, **box_kwargs)
+
+
+def timewise_boxplot_by_dimension(
+    result: Result,
+    dimension: str,
+    period: float = 60.0,
+    **figure_kwargs,
+) -> go.Figure:
+    """Create a figure of box plots showing how a dimension changed over time during a test.
+
+    The time span from ``result.start_time`` to ``result.end_time`` is divided into
+    equal-length periods.  Each period produces one box plot of the *dimension* values
+    for responses whose ``end_time`` fell within that period.
+
+    Args:
+        result: The Result object containing the response data.
+        dimension: The response attribute to plot (e.g. ``"time_to_last_token"``).
+        period: Length of each time bucket in seconds.  Defaults to 60 (one minute).
+        **figure_kwargs: Additional keyword arguments forwarded to ``go.Figure``.
+
+    Returns:
+        A Plotly Figure with one box per time period along the x-axis and the
+        *dimension* values on the y-axis.
+
+    Raises:
+        ValueError: If the result has no ``start_time`` / ``end_time`` or if no
+            responses have a valid ``end_time``.
+    """
+    if result.start_time is None or result.end_time is None:
+        raise ValueError(
+            "result must have start_time and end_time to create a timewise boxplot"
+        )
+
+    test_start = result.start_time
+    total_seconds = (result.end_time - test_start).total_seconds()
+    n_buckets = max(1, ceil(total_seconds / period))
+
+    # Assign each response to a bucket based on its end_time
+    x_labels: list[str] = []
+    y_values: list[float | None] = []
+
+    for response in result.responses:
+        if response.end_time is None:
+            continue
+        elapsed = (response.end_time - test_start).total_seconds()
+        bucket = int(elapsed // period)
+        # Drop any out-of-range responses:
+        if bucket < 0 or bucket > n_buckets - 1:
+            continue
+
+        bucket_start = bucket * period
+        # bucket_end = min(bucket_start + period, total_seconds)
+        # label = f"{bucket_start:.0f}s–{bucket_end:.0f}s"
+        label = f"{bucket_start:.0f}s"
+
+        value = getattr(response, dimension, None)
+        x_labels.append(label)
+        y_values.append(value)
+
+    if not x_labels:
+        raise ValueError("No responses with a valid end_time found")
+
+    fig = go.Figure(**figure_kwargs)
+    fig.add_trace(go.Box(x=x_labels, y=y_values, name=dimension.replace("_", " ").capitalize()))
+
+    fig.update_layout(
+        title=f'{dimension.replace("_", " ").capitalize()} over time',
+        xaxis_title="Time period",
+        yaxis_title=dimension.replace("_", " ").capitalize(),
+        template="plotly_white",
+    )
+    # Ensure periods are shown in their natural order, not sorted alphabetically
+    all_labels = []
+    for b in range(n_buckets):
+        s = b * period
+        e = min(s + period, total_seconds)
+        all_labels.append(f"{s:.0f}s–{e:.0f}s")
+    fig.update_xaxes(categoryorder="array", categoryarray=all_labels)
+
+    return fig
 
 
 def stat_clients(load_test_result: LoadTestResult, stat: str, **scatter_kwargs):
