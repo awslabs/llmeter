@@ -15,10 +15,16 @@ LLMeter is a pure-python library for simple latency and throughput testing of la
 
 LLMeter requires `python>=3.10`, please make sure your current version of python is compatible.
 
-To install the basic metering functionalities, you can install the minimum package using pip install:
+To install the basic metering functionalities, you can install the minimum package using pip or uv:
 
 ```terminal
 pip install llmeter
+```
+
+Or with uv (recommended for faster installation):
+
+```terminal
+uv pip install llmeter
 ```
 
 LLMeter also offers extra features that require additional dependencies. Currently these extras include:
@@ -32,6 +38,12 @@ You can install one or more of these extra options using pip:
 
 ```terminal
 pip install 'llmeter[plotting,openai,litellm,mlflow]'
+```
+
+Or with uv:
+
+```terminal
+uv pip install 'llmeter[plotting,openai,litellm,mlflow]'
 ```
 
 ## 🚀 Quick-start

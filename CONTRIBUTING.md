@@ -53,10 +53,26 @@ Contributions via pull requests are much appreciated. Before sending us a pull r
 
 ### Getting Started
 
-We recommend installing the package locally in editable mode for ease of development. To install the package in editable mode along with the development dependencies, run the following:
+We recommend installing the package locally in editable mode for ease of development.
+
+First, ensure you have [uv](https://docs.astral.sh/uv/) installed. Then, to install the package in editable mode along with the development dependencies and all optional dependencies, run:
 
 ```bash
-pip install -e ".[dev]"
+uv sync --all-extras
+```
+
+This will install all dependencies (including optional ones like plotting, openai, litellm, and mlflow) and create a virtual environment in `.venv/`.
+
+For a minimal installation with just dev and test dependencies:
+
+```bash
+uv sync --all-groups
+```
+
+For just dev dependencies without test dependencies:
+
+```bash
+uv sync --group dev
 ```
 
 #### Linting/Formatting
@@ -68,7 +84,13 @@ The tools below are used for linting and formatting the codebase.
 To check for linting and formatting issues, you can run the following:
 
 ```bash
-ruff check  llmeter/ &&  ruff format llmeter/ 
+uv run ruff check llmeter/ && uv run ruff format llmeter/
+```
+
+Or if not using uv:
+
+```bash
+ruff check llmeter/ && ruff format llmeter/
 ```
 
 #### Testing
@@ -76,8 +98,16 @@ ruff check  llmeter/ &&  ruff format llmeter/
 This project uses [pytest](https://docs.pytest.org/en/8.2.x/) for unit testing, which you can invoke using the following:
 
 ```bash
+uv run pytest .
+```
+
+Or if not using uv:
+
+```bash
 python -m pytest .
 ```
+
+More details on testing in [tests/README.md](tests/README.md).
 
 ## Finding Contributions to Work On
 
