@@ -115,18 +115,31 @@ class ResponseEndpoint(OpenAIEndpoint):
         # Use output_text helper to extract text directly
         response_text = client_response.output_text
 
+        # Usage may be None depending on the provider (e.g. Bedrock Mantle)
+        input_tokens = None
+        output_tokens = None
+        if usage is not None:
+            # Response API uses input_tokens/output_tokens,
+            # but some providers may use prompt_tokens/completion_tokens
+            input_tokens = getattr(usage, "input_tokens", None)
+            if input_tokens is None:
+                input_tokens = getattr(usage, "prompt_tokens", None)
+            output_tokens = getattr(usage, "output_tokens", None)
+            if output_tokens is None:
+                output_tokens = getattr(usage, "completion_tokens", None)
+
         return InvocationResponse(
             id=client_response.id,
             response_text=response_text,
-            num_tokens_input=usage and usage.prompt_tokens,
-            num_tokens_output=usage and usage.completion_tokens,
+            num_tokens_input=input_tokens,
+            num_tokens_output=output_tokens,
             time_to_last_token=time.perf_counter() - start_t,
         )
 
     @staticmethod
     def create_payload(
         user_message: str | Sequence[str],
-        max_tokens: int = 256,
+        max_output_tokens: int = 256,
         instructions: str | None = None,
         **kwargs,
     ) -> Dict:
@@ -134,7 +147,7 @@ class ResponseEndpoint(OpenAIEndpoint):
 
         Args:
             user_message: User message(s) to send (can be string or array of messages)
-            max_tokens: Maximum tokens in response (default: 256)
+            max_output_tokens: Maximum tokens in response (default: 256)
             instructions: Optional system-level instructions
             **kwargs: Additional payload parameters (temperature, top_p, text.format, etc.)
 
@@ -150,7 +163,7 @@ class ResponseEndpoint(OpenAIEndpoint):
 
         payload = {
             "input": input_value,
-            "max_tokens": max_tokens,
+            "max_output_tokens": max_output_tokens,
         }
 
         # Add instructions if provided
@@ -284,6 +297,11 @@ class ResponseStreamEndpoint(OpenAIEndpoint):
     ) -> InvocationResponse:
         """Parse streaming Response API output into InvocationResponse.
 
+        The Response API streams typed events (not chunks with output arrays):
+        - ResponseCreatedEvent: contains response.id
+        - ResponseTextDeltaEvent: contains delta (str) with text fragment
+        - ResponseCompletedEvent: contains response with full output and usage
+
         Args:
             client_response: Streaming response from OpenAI Responses API
             start_t: Start time of the API call
@@ -291,45 +309,51 @@ class ResponseStreamEndpoint(OpenAIEndpoint):
         Returns:
             InvocationResponse with extracted fields including TTFT
         """
-        prompt_tokens = None
-        completion_tokens = None
+        input_tokens = None
+        output_tokens = None
         response_text = ""
+        response_id = None
+        time_to_first_token = None
 
-        # Process first chunk to get TTFT
-        first_chunk = next(client_response)
-        time_to_first_token = time.perf_counter() - start_t
-        response_id = first_chunk.id
+        for event in client_response:
+            # Capture response ID from the first event that has it
+            if response_id is None:
+                if hasattr(event, "response") and event.response:
+                    response_id = event.response.id
+                elif hasattr(event, "id"):
+                    response_id = event.id
 
-        # Extract text from first chunk's output array
-        if first_chunk.output and len(first_chunk.output) > 0:
-            for item in first_chunk.output:
-                if item.type == "message" and hasattr(item, "content"):
-                    for content_item in item.content:
-                        if content_item.type == "output_text":
-                            response_text += content_item.text or ""
+            # ResponseTextDeltaEvent — incremental text output
+            if event.type == "response.output_text.delta":
+                if time_to_first_token is None:
+                    time_to_first_token = time.perf_counter() - start_t
+                response_text += event.delta or ""
 
-        # Process remaining chunks
-        for chunk in client_response:
-            # Extract text from output delta items
-            if chunk.output and len(chunk.output) > 0:
-                for item in chunk.output:
-                    if item.type == "message" and hasattr(item, "content"):
-                        for content_item in item.content:
-                            if content_item.type == "output_text":
-                                response_text += content_item.text or ""
-
-            # Extract usage from final chunk
-            if hasattr(chunk, "usage") and chunk.usage is not None:
-                prompt_tokens = chunk.usage.prompt_tokens
-                completion_tokens = chunk.usage.completion_tokens
+            # ResponseCompletedEvent — final event with full response and usage
+            elif event.type == "response.completed":
+                if hasattr(event, "response") and event.response:
+                    usage = getattr(event.response, "usage", None)
+                    if usage is not None:
+                        input_tokens = getattr(usage, "input_tokens", None)
+                        if input_tokens is None:
+                            input_tokens = getattr(usage, "prompt_tokens", None)
+                        output_tokens = getattr(usage, "output_tokens", None)
+                        if output_tokens is None:
+                            output_tokens = getattr(
+                                usage, "completion_tokens", None
+                            )
 
         time_to_last_token = time.perf_counter() - start_t
+
+        # If no text deltas were received, TTFT falls back to TTLT
+        if time_to_first_token is None:
+            time_to_first_token = time_to_last_token
 
         return InvocationResponse(
             id=response_id,
             response_text=response_text,
-            num_tokens_input=prompt_tokens,
-            num_tokens_output=completion_tokens,
+            num_tokens_input=input_tokens,
+            num_tokens_output=output_tokens,
             time_to_first_token=time_to_first_token,
             time_to_last_token=time_to_last_token,
         )

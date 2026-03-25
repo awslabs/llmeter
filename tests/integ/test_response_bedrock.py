@@ -108,14 +108,14 @@ def test_response_bedrock_non_streaming(
     # Verify token counts are present and positive (usage may be None for some models)
     if response.usage is not None:
         assert (
-            response.usage.prompt_tokens is not None
+            response.usage.input_tokens is not None
         ), "Input token count should not be None"
-        assert response.usage.prompt_tokens > 0, "Input token count should be positive"
+        assert response.usage.input_tokens > 0, "Input token count should be positive"
         assert (
-            response.usage.completion_tokens is not None
+            response.usage.output_tokens is not None
         ), "Output token count should not be None"
         assert (
-            response.usage.completion_tokens > 0
+            response.usage.output_tokens > 0
         ), "Output token count should be positive"
 
     # Verify response time is measured and positive
@@ -221,8 +221,8 @@ def test_response_bedrock_streaming(
         # ResponseCompletedEvent has response with full output
         elif hasattr(chunk, "response") and chunk.response:
             if hasattr(chunk.response, "usage") and chunk.response.usage:
-                prompt_tokens = chunk.response.usage.prompt_tokens
-                completion_tokens = chunk.response.usage.completion_tokens
+                prompt_tokens = chunk.response.usage.input_tokens
+                completion_tokens = chunk.response.usage.output_tokens
 
     time_to_last_token = time.perf_counter() - start_time
 
