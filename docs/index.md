@@ -1,4 +1,4 @@
-# Home
+# User Guide
 
 LLMeter is a pure-python library for simple latency and throughput testing of large language models (LLMs) and applications that use them.
 
@@ -26,7 +26,7 @@ It's designed to be lightweight to install; straightforward to run standard test
 
     Install and try out LLMeter
 
-    [:octicons-arrow-right-24: User Guide](user_guide/installation.md)
+    [:octicons-arrow-right-24: Installation](user_guide/installation.md)
 
 -   🎯 __Built-in endpoint types__
 

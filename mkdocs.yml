@@ -31,8 +31,8 @@ theme:
     - navigation.top
     - navigation.tabs
 nav:
-  - index.md
   - User Guide:
+    - index.md
     - Installation: user_guide/installation.md
     - Key Concepts: user_guide/key_concepts.md
     - Metrics and Statistics: user_guide/metrics.md
@@ -43,6 +43,7 @@ nav:
     - Customize Analytics:
       - user_guide/custom_analytics/index.md
   - API Reference:
+    - reference/index.md
     - endpoints:
       - reference/endpoints/index.md
       - base: reference/endpoints/base.md
