@@ -44,9 +44,6 @@ jobs:
             exit 1
           fi
 
-      - name: Install dependencies
-        run: uv sync
-
       - name: Package project
         run: uv build
 
