@@ -2,7 +2,6 @@ site_name: LLMeter
 copyright: Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 theme:
   name: material
-  custom_dir: docs/overrides
   icon:
     annotation: material/plus-circle-outline
     repo: material/github
