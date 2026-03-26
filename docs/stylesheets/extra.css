@@ -118,6 +118,10 @@
     --md-typeset-a-color: var(--llmeter-orange);
   }
 
+  .md-header {
+    background-color: var(--md-primary-fg-color);
+  }
+
   .md-tabs {
     background: linear-gradient(var(--md-primary-fg-color), var(--md-primary-fg-color--dark));
   }
@@ -214,7 +218,15 @@
     --md-typeset-a-color: var(--llmeter-orange);
   }
 
+  .md-header {
+    background-color: var(--md-primary-fg-color--light);
+
+    .md-search__button {
+      background-color: var(--md-primary-fg-color);
+    }
+  }
+
   .md-tabs {
-    background: linear-gradient(var(--md-primary-fg-color), var(--md-primary-fg-color--dark));
+    background: linear-gradient(var(--md-primary-fg-color--light), var(--md-primary-fg-color));
   }
 }
