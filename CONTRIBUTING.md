@@ -15,6 +15,7 @@ information to effectively respond to your bug report or contribution.
     - [Best practices](#best-practices)
     - [Getting Started](#getting-started)
       - [Linting/Formatting](#lintingformatting)
+      - [Documentation](#documentation)
       - [Testing](#testing)
   - [Finding Contributions to Work On](#finding-contributions-to-work-on)
   - [Code of Conduct](#code-of-conduct)
@@ -93,21 +94,38 @@ Or if not using uv:
 ruff check llmeter/ && ruff format llmeter/
 ```
 
+#### Documentation
+
+This project uses [Zensical](https://zensical.org/) (A compatible [alernative to MkDocs](https://squidfunk.github.io/mkdocs-material/blog/2025/11/05/zensical/)) to power an interactive docs website, hosted on GitHub pages. This documentation should be updated as part of contributed changes, wherever appropriate.
+
+To test the docs locally, ensure you've installed llmeter with the `docs` group and run:
+
+```
+uv run zensical serve
+```
+
+This should start the dev server for preview at http://localhost:8000/, which should automatically refresh as you edit the `docs/`.
+
+⚠️ Note - The following processes are stil **manual** for now (contributions to automate this work are much appreciated!):
+- When adding/renaming/deleting .py modules in LLMeter, you need to update the corresponding API reference folders and .md files under `docs/reference`
+  - `index.md` files in the API reference should include a top-level title equal to the module name, so they don't just show as "index" in the site. For example, `# callbacks` in [docs/reference/callbacks/index.md](docs/reference/callbacks/index.md).
+- The table of contents in [mkdocs.yaml](mkdocs.yaml) should be updated to include all the .md files under `docs/`.
+
 #### Testing
 
 This project uses [pytest](https://docs.pytest.org/en/8.2.x/) for unit testing, which you can invoke using the following:
 
 ```bash
-uv run pytest .
+uv run pytest
 ```
 
 Or if not using uv:
 
 ```bash
-python -m pytest .
+python -m pytest
 ```
 
-More details on testing in [tests/README.md](tests/README.md).
+⚠️ Note that integration tests are skipped by default. More details on testing in [tests/README.md](tests/README.md).
 
 ## Finding Contributions to Work On
 
