@@ -41,7 +41,7 @@ def utc_datetime_serializer(obj: Any) -> str:
 
 @dataclass
 class Result:
-    """Results of an experiment run."""
+    """Results of a test run."""
 
     responses: list[InvocationResponse]
     total_requests: int
@@ -174,7 +174,9 @@ class Result:
         return self.responses
 
     @classmethod
-    def load(cls, result_path: os.PathLike | str, load_responses: bool = True) -> "Result":
+    def load(
+        cls, result_path: os.PathLike | str, load_responses: bool = True
+    ) -> "Result":
         """
         Load run results from disk or cloud storage.
 

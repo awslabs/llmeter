@@ -1,3 +1,7 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+"""Configure your target target LLM servers to test with LLMeter"""
+
 import importlib.util
 
 from .base import Endpoint, InvocationResponse  # noqa: F401

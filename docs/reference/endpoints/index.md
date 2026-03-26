@@ -1,1 +1,3 @@
+# endpoints
+
 ::: llmeter.endpoints

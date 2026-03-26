@@ -1,5 +1,6 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
+"""LLMeter targets for testing OpenAI ChatCompletions-compatible endpoints (wherever they're hosted)"""
 
 import logging
 import time
@@ -87,7 +88,7 @@ class OpenAIEndpoint(Endpoint):
 
 
 class OpenAICompletionEndpoint(OpenAIEndpoint):
-    """Endpoint for OpenAI chat completion API."""
+    """Endpoint for OpenAI-compatible Chat Completion APIs (non-streaming mode)"""
 
     def invoke(self, payload: Dict, **kwargs: Any) -> InvocationResponse:
         """Invoke the OpenAI chat completion API.
@@ -146,7 +147,7 @@ class OpenAICompletionEndpoint(OpenAIEndpoint):
 
 
 class OpenAICompletionStreamEndpoint(OpenAIEndpoint):
-    """Endpoint for OpenAI streaming chat completion API."""
+    """Endpoint for OpenAI-compatible Chat Completion APIs (streaming mode)"""
 
     def invoke(self, payload: Dict, **kwargs: Any) -> InvocationResponse:
         """Invoke the OpenAI streaming chat completion API.

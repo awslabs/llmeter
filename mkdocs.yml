@@ -43,6 +43,19 @@ nav:
       - user_guide/custom_analytics/index.md
   - API Reference:
     - reference/index.md
+    - callbacks:
+      - reference/callbacks/index.md
+      - base: reference/callbacks/base.md
+      - cost:
+        - reference/callbacks/cost/index.md
+        - dimensions: reference/callbacks/cost/dimensions.md
+        - model: reference/callbacks/cost/model.md
+        - providers:
+          - reference/callbacks/cost/providers/index.md
+          - sagemaker: reference/callbacks/cost/providers/sagemaker.md
+        - results: reference/callbacks/cost/results.md
+        - serde: reference/callbacks/cost/serde.md
+      - mlflow: reference/callbacks/mlflow.md
     - endpoints:
       - reference/endpoints/index.md
       - base: reference/endpoints/base.md
@@ -51,14 +64,11 @@ nav:
       - litellm: reference/endpoints/litellm.md
       - openai: reference/endpoints/openai.md
       - sagemaker: reference/endpoints/sagemaker.md
-    - callbacks:
-      - reference/callbacks/index.md
-      - base: reference/callbacks/base.md
-      - cost: reference/callbacks/cost.md
-      - mlflow: reference/callbacks/mlflow.md
     - experiments: reference/experiments.md
     - results: reference/results.md
     - runner: reference/runner.md
+    - tokenizers: reference/tokenizers.md
+    - utils: reference/utils.md
 repo_url: https://github.com/awslabs/llmeter
 repo_name: awslabs/llmeter
 markdown_extensions:

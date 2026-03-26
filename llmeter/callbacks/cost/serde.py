@@ -123,7 +123,7 @@ class JSONableBase:
         cls: Type[TJSONable],
         raw: dict,
         alt_classes: Dict[str, TJSONable] = {},
-        **kwargs,
+        **kwargs: Any,
     ) -> TJSONable:
         """Initialize an instance of this class from a plain dict (with optional extra kwargs)
 
@@ -155,7 +155,7 @@ class JSONableBase:
             return cls.from_json(f.read(), **kwargs)
 
     @classmethod
-    def from_json(cls: Type[TJSONable], json_string: str, **kwargs) -> TJSONable:
+    def from_json(cls: Type[TJSONable], json_string: str, **kwargs: Any) -> TJSONable:
         """Initialize an instance of this class from a JSON string (with optional extra kwargs)
 
         Args:
@@ -178,7 +178,7 @@ class JSONableBase:
         output_path: os.PathLike,
         indent: int | str | None = 4,
         default: Callable[[Any], Any] | None = str,
-        **kwargs,
+        **kwargs: Any,
     ) -> Path:
         """Save the state of the object to a (local or Cloud) JSON file
 

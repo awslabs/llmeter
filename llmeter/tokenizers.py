@@ -1,6 +1,7 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any
 
@@ -41,7 +42,7 @@ class Tokenizer(ABC):
         return True
 
     @staticmethod
-    def load_from_file(tokenizer_path: UPath | None):
+    def load_from_file(tokenizer_path: UPath | None) -> Tokenizer:
         """
         Loads a tokenizer from a file.
 
@@ -59,7 +60,7 @@ class Tokenizer(ABC):
         return _load_tokenizer_from_info(tokenizer_info)
 
     @staticmethod
-    def load(tokenizer_info: dict):
+    def load(tokenizer_info: dict) -> Tokenizer:
         """
         Loads a tokenizer from a dictionary.
 
@@ -107,7 +108,7 @@ def _to_dict(tokenizer: Any) -> dict:
     raise ValueError(f"Unknown tokenizer module: {tokenizer.__module__}")
 
 
-def save_tokenizer(tokenizer: Any, output_path: UPath | str):
+def save_tokenizer(tokenizer: Any, output_path: UPath | str) -> UPath:
     """
     Save a tokenizer information to a file.
 

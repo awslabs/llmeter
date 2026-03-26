@@ -1,5 +1,9 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
+"""Base classes used across the different LLM endpoint types offered by LLMeter
+
+You can also use these classes to implement your own custom `Endpoint` types.
+"""
 
 import importlib
 import json

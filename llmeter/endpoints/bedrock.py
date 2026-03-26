@@ -1,5 +1,14 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
+"""LLMeter targets for testing the Amazon Bedrock **Converse and ConverseStream** APIs
+
+Alternatively, see:
+
+* [bedrock_invoke][llmeter.endpoints.bedrock_invoke] for testing Bedrock InvokeModel and
+  InvokeModelWithResponseStream APIs, or
+* [openai][llmeter.endpoints.openai] for testing OpenAI-compatible endpoints from
+  [Bedrock Mantle](https://docs.aws.amazon.com/bedrock/latest/userguide/bedrock-mantle.html)
+"""
 
 import logging
 import time
@@ -40,7 +49,9 @@ class BedrockBase(Endpoint):
         max_attempts: int = 3,
     ):
         super().__init__(
-            model_id=model_id, endpoint_name=endpoint_name or "amazon bedrock", provider="bedrock"
+            model_id=model_id,
+            endpoint_name=endpoint_name or "amazon bedrock",
+            provider="bedrock",
         )
 
         self.region = region or boto3.session.Session().region_name
@@ -102,7 +113,9 @@ class BedrockBase(Endpoint):
             return ""
 
     @staticmethod
-    def create_payload(user_message: str | list[str], max_tokens: int = 256, **kwargs: Any) -> dict:
+    def create_payload(
+        user_message: str | list[str], max_tokens: int = 256, **kwargs: Any
+    ) -> dict:
         """
         Create a payload for the Bedrock Converse API request.
 

@@ -32,13 +32,13 @@ class DeferredError:
         #     self.exc = ImportError(str(exception))
         self.exc = exception
 
-    def __getattr__(self, name):
+    def __getattr__(self, name: str):
         """Called by Python interpreter before using any method or property on the object.
 
         So this will short-circuit essentially any access to this object.
 
         Args:
-            name:
+            name: The name of the attribute being accessed
         """
         raise self.exc
 
