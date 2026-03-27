@@ -1,8 +1,18 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
+"""LLMeter targets for testing the Amazon Bedrock **Converse and ConverseStream** APIs
+
+Alternatively, see:
+
+* [bedrock_invoke][llmeter.endpoints.bedrock_invoke] for testing Bedrock InvokeModel and
+  InvokeModelWithResponseStream APIs, or
+* [openai][llmeter.endpoints.openai] for testing OpenAI-compatible endpoints from
+  [Bedrock Mantle](https://docs.aws.amazon.com/bedrock/latest/userguide/bedrock-mantle.html)
+"""
 
 import logging
 import time
+from typing import Any
 from uuid import uuid4
 
 import boto3
@@ -39,7 +49,9 @@ class BedrockBase(Endpoint):
         max_attempts: int = 3,
     ):
         super().__init__(
-            model_id=model_id, endpoint_name=endpoint_name or "amazon bedrock", provider="bedrock"
+            model_id=model_id,
+            endpoint_name=endpoint_name or "amazon bedrock",
+            provider="bedrock",
         )
 
         self.region = region or boto3.session.Session().region_name
@@ -101,7 +113,9 @@ class BedrockBase(Endpoint):
             return ""
 
     @staticmethod
-    def create_payload(user_message: str | list[str], max_tokens: int = 256, **kwargs):
+    def create_payload(
+        user_message: str | list[str], max_tokens: int = 256, **kwargs: Any
+    ) -> dict:
         """
         Create a payload for the Bedrock Converse API request.
 
@@ -206,7 +220,7 @@ class BedrockConverse(BedrockBase):
                 error=f"Response parsing error: {e}",
             )
 
-    def invoke(self, payload: dict, **kwargs) -> InvocationResponse:
+    def invoke(self, payload: dict, **kwargs: Any) -> InvocationResponse:
         """
         Invoke the Bedrock converse API with the given payload.
 
@@ -260,7 +274,7 @@ class BedrockConverse(BedrockBase):
 
 
 class BedrockConverseStream(BedrockConverse):
-    def invoke(self, payload: dict, **kwargs) -> InvocationResponse:
+    def invoke(self, payload: dict, **kwargs: Any) -> InvocationResponse:
         payload = {**kwargs, **payload}
         if payload.get("inferenceConfig") is None:
             payload["inferenceConfig"] = self._inference_config or {}

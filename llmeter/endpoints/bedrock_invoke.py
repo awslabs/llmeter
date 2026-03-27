@@ -4,6 +4,7 @@
 import json
 import logging
 import time
+from typing import Any
 from uuid import uuid4
 
 import boto3
@@ -24,7 +25,7 @@ class BedrockInvoke(Endpoint):
         model_id: str,
         endpoint_name: str | None = None,
         region: str | None = None,
-        bedrock_boto3_client=None,
+        bedrock_boto3_client: Any = None,
         max_attempts: int = 3,
         generated_text_jmespath: str = "choices[0].message.content",
         generated_token_count_jmespath: str | None = "usage.completion_tokens",
@@ -118,8 +119,8 @@ class BedrockInvoke(Endpoint):
 
     @staticmethod
     def create_payload(
-        user_message: str | list[str], max_tokens: int | None = 256, **kwargs
-    ):
+        user_message: str | list[str], max_tokens: int | None = 256, **kwargs: Any
+    ) -> dict:
         """
         Create a payload, assuming your target Bedrock model supports ChatCompletions-like API
 
@@ -304,7 +305,7 @@ class BedrockInvokeStream(BedrockInvoke):
         model_id: str,
         endpoint_name: str | None = None,
         region: str | None = None,
-        bedrock_boto3_client=None,
+        bedrock_boto3_client: Any = None,
         max_attempts: int = 3,
         generated_text_jmespath: str = "choices[0].delta.content",
         generated_token_count_jmespath: str

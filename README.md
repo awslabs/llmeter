@@ -4,12 +4,15 @@
 **Measuring large language models latency and throughput**
 
 [![Latest Version](https://img.shields.io/pypi/v/llmeter.svg)](https://pypi.python.org/pypi/llmeter)
+[![Documentation: Online](https://img.shields.io/badge/Documentation-online-green)](https://awslabs.github.io/llmeter)
 [![Supported Python Versions](https://img.shields.io/pypi/pyversions/llmeter)](https://pypi.python.org/pypi/llmeter)
 [![Code Style: Ruff](https://img.shields.io/badge/code_style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 
 </div>
 
 LLMeter is a pure-python library for simple latency and throughput testing of large language models (LLMs). It's designed to be lightweight to install; straightforward to run standard tests; and versatile to integrate - whether in notebooks, CI/CD, or other workflows.
+
+📖 For full details, check out our documentation at: **https://awslabs.github.io/llmeter**
 
 ## 🛠️ Installation
 

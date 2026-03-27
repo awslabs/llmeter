@@ -1,5 +1,10 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
+"""Higher-level experiments (generally combining multiple Runs)
+
+This module provides utilities to run more complex "experiments" that go beyond the scope of a
+single [Run][llmeter.runner.Runner].
+"""
 
 import logging
 import os
@@ -114,6 +119,12 @@ class LoadTestResult:
 
 @dataclass
 class LoadTest:
+    """Experiment to explore how performance changes at different concurrency levels
+
+    This experiment creates a series of Runs with different levels of concurrency, defined by
+    `sequence_of_clients`, and runs them one after the other.
+    """
+
     endpoint: Endpoint
     payload: dict | list[dict]
     sequence_of_clients: list[int]

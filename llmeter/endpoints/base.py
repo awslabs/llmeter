@@ -1,11 +1,16 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
+"""Base classes used across the different LLM endpoint types offered by LLMeter
+
+You can also use these classes to implement your own custom `Endpoint` types.
+"""
 
 import importlib
 import json
 import os
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass
+from typing import Any
 from uuid import uuid4
 
 from upath import UPath as Path
@@ -99,9 +104,6 @@ class Endpoint(ABC):
             endpoint_name (str): The name of the endpoint.
             model_id (str): The identifier of the model associated with this endpoint.
             provider (str): The provider of the endpoint.
-
-        Returns:
-            None
         """
         self.endpoint_name = endpoint_name
         self.model_id = model_id
@@ -127,7 +129,7 @@ class Endpoint(ABC):
         raise NotImplementedError
 
     @staticmethod
-    def create_payload(*args, **kwargs):
+    def create_payload(*args: Any, **kwargs: Any) -> Any:
         """
         Create a payload for the endpoint invocation.
 
@@ -144,7 +146,7 @@ class Endpoint(ABC):
         return NotImplemented
 
     @classmethod
-    def __subclasshook__(cls, C):
+    def __subclasshook__(cls, C: type) -> bool:
         """
         Determine if a class is considered a subclass of BaseEndpoint.
 
@@ -229,7 +231,7 @@ class Endpoint(ABC):
         loaded configuration.
 
         Args:
-            data (Dict): A dictionary containing the endpoint configuration.
+            endpoint_config (Dict): A dictionary containing the endpoint configuration.
 
         Returns:
             Endpoint: An instance of the appropriate endpoint class, initialized
