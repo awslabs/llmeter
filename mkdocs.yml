@@ -35,12 +35,8 @@ nav:
     - Installation: user_guide/installation.md
     - Key Concepts: user_guide/key_concepts.md
     - Metrics and Statistics: user_guide/metrics.md
-    - Connect to Endpoints:
-      - user_guide/connect_endpoints/index.md
-    - Run Experiments:
-      - user_guide/run_experiments/index.md
-    - Customize Analytics:
-      - user_guide/custom_analytics/index.md
+    - Connect to Endpoints: user_guide/connect_endpoints.md
+    - Run Experiments: user_guide/run_experiments.md
   - API Reference:
     - reference/index.md
     - callbacks:
@@ -65,6 +61,8 @@ nav:
       - openai: reference/endpoints/openai.md
       - sagemaker: reference/endpoints/sagemaker.md
     - experiments: reference/experiments.md
+    - plotting:
+      - reference/plotting/index.md
     - results: reference/results.md
     - runner: reference/runner.md
     - tokenizers: reference/tokenizers.md

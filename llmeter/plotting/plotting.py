@@ -82,7 +82,7 @@ def histogram_by_dimension(
     dimension: str,
     filter_dimension: str | None = None,
     filter_value: Any = None,
-    **histogram_kwargs,
+    **histogram_kwargs: Any,
 ) -> go.Histogram:
     """
     Create a histogram plot for a given dimension from the result data.
@@ -193,8 +193,24 @@ def plot_heatmap(
 
 
 def boxplot_by_dimension(
-    result: Result, dimension: str, name: str | None = None, **box_kwargs
+    result: Result, dimension: str, name: str | None = None, **box_kwargs: Any
 ) -> go.Box:
+    """
+    Create a box plot for a given dimension from responses in a Run Result.
+
+    Args:
+        result (Result): The Result object containing the response data
+        dimension (str): The dimension to plot as histogram values
+        **box_kwargs: Additional keyword arguments to pass to go.Box
+
+    Returns:
+        plotly.graph_objects.Box: Box plot of the specified dimension
+
+    Example:
+        >>> result = Result(...)
+        >>> fig = boxplot_by_dimension(result, "time_to_first_token")
+        >>> fig.show()
+    """
     x = result.get_dimension(dimension)
 
     return go.Box(x=x, name=name or result.run_name, **box_kwargs)
@@ -439,7 +455,7 @@ def latency_clients_fig(
 def plot_load_test_results(
     load_test_result: LoadTestResult,
     log_scale=True,
-):
+) -> dict[str, go.Figure]:
     """
     Generate a collection of plots visualizing different metrics from a load test result.
 

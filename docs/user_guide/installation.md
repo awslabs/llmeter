@@ -17,7 +17,7 @@ uv pip install llmeter
 LLMeter also offers optional extra features that require additional dependencies. Currently these extras include:
 
 - **plotting**: Add methods to generate charts and heatmaps to summarize the results
-- **openai**: Enable testing any endpoint with an [OpenAI](https://platform.openai.com/)-compatible API, including [Amazon Bedrock](https://aws.amazon.com/bedrock/), [Mantle](https://docs.aws.amazon.com/bedrock/latest/userguide/bedrock-mantle.html), and LLM gateways like [LiteLLM](https://github.com/BerriAI/litellm), [Kong](https://konghq.com/products/kong-ai-gateway), and [KrakenD](https://www.krakend.io/)
+- **openai**: Enable testing any endpoint with an [OpenAI](https://platform.openai.com/)-compatible API, including [Amazon Bedrock Mantle](https://docs.aws.amazon.com/bedrock/latest/userguide/bedrock-mantle.html), and LLM gateways like [LiteLLM](https://github.com/BerriAI/litellm), [Kong](https://konghq.com/products/kong-ai-gateway), and [KrakenD](https://www.krakend.io/)
 - **litellm**: Enable testing a range of different models through [LiteLLM](https://github.com/BerriAI/litellm)
 - **mlflow**: Enable logging LLMeter experiments to [MLflow](https://mlflow.org/)
 

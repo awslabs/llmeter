@@ -34,15 +34,15 @@ It's designed to be lightweight to install; straightforward to run standard test
 
     Connect to local or Cloud LLMs
 
-    [:octicons-arrow-right-24: Endpoints](user_guide/connect_endpoints/index.md)
+    [:octicons-arrow-right-24: Endpoints](user_guide/connect_endpoints.md)
 
--   ✏️ __Diving deeper__
+-   ✏️ __Running experiments__
 
     ---
 
-    Best-practices and tips for customizing your experiments
+    Start running tests and analyzing the results
 
-    [:octicons-arrow-right-24: User Guide](user_guide/custom_analytics/index.md)
+    [:octicons-arrow-right-24: User Guide](user_guide/run_experiments.md)
 
 -   🔌 __Callbacks__
 
