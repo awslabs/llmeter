@@ -14,6 +14,7 @@ import jmespath
 from upath import UPath as Path
 
 from .endpoints import InvocationResponse
+from .prompt_utils import LLMeterBytesEncoder
 from .utils import summary_stats_from_list
 
 logger = logging.getLogger(__name__)
@@ -36,7 +37,44 @@ def utc_datetime_serializer(obj):
         if obj.tzinfo is not None:
             obj = obj.astimezone(timezone.utc)
         return obj.isoformat(timespec="seconds").replace("+00:00", "Z")
+    if isinstance(obj, os.PathLike):
+        return Path(obj).as_posix()
     return str(obj)
+
+
+class InvocationResponseEncoder(LLMeterBytesEncoder):
+    """Extended encoder for InvocationResponse with fallback to str() for non-serializable types.
+    
+    This encoder extends LLMeterBytesEncoder to handle bytes objects (via parent class)
+    and adds a fallback mechanism for other non-serializable types by converting them
+    to strings. This is particularly useful for InvocationResponse objects that may
+    contain various non-standard types.
+    
+    Example:
+        >>> response = InvocationResponse(input_payload={"image": {"bytes": b"\\xff\\xd8"}})
+        >>> json.dumps(asdict(response), cls=InvocationResponseEncoder)
+        '{"input_payload": {"image": {"bytes": {"__llmeter_bytes__": "/9g="}}}}'
+    """
+    
+    def default(self, obj):
+        """Encode objects with bytes support and str() fallback.
+        
+        Args:
+            obj: Object to encode
+            
+        Returns:
+            Encoded representation or None if encoding fails
+        """
+        # First try bytes encoding from parent
+        if isinstance(obj, bytes):
+            return super().default(obj)
+        if isinstance(obj, os.PathLike):
+            return Path(obj).as_posix()
+        # Fallback to string representation for other non-serializable types
+        try:
+            return str(obj)
+        except Exception:
+            return None
 
 
 @dataclass
@@ -126,7 +164,7 @@ class Result:
         if not responses_path.exists():
             with responses_path.open("w") as f:
                 for response in self.responses:
-                    f.write(json.dumps(asdict(response)) + "\n")
+                    f.write(json.dumps(asdict(response), cls=InvocationResponseEncoder) + "\n")
 
     def to_json(self, **kwargs):
         """Return the results as a JSON string."""
@@ -136,12 +174,15 @@ class Result:
         return json.dumps(summary, default=utc_datetime_serializer, **kwargs)
 
     def to_dict(self, include_responses: bool = False):
-        """Return the results as a dictionary."""
+        """Return the results as a dictionary with JSON-serializable values."""
+        data = asdict(self)
+        # Serialize datetime objects so stats dict is always JSON-safe
+        for key in ("start_time", "end_time"):
+            if key in data and isinstance(data[key], datetime):
+                data[key] = utc_datetime_serializer(data[key])
         if include_responses:
-            return asdict(self)
-        return {
-            k: o for k, o in asdict(self).items() if k not in ["responses", "stats"]
-        }
+            return data
+        return {k: v for k, v in data.items() if k not in ["responses", "stats"]}
 
     def load_responses(self) -> list[InvocationResponse]:
         """

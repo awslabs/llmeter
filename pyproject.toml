@@ -22,7 +22,8 @@ openai = ["openai>=1.35.1"]
 litellm = ["litellm>=1.47.1"]
 plotting = ["plotly>=5.24.1", "kaleido<=0.2.1", "pandas>=2.2.0"]
 mlflow = ["mlflow-skinny>=3.10.0"]
-all = ["openai>=1.35.1", "litellm>=1.47.1", "plotly>=5.24.1", "kaleido<=0.2.1", "pandas>=2.2.0", "mlflow-skinny>=3.10.0"]
+multimodal = ["puremagic>=1.28"]
+all = ["openai>=1.35.1", "litellm>=1.47.1", "plotly>=5.24.1", "kaleido<=0.2.1", "pandas>=2.2.0", "mlflow-skinny>=3.10.0", "puremagic>=1.28"]
 
 [project.urls]
 Repository = "https://github.com/awslabs/llmeter"
@@ -53,12 +54,16 @@ test = [
     "pytest-cov>=5.0.0",
     "pillow>=12.1.1",
     "aws-bedrock-token-generator>=1.1.0",
+    # Include all optional dependencies for comprehensive testing
     "openai>=1.35.1",
     "litellm>=1.47.1",
     "plotly>=5.24.1",
     "kaleido<=0.2.1",
     "pandas>=2.2.0",
     "mlflow-skinny>=3.10.0",
+    "puremagic>=1.28",
+    "transformers>=4.40.2",
+    "tiktoken>=0.7.0",
 ]
 
 [tool.pytest.ini_options]
