@@ -1,3 +1,11 @@
+# Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
+# SPDX-License-Identifier: Apache-2.0
+"""Utilities for building charts and visualizations of LLMeter results
+
+These tools depend on [Plotly](https://plotly.com/python/), which you can either install separately
+or via the `llmeter[plotting]` extra.
+"""
+
 from .plotting import (
     boxplot_by_dimension,
     plot_heatmap,

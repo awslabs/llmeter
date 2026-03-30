@@ -1,9 +1,10 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
+"""LLMeter targets for testing OpenAI ChatCompletions-compatible endpoints (wherever they're hosted)"""
 
 import logging
 import time
-from typing import Dict, Sequence
+from typing import Any, Dict, Sequence
 from uuid import uuid4
 
 import jmespath
@@ -27,7 +28,7 @@ class OpenAIEndpoint(Endpoint):
         endpoint_name: str = "openai",
         api_key: str | None = None,
         provider: str = "openai",
-        **kwargs,
+        **kwargs: Any,
     ):
         """Initialize OpenAI endpoint.
 
@@ -36,7 +37,7 @@ class OpenAIEndpoint(Endpoint):
             endpoint_name (str, optional): Name of the endpoint. Defaults to "openai".
             api_key (str | None, optional): OpenAI API key. Defaults to None.
             provider (str, optional): Provider name. Defaults to "openai".
-            **kwargs: Additional arguments passed to OpenAI client
+            **kwargs (Any): Additional arguments passed to OpenAI client
         """
         super().__init__(
             endpoint_name,
@@ -64,8 +65,8 @@ class OpenAIEndpoint(Endpoint):
 
     @staticmethod
     def create_payload(
-        user_message: str | Sequence[str], max_tokens: int = 256, **kwargs
-    ):
+        user_message: str | Sequence[str], max_tokens: int = 256, **kwargs: Any
+    ) -> dict:
         """Create a payload for the OpenAI API request.
 
         Args:
@@ -87,14 +88,14 @@ class OpenAIEndpoint(Endpoint):
 
 
 class OpenAICompletionEndpoint(OpenAIEndpoint):
-    """Endpoint for OpenAI chat completion API."""
+    """Endpoint for OpenAI-compatible Chat Completion APIs (non-streaming mode)"""
 
-    def invoke(self, payload: Dict, **kwargs) -> InvocationResponse:
+    def invoke(self, payload: Dict, **kwargs: Any) -> InvocationResponse:
         """Invoke the OpenAI chat completion API.
 
         Args:
             payload (Dict): Request payload
-            **kwargs: Additional parameters for the request
+            **kwargs (Any): Additional parameters for the request
 
         Returns:
             InvocationResponse: Response from the API
@@ -146,14 +147,14 @@ class OpenAICompletionEndpoint(OpenAIEndpoint):
 
 
 class OpenAICompletionStreamEndpoint(OpenAIEndpoint):
-    """Endpoint for OpenAI streaming chat completion API."""
+    """Endpoint for OpenAI-compatible Chat Completion APIs (streaming mode)"""
 
-    def invoke(self, payload: Dict, **kwargs) -> InvocationResponse:
+    def invoke(self, payload: Dict, **kwargs: Any) -> InvocationResponse:
         """Invoke the OpenAI streaming chat completion API.
 
         Args:
             payload (Dict): Request payload
-            **kwargs: Additional parameters for the request
+            **kwargs (Any): Additional parameters for the request
 
         Returns:
             InvocationResponse: Response from the API

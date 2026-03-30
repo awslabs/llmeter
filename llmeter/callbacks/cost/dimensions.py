@@ -126,8 +126,8 @@ class InputTokens(RequestCostDimensionBase):
     """Request cost dimension to model per-input-token costs with a flat charge rate
 
     Args:
-        rate_per_million: Charge applied per million input (prompt) token to the Foundation Model
-        granularity_tokens: Minimum number of tokens billed per increment (Default 1)
+        price_per_million: Charge applied per million input (prompt) token to the Foundation Model
+        granularity: Minimum number of tokens billed per increment (Default 1)
     """
 
     price_per_million: float
@@ -147,8 +147,8 @@ class OutputTokens(RequestCostDimensionBase):
     """Request cost dimension to model per-output-token costs with a flat charge rate
 
     Args:
-        rate_per_million: Charge per million output (completion) token from the Foundation Model
-        granularity_tokens: Minimum number of tokens billed per increment (Default 1)
+        price_per_million: Charge per million output (completion) token from the Foundation Model
+        granularity: Minimum number of tokens billed per increment (Default 1)
     """
 
     price_per_million: float
@@ -168,7 +168,7 @@ class EndpointTime(RunCostDimensionBase):
     """Run cost dimension to model per-deployment-hour costs with a flat charge rate
 
     Args:
-        rate: Charge applied per hour a test run takes
+        price_per_hour: Charge applied per hour a test run takes
         granularity_secs: Minimum number of seconds billed per increment (Default 1)
     """
 
