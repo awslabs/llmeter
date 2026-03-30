@@ -18,6 +18,9 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
@@ -33,10 +36,10 @@ jobs:
         enable-cache: true
 
     - name: Install dependencies
-      run: uv sync --only-group docs
+      run: uv sync --only-group docs --frozen
     
     - name: Build
-      run: uv run zensical build --clean
+      run: uv run --no-sync zensical build --clean
 
     - name: Upload
       uses: actions/upload-pages-artifact@v4
@@ -44,4 +47,5 @@ jobs:
         path: site
 
     - name: Deploy
+      id: deploy
       uses: actions/deploy-pages@v4
