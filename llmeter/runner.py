@@ -19,8 +19,9 @@ from uuid import uuid4
 
 from tqdm.auto import tqdm, trange
 from upath import UPath as Path
+from upath.types import ReadablePathLike, WritablePathLike
 
-from llmeter.utils import now_utc
+from llmeter.utils import ensure_path, now_utc
 
 if TYPE_CHECKING:
     # Avoid circular import: We only need typing for Callback
@@ -52,11 +53,11 @@ class _RunConfig:
     """
 
     endpoint: Endpoint | dict | None = None
-    output_path: str | Path | None = None
+    output_path: WritablePathLike | None = None
     tokenizer: Tokenizer | Any | None = None
     clients: int = 1
     n_requests: int | None = None
-    payload: dict | list[dict] | os.PathLike | str | None = None
+    payload: dict | list[dict] | ReadablePathLike | None = None
     run_name: str | None = None
     run_description: str | None = None
     timeout: int | float = 60
@@ -84,7 +85,7 @@ class _RunConfig:
             self._endpoint = self.endpoint
 
         if self.output_path is not None:
-            self.output_path = Path(self.output_path)
+            self.output_path = ensure_path(self.output_path)
 
         if self.tokenizer is None:
             self.tokenizer = DummyTokenizer()
@@ -95,7 +96,7 @@ class _RunConfig:
 
     def save(
         self,
-        output_path: os.PathLike | str | None = None,
+        output_path: WritablePathLike | None = None,
         file_name: str = "run_config.json",
     ):
         """Save the configuration to a disk or cloud storage.
@@ -104,7 +105,7 @@ class _RunConfig:
             output_path: Optional override for output folder. By default, self.output_path is used.
             file_name: File name to create under `output_path`.
         """
-        output_path = Path(output_path or self.output_path)
+        output_path = ensure_path(output_path or self.output_path)
         output_path.mkdir(parents=True, exist_ok=True)
         run_config_path = output_path / file_name
 
@@ -137,7 +138,7 @@ class _RunConfig:
             output_path: Folder under which the configuration is stored
             file_name: File name within `output_path` for the run configuration JSON.
         """
-        load_path = Path(load_path)
+        load_path = ensure_path(load_path)
         with (load_path / file_name).open() as f:
             config = json.load(f)
         config["endpoint"] = Endpoint.load(config["endpoint"])
@@ -460,7 +461,7 @@ class _Run(_RunConfig):
             run_start_time = now_utc()
             _, (total_test_time, start_time, end_time) = await asyncio.gather(
                 self._process_results_from_q(
-                    output_path=Path(self.output_path) / "responses.jsonl"
+                    output_path=ensure_path(self.output_path) / "responses.jsonl"
                     if self.output_path
                     else None,
                 ),
@@ -580,7 +581,7 @@ class Runner(_RunConfig):
             run_params["run_name"] = f"{datetime.now():%Y%m%d-%H%M}"
         if self.output_path and not kwargs.get("output_path"):
             # Run output path is nested under run name subfolder unless explicitly set:
-            run_params["output_path"] = Path(self.output_path) / run_params["run_name"]
+            run_params["output_path"] = ensure_path(self.output_path) / run_params["run_name"]
         # Validate that clients parameter is set and is a positive integer
         clients = run_params.get("clients")
         if clients is None:
@@ -600,7 +601,7 @@ class Runner(_RunConfig):
         tokenizer: Tokenizer | Any | None = None,
         clients: int | None = None,
         n_requests: int | None = None,
-        payload: dict | list[dict] | os.PathLike | str | None = None,
+        payload: dict | list[dict] | ReadablePathLike | None = None,
         run_name: str | None = None,
         run_description: str | None = None,
         timeout: int | float | None = None,

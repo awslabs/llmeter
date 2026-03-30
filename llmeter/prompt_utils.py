@@ -4,16 +4,17 @@
 import base64
 import json
 import logging
-from dataclasses import dataclass
-from itertools import product
 import os
 import random
+from dataclasses import dataclass
+from itertools import product
 from typing import Any, Callable, Iterator
 
 from upath import UPath as Path
+from upath.types import ReadablePathLike, WritablePathLike
 
 from .tokenizers import DummyTokenizer, Tokenizer
-from .utils import DeferredError
+from .utils import DeferredError, ensure_path
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +46,7 @@ def read_file(file_path: str) -> bytes:
         IOError: If file cannot be read
     """
     try:
-        _path = Path(file_path)
+        _path = ensure_path(file_path)
         with _path.open("rb") as f:
             return f.read()
     except FileNotFoundError:
@@ -69,7 +70,7 @@ def detect_format_from_extension(file_path: str) -> str | None:
         >>> detect_format_from_extension("document.pdf")
         "application/pdf"
     """
-    extension = Path(file_path).suffix.lower()
+    extension = ensure_path(file_path).suffix.lower()
 
     # Map common extensions to MIME types
     extension_to_mime = {
@@ -210,7 +211,7 @@ def llmeter_bytes_decoder(dct: dict) -> dict | bytes:
 class CreatePromptCollection:
     input_lengths: list[int]
     output_lengths: list[int]
-    source_file: os.PathLike
+    source_file: ReadablePathLike
     requests_per_combination: int = 1
     tokenizer: Tokenizer | None = None
     source_file_encoding: str = "utf-8-sig"
@@ -226,8 +227,8 @@ class CreatePromptCollection:
         )
         return random.sample(collection, k=len(collection))
 
-    def _generate_sample(self, source_file: os.PathLike, sample_size: int) -> str:
-        source_file = Path(source_file)
+    def _generate_sample(self, source_file: ReadablePathLike, sample_size: int) -> str:
+        source_file = ensure_path(source_file)
         sample = []
         with source_file.open(encoding=self.source_file_encoding, mode="r") as f:
             for line in f:
@@ -244,7 +245,7 @@ class CreatePromptCollection:
 
 
 def load_prompts(
-    file_path: os.PathLike,
+    file_path: ReadablePathLike,
     create_payload_fn: Callable,
     create_payload_kwargs: dict = {},
     file_pattern: str | None = None,
@@ -273,7 +274,7 @@ def load_prompts(
 
     """
 
-    file_path = Path(file_path)
+    file_path = ensure_path(file_path)
     if file_path.is_file():
         with file_path.open(mode="r") as f:
             for line in f:
@@ -298,7 +299,7 @@ def load_prompts(
 
 
 def load_payloads(
-    file_path: os.PathLike | str,
+    file_path: ReadablePathLike,
     deserializer: Callable[[str], dict] | None = None,
 ) -> Iterator[dict]:
     """
@@ -383,7 +384,7 @@ def load_payloads(
         >>> original == loaded
         True
     """
-    file_path = Path(file_path)
+    file_path = ensure_path(file_path)
 
     if not file_path.exists():
         raise FileNotFoundError(f"The specified path does not exist: {file_path}")
@@ -428,7 +429,7 @@ def _load_data_file(
 
 def save_payloads(
     payloads: list[dict] | dict,
-    output_path: os.PathLike | str,
+    output_path: WritablePathLike,
     output_file: str = "payload.jsonl",
     serializer: Callable[[dict], str] | None = None,
 ) -> Path:
@@ -534,7 +535,7 @@ def save_payloads(
         >>> #   }]
         >>> # }
     """
-    output_path = Path(output_path)
+    output_path = ensure_path(output_path)
     output_path.mkdir(parents=True, exist_ok=True)
     output_file_path = output_path / output_file
 

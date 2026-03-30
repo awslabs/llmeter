@@ -12,10 +12,11 @@ from typing import Any, Sequence
 
 import jmespath
 from upath import UPath as Path
+from upath.types import ReadablePathLike, WritablePathLike
 
 from .endpoints import InvocationResponse
 from .prompt_utils import LLMeterBytesEncoder
-from .utils import summary_stats_from_list
+from .utils import ensure_path, summary_stats_from_list
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +88,7 @@ class Result:
     n_requests: int
     total_test_time: float | None = None
     model_id: str | None = None
-    output_path: os.PathLike | None = None
+    output_path: WritablePathLike | None = None
     endpoint_name: str | None = None
     provider: str | None = None
     run_name: str | None = None
@@ -119,7 +120,7 @@ class Result:
                 )
         self._contributed_stats.update(stats)
 
-    def save(self, output_path: os.PathLike | str | None = None):
+    def save(self, output_path: WritablePathLike | None = None):
         """
         Save the results to disk or cloud storage.
 
@@ -147,9 +148,8 @@ class Result:
             which provides a unified interface for working with different file systems.
         """
 
-        try:
-            output_path = Path(self.output_path or output_path)
-        except TypeError:
+        output_path = ensure_path(self.output_path or output_path)
+        if output_path is None:
             raise ValueError("No output path provided")
 
         output_path.mkdir(parents=True, exist_ok=True)
@@ -204,7 +204,7 @@ class Result:
             raise ValueError(
                 "No output_path set on this Result. Cannot locate responses file."
             )
-        responses_path = Path(self.output_path) / "responses.jsonl"
+        responses_path = ensure_path(self.output_path) / "responses.jsonl"
         with responses_path.open("r") as f:
             self.responses = [
                 InvocationResponse(**json.loads(line)) for line in f if line
@@ -216,7 +216,7 @@ class Result:
 
     @classmethod
     def load(
-        cls, result_path: os.PathLike | str, load_responses: bool = True
+        cls, result_path: ReadablePathLike, load_responses: bool = True
     ) -> "Result":
         """
         Load run results from disk or cloud storage.
@@ -246,7 +246,7 @@ class Result:
                 either file.
 
         """
-        result_path = Path(result_path)
+        result_path = ensure_path(result_path)
         summary_path = result_path / "summary.json"
 
         with summary_path.open("r") as g:

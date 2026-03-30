@@ -3,15 +3,18 @@
 """(De/re)serialization interfaces for saving Cost Model objects to file and loading them back"""
 
 # Python Built-Ins:
-from dataclasses import is_dataclass
-from datetime import date, datetime, time
 import json
 import logging
 import os
+from dataclasses import is_dataclass
+from datetime import date, datetime, time
 from typing import Any, Callable, Dict, Protocol, Type, TypeVar
 
 # External Dependencies:
 from upath import UPath as Path
+from upath.types import ReadablePathLike, WritablePathLike
+
+from llmeter.utils import ensure_path
 
 logger = logging.getLogger(__name__)
 
@@ -146,13 +149,13 @@ class JSONableBase:
             return from_dict_with_class(raw=raw, cls=cls, **kwargs)
 
     @classmethod
-    def from_file(cls: Type[TJSONable], input_path: os.PathLike, **kwargs) -> TJSONable:
+    def from_file(cls: Type[TJSONable], input_path: ReadablePathLike, **kwargs) -> TJSONable:
         """Initialize an instance of this class from a (local or Cloud) JSON file
         Args:
             input_path: The path to the JSON data file.
             **kwargs: Optional extra keyword arguments to pass to `from_dict()`
         """
-        input_path = Path(input_path)
+        input_path = ensure_path(input_path)
         with input_path.open("r") as f:
             return cls.from_json(f.read(), **kwargs)
 
@@ -177,7 +180,7 @@ class JSONableBase:
 
     def to_file(
         self,
-        output_path: os.PathLike,
+        output_path: WritablePathLike,
         indent: int | str | None = 4,
         default: Callable[[Any], Any] | None = str,
         **kwargs: Any,
@@ -200,7 +203,7 @@ class JSONableBase:
                     return Path(obj).as_posix()
                 return str(obj)
 
-        output_path = Path(output_path)
+        output_path = ensure_path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with output_path.open("w") as f:
             f.write(self.to_json(indent=indent, default=default, **kwargs))

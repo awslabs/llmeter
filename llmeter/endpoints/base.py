@@ -14,6 +14,9 @@ from typing import Any
 from uuid import uuid4
 
 from upath import UPath as Path
+from upath.types import ReadablePathLike, WritablePathLike
+
+from llmeter.utils import ensure_path
 
 
 # @dataclass(slots=True)
@@ -262,7 +265,7 @@ class Endpoint(ABC):
                 return True
         return NotImplemented
 
-    def save(self, output_path: os.PathLike) -> os.PathLike:
+    def save(self, output_path: WritablePathLike) -> Path:
         """
         Save the endpoint configuration to a JSON file.
 
@@ -275,7 +278,7 @@ class Endpoint(ABC):
         Returns:
             None
         """
-        output_path = Path(output_path)
+        output_path = ensure_path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with output_path.open("w") as f:
             endpoint_conf = self.to_dict()
@@ -306,7 +309,7 @@ class Endpoint(ABC):
         return endpoint_conf
 
     @classmethod
-    def load_from_file(cls, input_path: os.PathLike) -> "Endpoint":
+    def load_from_file(cls, input_path: ReadablePathLike) -> "Endpoint":
         """
         Load an endpoint configuration from a JSON file.
 
@@ -322,7 +325,7 @@ class Endpoint(ABC):
                       with the configuration from the file.
         """
 
-        input_path = Path(input_path)
+        input_path = ensure_path(input_path)
         with input_path.open("r") as f:
             data = json.load(f)
         endpoint_type = data.pop("endpoint_type")

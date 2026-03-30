@@ -1,10 +1,10 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 # Python Built-Ins:
-from dataclasses import dataclass, field
 import importlib
+from dataclasses import dataclass, field
 
-from upath import UPath as Path
+from llmeter.utils import ensure_path
 
 # Local Dependencies:
 from ...endpoints.base import InvocationResponse
@@ -13,7 +13,7 @@ from ...runner import _RunConfig
 from ..base import Callback
 from .dimensions import IRequestCostDimension, IRunCostDimension
 from .results import CalculatedCostWithDimensions
-from .serde import from_dict_with_class_map, JSONableBase
+from .serde import JSONableBase, from_dict_with_class_map
 
 
 @dataclass
@@ -203,7 +203,7 @@ class CostModel(JSONableBase, Callback):
 
     def save_to_file(self, path: str) -> None:
         """Save the cost model (including all dimensions) to a JSON file"""
-        path = Path(path)
+        path = ensure_path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("w") as f:
             f.write(self.to_json())
@@ -226,6 +226,6 @@ class CostModel(JSONableBase, Callback):
     @classmethod
     def _load_from_file(cls, path: str):
         """Load the cost model (including all dimensions) from a JSON file"""
-        path = Path(path)
+        path = ensure_path(path)
         with path.open("r") as f:
             return cls.from_json(f.read())
