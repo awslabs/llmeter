@@ -3,6 +3,11 @@ name: Publish docs
 on:
   release:
     types: [published]
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'mkdocs.yml'
 
 permissions:
   contents: read
