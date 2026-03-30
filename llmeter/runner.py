@@ -111,7 +111,7 @@ class _RunConfig:
 
         config_copy = replace(self)
 
-        if self.payload and (not isinstance(self.payload, (os.PathLike, str))):
+        if self.payload and (not isinstance(self.payload, (Path, str))):
             payload_path = save_payloads(self.payload, output_path)
             config_copy.payload = payload_path
 
@@ -123,7 +123,7 @@ class _RunConfig:
             config_copy.tokenizer = Tokenizer.to_dict(self.tokenizer)
 
         def _default_serializer(obj):
-            if isinstance(obj, os.PathLike):
+            if isinstance(obj, (os.PathLike, Path)):
                 return Path(obj).as_posix()
             return str(obj)
 
@@ -174,7 +174,7 @@ class _Run(_RunConfig):
         This method ensures that the payload is valid and prepared for the test run.
         """
         assert self.payload, "No payload provided"
-        if isinstance(self.payload, (os.PathLike, str)):
+        if isinstance(self.payload, (Path, str)):
             self.payload = list(load_payloads(self.payload))
         if isinstance(self.payload, dict):
             self.payload = [self.payload]

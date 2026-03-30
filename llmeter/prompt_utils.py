@@ -177,7 +177,7 @@ class LLMeterBytesEncoder(json.JSONEncoder):
         """
         if isinstance(obj, bytes):
             return {"__llmeter_bytes__": base64.b64encode(obj).decode("utf-8")}
-        if isinstance(obj, os.PathLike):
+        if isinstance(obj, (os.PathLike, Path)):
             return Path(obj).as_posix()
         return super().default(obj)
 

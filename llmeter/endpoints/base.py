@@ -284,7 +284,7 @@ class Endpoint(ABC):
             endpoint_conf = self.to_dict()
 
             def _default_serializer(obj):
-                if isinstance(obj, os.PathLike):
+                if isinstance(obj, (os.PathLike, Path)):
                     return Path(obj).as_posix()
                 return str(obj)
 
@@ -302,7 +302,7 @@ class Endpoint(ABC):
         for k, v in vars(self).items():
             if k.startswith("_"):
                 continue
-            if isinstance(v, os.PathLike):
+            if isinstance(v, (os.PathLike, Path)):
                 v = Path(v).as_posix()
             endpoint_conf[k] = v
         endpoint_conf["endpoint_type"] = self.__class__.__name__

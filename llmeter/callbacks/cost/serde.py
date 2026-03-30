@@ -63,7 +63,7 @@ def to_dict_recursive_generic(obj: object, **kwargs) -> dict:
         result.update({k: getattr(obj, k) for k in dir(obj)})
     result.update(kwargs)
     for k, v in result.items():
-        if isinstance(v, os.PathLike):
+        if isinstance(v, (os.PathLike, Path)):
             result[k] = Path(v).as_posix()
         elif hasattr(v, "to_dict"):
             result[k] = v.to_dict()
@@ -199,7 +199,7 @@ class JSONableBase:
         """
         if default is None:
             def default(obj):
-                if isinstance(obj, os.PathLike):
+                if isinstance(obj, (os.PathLike, Path)):
                     return Path(obj).as_posix()
                 return str(obj)
 
