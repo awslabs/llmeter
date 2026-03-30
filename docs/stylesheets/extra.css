@@ -230,3 +230,13 @@
     background: linear-gradient(var(--md-primary-fg-color--light), var(--md-primary-fg-color));
   }
 }
+
+/* Tables: keep code tokens on one line and let the table scroll if needed */
+.md-typeset table:not([class]) code {
+  white-space: nowrap;
+}
+
+.md-typeset table:not([class]) td:last-child,
+.md-typeset table:not([class]) th:last-child {
+  min-width: 14em;
+}
