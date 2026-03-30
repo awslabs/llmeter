@@ -11,6 +11,7 @@ on:
 
 permissions:
   contents: read
+  id-token: write
   pages: write
 
 jobs:
@@ -31,7 +32,7 @@ jobs:
         enable-cache: true
 
     - name: Install dependencies
-      run: uv sync --group docs
+      run: uv sync --only-group docs
     
     - name: Build
       run: uv run zensical build --clean
