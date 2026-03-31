@@ -5,9 +5,7 @@
 # Python Built-Ins:
 import json
 import logging
-import os
 from dataclasses import is_dataclass
-from datetime import date, datetime, time
 from typing import Any, Protocol, TypeVar
 
 # External Dependencies:
@@ -67,16 +65,12 @@ def to_dict_recursive_generic(obj: object, **kwargs) -> dict:
         result.update({k: getattr(obj, k) for k in dir(obj)})
     result.update(kwargs)
     for k, v in result.items():
-        if isinstance(v, (os.PathLike, Path)):
-            result[k] = Path(v).as_posix()
-        elif hasattr(v, "to_dict"):
+        if hasattr(v, "to_dict"):
             result[k] = v.to_dict()
         elif isinstance(v, dict):
             result[k] = to_dict_recursive_generic(v)
         elif isinstance(v, (list, tuple)):
             result[k] = [to_dict_recursive_generic(item) for item in v]
-        elif isinstance(v, (date, datetime, time)):
-            result[k] = v.isoformat()
     return result
 
 

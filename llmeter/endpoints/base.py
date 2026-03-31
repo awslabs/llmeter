@@ -7,7 +7,6 @@ You can also use these classes to implement your own custom `Endpoint` types.
 
 import importlib
 import json
-import os
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass
 from typing import Any
@@ -291,13 +290,9 @@ class Endpoint(ABC):
         Returns:
             Dict: A dictionary representation of the endpoint configuration.
         """
-        endpoint_conf = {}
-        for k, v in vars(self).items():
-            if k.startswith("_"):
-                continue
-            if isinstance(v, (os.PathLike, Path)):
-                v = Path(v).as_posix()
-            endpoint_conf[k] = v
+        endpoint_conf = {
+            k: v for k, v in vars(self).items() if not k.startswith("_")
+        }
         endpoint_conf["endpoint_type"] = self.__class__.__name__
         return endpoint_conf
 
