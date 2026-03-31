@@ -16,7 +16,8 @@ from uuid import uuid4
 from upath import UPath as Path
 from upath.types import ReadablePathLike, WritablePathLike
 
-from llmeter.utils import ensure_path
+from ..json_utils import LLMeterEncoder
+from ..utils import ensure_path
 
 
 # @dataclass(slots=True)
@@ -52,21 +53,21 @@ class InvocationResponse:
     def to_json(self, **kwargs) -> str:
         """
         Convert InvocationResponse to JSON string with binary content support.
-        
+
         This method serializes the InvocationResponse object to a JSON string, with
         automatic handling of binary content (bytes objects) in the input_payload field.
         Binary data is converted to base64-encoded strings wrapped in marker objects,
         enabling JSON serialization while preserving the ability to restore the original
         bytes during deserialization.
-        
+
         Binary Content Handling:
             When the input_payload contains bytes objects (e.g., images, video), they are
             automatically converted to base64-encoded strings and wrapped in marker objects
             with the key "__llmeter_bytes__". This approach enables JSON serialization of
             multimodal payloads while maintaining round-trip integrity.
-            
+
             The marker object format is: {"__llmeter_bytes__": "<base64-string>"}
-            
+
             For non-serializable types other than bytes, the encoder falls back to str()
             representation to ensure the response can always be serialized.
 
@@ -78,7 +79,7 @@ class InvocationResponse:
 
         Examples:
             Serialize a response with binary content in the payload:
-            
+
             >>> # Create a response with binary image data in the payload
             >>> with open("image.jpg", "rb") as f:
             ...     image_bytes = f.read()
@@ -106,9 +107,9 @@ class InvocationResponse:
             >>> # The JSON string contains marker objects for binary data
             >>> "__llmeter_bytes__" in json_str
             True
-            
+
             Serialize with pretty printing:
-            
+
             >>> json_str = response.to_json(indent=2)
             >>> print(json_str)
             {
@@ -136,14 +137,14 @@ class InvocationResponse:
               "num_tokens_output": 15,
               ...
             }
-            
+
             Round-trip serialization with binary preservation:
-            
+
             >>> # Serialize to JSON
             >>> json_str = response.to_json()
             >>> # Parse back to dict
             >>> import json
-            >>> from llmeter.prompt_utils import llmeter_bytes_decoder
+            >>> from llmeter.json_utils import llmeter_bytes_decoder
             >>> response_dict = json.loads(json_str, object_hook=llmeter_bytes_decoder)
             >>> # Binary data is preserved
             >>> original_bytes = response.input_payload["messages"][0]["content"][1]["image"]["source"]["bytes"]
@@ -151,9 +152,8 @@ class InvocationResponse:
             >>> original_bytes == restored_bytes
             True
         """
-        from llmeter.results import InvocationResponseEncoder
-        
-        return json.dumps(asdict(self), cls=InvocationResponseEncoder, **kwargs)
+        kwargs.setdefault("cls", LLMeterEncoder)
+        return json.dumps(asdict(self), **kwargs)
 
     @staticmethod
     def error_output(
@@ -281,14 +281,7 @@ class Endpoint(ABC):
         output_path = ensure_path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with output_path.open("w") as f:
-            endpoint_conf = self.to_dict()
-
-            def _default_serializer(obj):
-                if isinstance(obj, (os.PathLike, Path)):
-                    return Path(obj).as_posix()
-                return str(obj)
-
-            json.dump(endpoint_conf, f, indent=4, default=_default_serializer)
+            json.dump(self, f, indent=4, cls=LLMeterEncoder)
         return output_path
 
     def to_dict(self) -> dict:

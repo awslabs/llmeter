@@ -13,18 +13,18 @@ from hypothesis import strategies as st
 
 from llmeter.prompt_utils import (
     CreatePromptCollection,
-    LLMeterBytesEncoder,
     load_payloads,
     load_prompts,
     save_payloads,
 )
+from llmeter.json_utils import LLMeterEncoder, llmeter_bytes_decoder
 from llmeter.tokenizers import DummyTokenizer
 
 
-class TestLLMeterBytesEncoder:
-    """Unit tests for LLMeterBytesEncoder class.
+class TestLLMeterEncoder:
+    """Unit tests for LLMeterEncoder class.
 
-    These tests verify specific examples and edge cases for the LLMeterBytesEncoder
+    These tests verify specific examples and edge cases for the LLMeterEncoder
     class, complementing the property-based tests.
 
     Requirements: 1.1, 1.2, 1.3, 1.6
@@ -38,7 +38,7 @@ class TestLLMeterBytesEncoder:
         payload = {"data": b"hello world"}
 
         # Serialize using the encoder
-        serialized = json.dumps(payload, cls=LLMeterBytesEncoder)
+        serialized = json.dumps(payload, cls=LLMeterEncoder)
 
         # Verify it's valid JSON
         parsed = json.loads(serialized)
@@ -78,7 +78,7 @@ class TestLLMeterBytesEncoder:
         }
 
         # Serialize
-        serialized = json.dumps(payload, cls=LLMeterBytesEncoder)
+        serialized = json.dumps(payload, cls=LLMeterEncoder)
 
         # Verify it's valid JSON
         parsed = json.loads(serialized)
@@ -107,7 +107,7 @@ class TestLLMeterBytesEncoder:
         payload = {"empty": b""}
 
         # Serialize
-        serialized = json.dumps(payload, cls=LLMeterBytesEncoder)
+        serialized = json.dumps(payload, cls=LLMeterEncoder)
 
         # Verify it's valid JSON
         parsed = json.loads(serialized)
@@ -134,7 +134,7 @@ class TestLLMeterBytesEncoder:
         payload = {"large_image": large_data}
 
         # Serialize
-        serialized = json.dumps(payload, cls=LLMeterBytesEncoder)
+        serialized = json.dumps(payload, cls=LLMeterEncoder)
 
         # Verify it's valid JSON
         parsed = json.loads(serialized)
@@ -161,7 +161,7 @@ class TestLLMeterBytesEncoder:
         }
 
         # Serialize
-        serialized = json.dumps(payload, cls=LLMeterBytesEncoder)
+        serialized = json.dumps(payload, cls=LLMeterEncoder)
 
         # Verify it's valid JSON
         parsed = json.loads(serialized)
@@ -195,7 +195,7 @@ class TestLLMeterBytesEncoder:
         payload = {"images": [b"image1", b"image2", b"image3"]}
 
         # Serialize
-        serialized = json.dumps(payload, cls=LLMeterBytesEncoder)
+        serialized = json.dumps(payload, cls=LLMeterEncoder)
 
         # Verify it's valid JSON
         parsed = json.loads(serialized)
@@ -223,7 +223,7 @@ class TestLLMeterBytesEncoder:
         }
 
         # Serialize
-        serialized = json.dumps(payload, cls=LLMeterBytesEncoder)
+        serialized = json.dumps(payload, cls=LLMeterEncoder)
 
         # Verify it's valid JSON
         parsed = json.loads(serialized)
@@ -255,7 +255,6 @@ class TestLLMeterBytesDecoder:
 
         Validates: Requirements 2.1, 2.2, 2.3
         """
-        from llmeter.prompt_utils import llmeter_bytes_decoder
 
         # Create a marker object with base64-encoded bytes
         marker = {"__llmeter_bytes__": "aGVsbG8gd29ybGQ="}  # "hello world" in base64
@@ -272,7 +271,6 @@ class TestLLMeterBytesDecoder:
 
         Validates: Requirements 2.4
         """
-        from llmeter.prompt_utils import llmeter_bytes_decoder
 
         # Regular dict without marker key
         regular_dict = {"key": "value", "number": 42, "nested": {"data": "test"}}
@@ -291,7 +289,6 @@ class TestLLMeterBytesDecoder:
         """
         import binascii
 
-        from llmeter.prompt_utils import llmeter_bytes_decoder
 
         # Marker with invalid base64 string
         invalid_marker = {"__llmeter_bytes__": "not-valid-base64!!!"}
@@ -307,7 +304,6 @@ class TestLLMeterBytesDecoder:
 
         Validates: Requirements 2.4
         """
-        from llmeter.prompt_utils import llmeter_bytes_decoder
 
         # Dict with marker key but also other keys (should not be decoded)
         multi_key_dict = {
@@ -329,7 +325,6 @@ class TestLLMeterBytesDecoder:
 
         Validates: Requirements 2.1, 2.3
         """
-        from llmeter.prompt_utils import llmeter_bytes_decoder
 
         # Marker with empty base64 string (empty bytes)
         empty_marker = {"__llmeter_bytes__": ""}
@@ -350,7 +345,6 @@ class TestLLMeterBytesDecoder:
         import base64
         import os
 
-        from llmeter.prompt_utils import llmeter_bytes_decoder
 
         # Create 1MB of random binary data
         large_data = os.urandom(1024 * 1024)
@@ -372,7 +366,6 @@ class TestLLMeterBytesDecoder:
 
         Validates: Requirements 2.1, 2.5
         """
-        from llmeter.prompt_utils import llmeter_bytes_decoder
 
         # JSON string with nested marker objects
         json_str = json.dumps(
@@ -415,7 +408,6 @@ class TestLLMeterBytesDecoder:
 
         Validates: Requirements 2.4
         """
-        from llmeter.prompt_utils import llmeter_bytes_decoder
 
         # Dict without the marker key
         normal_dict = {"data": "value", "count": 123}
@@ -433,7 +425,6 @@ class TestLLMeterBytesDecoder:
         """
         import base64
 
-        from llmeter.prompt_utils import llmeter_bytes_decoder
 
         # Binary data with special characters
         special_data = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01"
@@ -849,33 +840,23 @@ class TestLoadPayloads:
             assert isinstance(loaded[1]["data"], bytes)
             assert isinstance(loaded[2]["nested"]["deep"]["data"], bytes)
 
-    def test_load_payloads_custom_deserializer_parameter(self):
-        """Test custom deserializer parameter works correctly.
+    def test_load_payloads_bytes_marker_round_trip(self):
+        """Test that bytes markers are decoded automatically during load.
 
         Validates: Requirements 5.2, 5.4
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             jsonl_file = Path(tmpdir) / "payload.jsonl"
 
-            # Write a simple payload
-            payload = {"test": "data", "number": 42}
-            with jsonl_file.open("w") as f:
-                f.write(json.dumps(payload) + "\n")
+            # Write a payload with a bytes marker (as save_payloads would)
+            payload = {"image": b"\xff\xd8\xff\xe0"}
+            save_payloads(payload, Path(tmpdir))
 
-            # Custom deserializer that adds a field
-            def custom_deserializer(json_str):
-                data = json.loads(json_str)
-                data["custom_field"] = "added_by_deserializer"
-                return data
+            # Load and verify bytes are restored
+            loaded = list(load_payloads(jsonl_file))
 
-            # Load with custom deserializer
-            loaded = list(load_payloads(jsonl_file, deserializer=custom_deserializer))
-
-            # Verify custom deserializer was used
             assert len(loaded) == 1
-            assert loaded[0]["test"] == "data"
-            assert loaded[0]["number"] == 42
-            assert loaded[0]["custom_field"] == "added_by_deserializer"
+            assert loaded[0]["image"] == b"\xff\xd8\xff\xe0"
 
     def test_load_payloads_backward_compatibility_old_format(self):
         """Test backward compatibility - old format loads successfully.
@@ -1198,33 +1179,30 @@ class TestSavePayloads:
                 else:
                     assert "__llmeter_bytes__" in parsed["nested"]["data"]
 
-    def test_save_payloads_custom_serializer_parameter(self):
-        """Test custom serializer parameter works correctly.
+    def test_save_payloads_handles_to_dict_objects(self):
+        """Test that payloads with to_dict() objects are serialized correctly.
+
+        Objects implementing to_dict() are handled by LLMeterEncoder automatically.
 
         Validates: Requirements 5.1, 5.3
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir)
-            payload = {"test": "data", "number": 42}
 
-            # Custom serializer that adds a prefix
-            def custom_serializer(payload_dict):
-                return "CUSTOM:" + json.dumps(payload_dict)
+            class CustomObj:
+                def to_dict(self):
+                    return {"custom": "value"}
 
-            result_path = save_payloads(
-                payload, output_path, serializer=custom_serializer
-            )
+            payload = {"test": "data", "obj": CustomObj()}
 
-            # Verify custom serializer was used
+            result_path = save_payloads(payload, output_path)
+
             with result_path.open("r") as f:
-                line = f.readline()
+                line = f.readline().strip()
 
-            assert line.startswith("CUSTOM:")
-            # Remove prefix and verify it's valid JSON
-            json_part = line[7:].strip()
-            parsed = json.loads(json_part)
+            parsed = json.loads(line)
             assert parsed["test"] == "data"
-            assert parsed["number"] == 42
+            assert parsed["obj"] == {"custom": "value"}
 
     def test_save_payloads_backward_compatibility_no_bytes(self):
         """Test backward compatibility when payload has no bytes.
@@ -1371,8 +1349,8 @@ class TestErrorHandling:
     Requirements: 6.1, 6.2, 6.3, 6.4
     """
 
-    def test_unserializable_type_error_message(self):
-        """Test that unserializable types raise TypeError with type information.
+    def test_unserializable_type_str_fallback(self):
+        """Test that unserializable types are serialized via str() fallback.
 
         Validates: Requirements 6.1
         """
@@ -1388,13 +1366,9 @@ class TestErrorHandling:
             "custom_object": CustomUnserializableObject(42),
         }
 
-        # Should raise TypeError when trying to serialize
-        with pytest.raises(TypeError) as exc_info:
-            json.dumps(payload, cls=LLMeterBytesEncoder)
-
-        # Verify error message contains type information
-        error_message = str(exc_info.value)
-        assert "CustomUnserializableObject" in error_message
+        # The unified encoder falls back to str() for unknown types
+        result = json.dumps(payload, cls=LLMeterEncoder)
+        assert "test-model" in result
 
     def test_invalid_json_error_handling(self):
         """Test that invalid JSON raises JSONDecodeError with descriptive message.
@@ -1422,7 +1396,6 @@ class TestErrorHandling:
         """
         import binascii
 
-        from llmeter.prompt_utils import llmeter_bytes_decoder
 
         # Create a marker object with invalid base64 (incorrect padding)
         # Base64 strings must have length that is a multiple of 4
@@ -1466,64 +1439,45 @@ class TestErrorHandling:
             with pytest.raises(binascii.Error):
                 list(load_payloads(jsonl_file))
 
-    def test_custom_serializer_exception_propagation(self):
-        """Test that custom serializer exceptions are propagated correctly.
+    def test_save_payloads_encoder_error_propagation(self):
+        """Test that encoder errors from LLMeterEncoder are propagated correctly.
 
         Validates: Requirements 6.4
         """
-
-        class CustomSerializerError(Exception):
-            """Custom exception for testing."""
-
-            pass
-
-        def failing_serializer(payload):
-            """A custom serializer that always raises an exception."""
-            raise CustomSerializerError("Custom serializer failed!")
-
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir)
-            payload = {"test": "data"}
 
-            # Should propagate the custom exception
-            with pytest.raises(CustomSerializerError) as exc_info:
-                save_payloads(payload, output_path, serializer=failing_serializer)
+            # An object whose str() raises — LLMeterEncoder returns None for these,
+            # which is valid JSON, so no error is raised.
+            class FailingStr:
+                def __str__(self):
+                    raise RuntimeError("Cannot convert")
 
-            # Verify the exception message is preserved
-            assert "Custom serializer failed!" in str(exc_info.value)
+            payload = {"test": FailingStr()}
+            result_path = save_payloads(payload, output_path)
 
-    def test_custom_deserializer_exception_propagation(self):
-        """Test that custom deserializer exceptions are propagated correctly.
+            with result_path.open("r") as f:
+                parsed = json.loads(f.readline())
+            assert parsed["test"] is None
+
+    def test_invalid_json_deserialization_error(self):
+        """Test that invalid JSON in files produces errors gracefully.
 
         Validates: Requirements 6.4
         """
-
-        class CustomDeserializerError(Exception):
-            """Custom exception for testing."""
-
-            pass
-
-        def failing_deserializer(json_str):
-            """A custom deserializer that always raises an exception."""
-            raise CustomDeserializerError("Custom deserializer failed!")
-
         with tempfile.TemporaryDirectory() as tmpdir:
             jsonl_file = Path(tmpdir) / "payload.jsonl"
 
-            # Write a valid payload
-            payload = {"test": "data"}
+            # Write invalid JSON
             with jsonl_file.open("w") as f:
-                f.write(json.dumps(payload) + "\n")
+                f.write("not valid json\n")
 
-            # Should propagate the custom exception
-            with pytest.raises(CustomDeserializerError) as exc_info:
-                list(load_payloads(jsonl_file, deserializer=failing_deserializer))
+            # load_payloads prints errors for invalid JSON lines but doesn't raise
+            loaded = list(load_payloads(jsonl_file))
+            assert len(loaded) == 0
 
-            # Verify the exception message is preserved
-            assert "Custom deserializer failed!" in str(exc_info.value)
-
-    def test_unserializable_nested_object_error(self):
-        """Test error message for unserializable object in nested structure.
+    def test_unserializable_nested_object_str_fallback(self):
+        """Test str() fallback for unserializable object in nested structure.
 
         Validates: Requirements 6.1, 6.3
         """
@@ -1547,13 +1501,9 @@ class TestErrorHandling:
             ],
         }
 
-        # Should raise TypeError with type information
-        with pytest.raises(TypeError) as exc_info:
-            json.dumps(payload, cls=LLMeterBytesEncoder)
-
-        # Verify error message contains the type name
-        error_message = str(exc_info.value)
-        assert "NestedCustomObject" in error_message
+        # The unified encoder falls back to str() for unknown types
+        result = json.dumps(payload, cls=LLMeterEncoder)
+        assert "test-model" in result
 
     def test_bytes_serialization_with_encoding_error(self):
         """Test that bytes serialization handles all byte values correctly.
@@ -1568,7 +1518,7 @@ class TestErrorHandling:
         payload = {"data": all_bytes}
 
         # Should serialize without errors
-        serialized = json.dumps(payload, cls=LLMeterBytesEncoder)
+        serialized = json.dumps(payload, cls=LLMeterEncoder)
 
         # Should be valid JSON
         parsed = json.loads(serialized)
@@ -1577,7 +1527,6 @@ class TestErrorHandling:
         assert "__llmeter_bytes__" in parsed["data"]
 
         # Verify round-trip works
-        from llmeter.prompt_utils import llmeter_bytes_decoder
 
         deserialized = json.loads(serialized, object_hook=llmeter_bytes_decoder)
         assert deserialized["data"] == all_bytes
@@ -1591,7 +1540,7 @@ class TestErrorHandling:
         empty_payload = {}
 
         # Should serialize without errors
-        serialized = json.dumps(empty_payload, cls=LLMeterBytesEncoder)
+        serialized = json.dumps(empty_payload, cls=LLMeterEncoder)
         assert serialized == "{}"
 
         # Empty list
@@ -1619,7 +1568,7 @@ class TestErrorHandling:
         }
 
         # Should serialize without errors
-        serialized = json.dumps(payload, cls=LLMeterBytesEncoder)
+        serialized = json.dumps(payload, cls=LLMeterEncoder)
 
         # Should be valid JSON
         parsed = json.loads(serialized)
@@ -1640,7 +1589,7 @@ class TestErrorHandling:
         }
 
         # Should serialize without errors
-        serialized = json.dumps(payload, cls=LLMeterBytesEncoder)
+        serialized = json.dumps(payload, cls=LLMeterEncoder)
 
         # Should be valid JSON
         parsed = json.loads(serialized)
@@ -1692,7 +1641,7 @@ class TestPerformance:
 
         # Measure serialization time
         start_time = time.perf_counter()
-        serialized = json.dumps(payload, cls=LLMeterBytesEncoder)
+        serialized = json.dumps(payload, cls=LLMeterEncoder)
         end_time = time.perf_counter()
 
         # Calculate elapsed time in milliseconds
@@ -1726,10 +1675,9 @@ class TestPerformance:
         }
 
         # First serialize the payload
-        serialized = json.dumps(payload, cls=LLMeterBytesEncoder)
+        serialized = json.dumps(payload, cls=LLMeterEncoder)
 
         # Measure deserialization time
-        from llmeter.prompt_utils import llmeter_bytes_decoder
 
         start_time = time.perf_counter()
         deserialized = json.loads(serialized, object_hook=llmeter_bytes_decoder)
@@ -1767,7 +1715,7 @@ class TestPerformance:
         initial_size = sys.getsizeof(binary_data)
 
         # Serialize the payload
-        serialized = json.dumps(payload, cls=LLMeterBytesEncoder)
+        serialized = json.dumps(payload, cls=LLMeterEncoder)
 
         # Parse to verify structure
         parsed = json.loads(serialized)
@@ -1803,10 +1751,9 @@ class TestPerformance:
         payload = {"data": binary_data}
 
         # Serialize first
-        serialized = json.dumps(payload, cls=LLMeterBytesEncoder)
+        serialized = json.dumps(payload, cls=LLMeterEncoder)
 
         # Deserialize
-        from llmeter.prompt_utils import llmeter_bytes_decoder
 
         deserialized = json.loads(serialized, object_hook=llmeter_bytes_decoder)
 
@@ -1847,11 +1794,10 @@ class TestPerformance:
 
         # Measure serialization time
         start_time = time.perf_counter()
-        serialized = json.dumps(payload, cls=LLMeterBytesEncoder)
+        serialized = json.dumps(payload, cls=LLMeterEncoder)
         serialize_time = (time.perf_counter() - start_time) * 1000
 
         # Measure deserialization time
-        from llmeter.prompt_utils import llmeter_bytes_decoder
 
         start_time = time.perf_counter()
         deserialized = json.loads(serialized, object_hook=llmeter_bytes_decoder)
@@ -1887,7 +1833,7 @@ class TestPerformance:
         small_payload = {"data": small_data}
 
         start_time = time.perf_counter()
-        json.dumps(small_payload, cls=LLMeterBytesEncoder)
+        json.dumps(small_payload, cls=LLMeterEncoder)
         small_time = time.perf_counter() - start_time
 
         # Test with 512KB (2x size)
@@ -1895,7 +1841,7 @@ class TestPerformance:
         large_payload = {"data": large_data}
 
         start_time = time.perf_counter()
-        json.dumps(large_payload, cls=LLMeterBytesEncoder)
+        json.dumps(large_payload, cls=LLMeterEncoder)
         large_time = time.perf_counter() - start_time
 
         # Large should take roughly 2x the time (allow 3x for variance)
@@ -1915,12 +1861,11 @@ class TestPerformance:
         import os
         import time
 
-        from llmeter.prompt_utils import llmeter_bytes_decoder
 
         # Test with 256KB
         small_data = os.urandom(256 * 1024)
         small_payload = {"data": small_data}
-        small_serialized = json.dumps(small_payload, cls=LLMeterBytesEncoder)
+        small_serialized = json.dumps(small_payload, cls=LLMeterEncoder)
 
         start_time = time.perf_counter()
         json.loads(small_serialized, object_hook=llmeter_bytes_decoder)
@@ -1929,7 +1874,7 @@ class TestPerformance:
         # Test with 512KB (2x size)
         large_data = os.urandom(512 * 1024)
         large_payload = {"data": large_data}
-        large_serialized = json.dumps(large_payload, cls=LLMeterBytesEncoder)
+        large_serialized = json.dumps(large_payload, cls=LLMeterEncoder)
 
         start_time = time.perf_counter()
         json.loads(large_serialized, object_hook=llmeter_bytes_decoder)

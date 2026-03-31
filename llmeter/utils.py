@@ -1,17 +1,13 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
-from __future__ import annotations
-
 from datetime import datetime, timezone
 from itertools import filterfalse
 from math import isnan
-from typing import TYPE_CHECKING, overload
-
-if TYPE_CHECKING:
-    from upath import UPath
-    from upath.types import ReadablePathLike, WritablePathLike
 from statistics import StatisticsError, mean, median, quantiles
-from typing import Any, Sequence
+from typing import Any, Sequence, overload
+
+from upath import UPath
+from upath.types import ReadablePathLike, WritablePathLike
 
 
 class DeferredError:
@@ -123,6 +119,4 @@ def ensure_path(
     """
     if path is None:
         return None
-    from upath import UPath
-
     return UPath(path)

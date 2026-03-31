@@ -61,6 +61,7 @@ nav:
       - openai: reference/endpoints/openai.md
       - sagemaker: reference/endpoints/sagemaker.md
     - experiments: reference/experiments.md
+    - json_utils: reference/json_utils.md
     - plotting:
       - reference/plotting/index.md
     - results: reference/results.md

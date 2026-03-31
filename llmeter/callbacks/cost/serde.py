@@ -8,13 +8,14 @@ import logging
 import os
 from dataclasses import is_dataclass
 from datetime import date, datetime, time
-from typing import Any, Callable, Dict, Protocol, Type, TypeVar
+from typing import Any, Protocol, TypeVar
 
 # External Dependencies:
 from upath import UPath as Path
 from upath.types import ReadablePathLike, WritablePathLike
 
-from llmeter.utils import ensure_path
+from ...json_utils import LLMeterEncoder
+from ...utils import ensure_path
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,7 @@ class ISerializable(Protocol):
 
 def is_dataclass_instance(obj):
     """Check whether `obj` is an instance of any dataclass
+
     See: https://docs.python.org/3/library/dataclasses.html#dataclasses.is_dataclass
     """
     return is_dataclass(obj) and not isinstance(obj, type)
@@ -41,17 +43,19 @@ def is_dataclass_instance(obj):
 
 def to_dict_recursive_generic(obj: object, **kwargs) -> dict:
     """Convert a vaguely dataclass-like object (with maybe IJSONable fields) to a JSON-ready dict
+
     The output dict is augmented with `_type` storing the `__class__.__name__` of the provided
     `obj`.
+
     Args:
         obj: The object to convert
         **kwargs: Optional extra parameters to insert in the output dictionary
     """
     obj_classname = obj.__class__.__name__
-    result = {} if obj_classname == "dict" else {"_type": obj.__class__.__name__}
+    result: dict = {} if obj_classname == "dict" else {"_type": obj.__class__.__name__}
     if hasattr(obj, "__dict__"):
-        # We *don't* use dataclass asdict() here because we want our custom behaviour instead of its
-        # recursion:
+        # We *don't* use dataclass asdict() here because we want our custom behaviour instead of
+        # its recursion:
         result.update(obj.__dict__)
     elif (
         isinstance(obj, dict)
@@ -79,10 +83,12 @@ def to_dict_recursive_generic(obj: object, **kwargs) -> dict:
 TFromDict = TypeVar("TFromDict")
 
 
-def from_dict_with_class(raw: dict, cls: Type[TFromDict], **kwargs) -> TFromDict:
+def from_dict_with_class(raw: dict, cls: type[TFromDict], **kwargs) -> TFromDict:
     """Initialize an instance of a class from a plain dict (with optional extra kwargs)
+
     If the input dictionary contains a `_type` key, and this doesn't match the provided
     `cls.__name__`, a warning will be logged.
+
     Args:
         raw: A plain Python dict, for example loaded from a JSON file
         cls: The class to create an instance of
@@ -99,12 +105,13 @@ def from_dict_with_class(raw: dict, cls: Type[TFromDict], **kwargs) -> TFromDict
 
 
 def from_dict_with_class_map(
-    raw: dict, class_map: Dict[str, Type[TFromDict]], **kwargs
+    raw: dict, class_map: dict[str, type[TFromDict]], **kwargs
 ) -> TFromDict:
     """Initialize an instance of a class from a plain dict (with optional extra kwargs)
+
     Args:
         raw: A plain Python dict which must contain a `_type` key
-        classes: A mapping from `_type` string to class to create an instance of
+        class_map: A mapping from `_type` string to class to create an instance of
         **kwargs: Optional extra keyword arguments to pass to the constructor
     """
     if "_type" not in raw:
@@ -125,9 +132,9 @@ class JSONableBase:
 
     @classmethod
     def from_dict(
-        cls: Type[TJSONable],
+        cls: type[TJSONable],
         raw: dict,
-        alt_classes: Dict[str, TJSONable] = {},
+        alt_classes: dict[str, TJSONable] = {},
         **kwargs: Any,
     ) -> TJSONable:
         """Initialize an instance of this class from a plain dict (with optional extra kwargs)
@@ -149,8 +156,11 @@ class JSONableBase:
             return from_dict_with_class(raw=raw, cls=cls, **kwargs)
 
     @classmethod
-    def from_file(cls: Type[TJSONable], input_path: ReadablePathLike, **kwargs) -> TJSONable:
+    def from_file(
+        cls: type[TJSONable], input_path: ReadablePathLike, **kwargs
+    ) -> TJSONable:
         """Initialize an instance of this class from a (local or Cloud) JSON file
+
         Args:
             input_path: The path to the JSON data file.
             **kwargs: Optional extra keyword arguments to pass to `from_dict()`
@@ -160,12 +170,12 @@ class JSONableBase:
             return cls.from_json(f.read(), **kwargs)
 
     @classmethod
-    def from_json(cls: Type[TJSONable], json_string: str, **kwargs: Any) -> TJSONable:
+    def from_json(cls: type[TJSONable], json_string: str, **kwargs: Any) -> TJSONable:
         """Initialize an instance of this class from a JSON string (with optional extra kwargs)
 
         Args:
             json_string: A string containing valid JSON data
-            **kwargs: Optional extra keyword arguments to pass to `from_dict()``
+            **kwargs: Optional extra keyword arguments to pass to `from_dict()`
         """
         return cls.from_dict(json.loads(json_string), **kwargs)
 
@@ -182,33 +192,26 @@ class JSONableBase:
         self,
         output_path: WritablePathLike,
         indent: int | str | None = 4,
-        default: Callable[[Any], Any] | None = str,
         **kwargs: Any,
     ) -> Path:
         """Save the state of the object to a (local or Cloud) JSON file
 
         Args:
             output_path: The path where the configuration file will be saved.
-            indent: Optional indentation passed through to `to_json()` and therefore `json.dumps()`
-            default: Optional function to convert non-JSON-serializable objects to strings, passed
-                through to `to_json()` and therefore to `json.dumps()`
+            indent: Optional indentation passed through to `to_json()` and therefore
+                `json.dumps()`
             **kwargs: Optional extra keyword arguments to pass to `to_json()`
 
         Returns:
             output_path: Universal Path representation of the target file.
         """
-        if default is None:
-            def default(obj):
-                if isinstance(obj, (os.PathLike, Path)):
-                    return Path(obj).as_posix()
-                return str(obj)
-
         output_path = ensure_path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with output_path.open("w") as f:
-            f.write(self.to_json(indent=indent, default=default, **kwargs))
+            f.write(self.to_json(indent=indent, **kwargs))
         return output_path
 
     def to_json(self, **kwargs) -> str:
         """Serialize this object to JSON, with optional kwargs passed through to `json.dumps()`"""
+        kwargs.setdefault("cls", LLMeterEncoder)
         return json.dumps(self.to_dict(), **kwargs)

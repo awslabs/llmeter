@@ -1,10 +1,8 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-import base64
 import json
 import logging
-import os
 import random
 from dataclasses import dataclass
 from itertools import product
@@ -13,6 +11,7 @@ from typing import Any, Callable, Iterator
 from upath import UPath as Path
 from upath.types import ReadablePathLike, WritablePathLike
 
+from .json_utils import LLMeterEncoder, llmeter_bytes_decoder
 from .tokenizers import DummyTokenizer, Tokenizer
 from .utils import DeferredError, ensure_path
 
@@ -150,63 +149,6 @@ def detect_format_from_file(file_path: str) -> str | None:
     return detect_format_from_extension(file_path)
 
 
-class LLMeterBytesEncoder(json.JSONEncoder):
-    """Custom JSON encoder that handles bytes objects by converting them to base64.
-
-    This encoder wraps bytes objects in a marker object with the key "__llmeter_bytes__"
-    to enable round-trip serialization and deserialization of binary content in payloads.
-
-    Example:
-        >>> encoder = LLMeterBytesEncoder()
-        >>> payload = {"image": {"bytes": b"\\xff\\xd8\\xff\\xe0"}}
-        >>> json.dumps(payload, cls=LLMeterBytesEncoder)
-        '{"image": {"bytes": {"__llmeter_bytes__": "/9j/4A=="}}}'
-    """
-
-    def default(self, obj):
-        """Encode bytes objects as marker objects with base64 strings.
-
-        Args:
-            obj: Object to encode
-
-        Returns:
-            dict: Marker object for bytes, or delegates to parent for other types
-
-        Raises:
-            TypeError: If object is not JSON serializable
-        """
-        if isinstance(obj, bytes):
-            return {"__llmeter_bytes__": base64.b64encode(obj).decode("utf-8")}
-        if isinstance(obj, (os.PathLike, Path)):
-            return Path(obj).as_posix()
-        return super().default(obj)
-
-
-def llmeter_bytes_decoder(dct: dict) -> dict | bytes:
-    """Decode marker objects back to bytes during JSON deserialization.
-
-    This function is used as an object_hook for json.loads to detect and decode
-    marker objects created by LLMeterBytesEncoder back to bytes during deserialization.
-
-    Args:
-        dct: Dictionary from JSON parsing
-
-    Returns:
-        bytes if marker detected, otherwise original dict
-
-    Example:
-        >>> marker = {"__llmeter_bytes__": "/9j/4A=="}
-        >>> llmeter_bytes_decoder(marker)
-        b'\\xff\\xd8\\xff\\xe0'
-        >>> regular_dict = {"key": "value"}
-        >>> llmeter_bytes_decoder(regular_dict)
-        {'key': 'value'}
-    """
-    if "__llmeter_bytes__" in dct and len(dct) == 1:
-        return base64.b64decode(dct["__llmeter_bytes__"])
-    return dct
-
-
 @dataclass
 class CreatePromptCollection:
     input_lengths: list[int]
@@ -300,14 +242,13 @@ def load_prompts(
 
 def load_payloads(
     file_path: ReadablePathLike,
-    deserializer: Callable[[str], dict] | None = None,
 ) -> Iterator[dict]:
     """
     Load JSON payload(s) from a file or directory with binary content support.
 
     This function reads JSON data from either a single file or multiple files
     in a directory. It supports both .json and .jsonl file formats. Binary content
-    (bytes objects) that were serialized using LLMeterBytesEncoder are automatically
+    (bytes objects) that were serialized using LLMeterEncoder are automatically
     restored during deserialization.
 
     Binary Content Handling:
@@ -321,9 +262,6 @@ def load_payloads(
     Args:
         file_path (Union[Path, str]): Path to a JSON file or a directory
             containing JSON files. Can be a string or a Path object.
-        deserializer (Callable[[str], dict], optional): Custom deserializer function
-            that takes a JSON string and returns a dict. If None, uses json.loads with
-            llmeter_bytes_decoder for automatic binary content handling. Defaults to None.
 
     Yields:
         dict: Each JSON object loaded from the file(s).
@@ -390,15 +328,13 @@ def load_payloads(
         raise FileNotFoundError(f"The specified path does not exist: {file_path}")
 
     if file_path.is_file():
-        yield from _load_data_file(file_path, deserializer)
+        yield from _load_data_file(file_path)
     else:
         for file in file_path.glob("*.json*"):
-            yield from _load_data_file(file, deserializer)
+            yield from _load_data_file(file)
 
 
-def _load_data_file(
-    file: Path, deserializer: Callable[[str], dict] | None = None
-) -> Iterator[dict]:
+def _load_data_file(file: Path) -> Iterator[dict]:
     try:
         with file.open(mode="r") as f:
             if file.suffix.lower() in [".jsonl", ".manifest"]:
@@ -406,21 +342,13 @@ def _load_data_file(
                     try:
                         if not line.strip():
                             continue
-                        if deserializer is None:
-                            yield json.loads(
-                                line.strip(), object_hook=llmeter_bytes_decoder
-                            )
-                        else:
-                            yield deserializer(line.strip())
+                        yield json.loads(
+                            line.strip(), object_hook=llmeter_bytes_decoder
+                        )
                     except json.JSONDecodeError as e:
                         print(f"Error decoding JSON in {file}: {e}")
             else:  # Assume it's a regular JSON file
-                if deserializer is None:
-                    yield json.load(f, object_hook=llmeter_bytes_decoder)
-                else:
-                    # For custom deserializer, read the entire file as string
-                    f.seek(0)
-                    yield deserializer(f.read())
+                yield json.load(f, object_hook=llmeter_bytes_decoder)
     except IOError as e:
         print(f"Error reading file {file}: {e}")
     except json.JSONDecodeError as e:
@@ -431,7 +359,6 @@ def save_payloads(
     payloads: list[dict] | dict,
     output_path: WritablePathLike,
     output_file: str = "payload.jsonl",
-    serializer: Callable[[dict], str] | None = None,
 ) -> Path:
     """
     Save payloads to a file with support for binary content.
@@ -453,9 +380,6 @@ def save_payloads(
             at any nesting level.
         output_path (Union[Path, str]): The directory path where the output file should be saved.
         output_file (str, optional): The name of the output file. Defaults to "payload.jsonl".
-        serializer (Callable[[dict], str], optional): Custom serializer function that takes
-            a dict and returns a JSON string. If None, uses LLMeterBytesEncoder for automatic
-            binary content handling. Defaults to None.
 
     Returns:
         Path: The path to the output file.
@@ -543,8 +467,5 @@ def save_payloads(
         payloads = [payloads]
     with output_file_path.open(mode="w") as f:
         for payload in payloads:
-            if serializer is None:
-                f.write(json.dumps(payload, cls=LLMeterBytesEncoder) + "\n")
-            else:
-                f.write(serializer(payload) + "\n")
+            f.write(json.dumps(payload, cls=LLMeterEncoder) + "\n")
     return output_file_path

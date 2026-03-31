@@ -329,20 +329,20 @@ def test_save_method_existing_responses(sample_result: Result, temp_dir: UPath):
         assert responses[-1]["id"] == "extra_response"
 
 
-# Tests for InvocationResponseEncoder
+# Tests for LLMeterEncoder
 # Validates Requirements: 7.1, 7.2
 
 
-def test_invocation_response_encoder_handles_bytes():
-    """Test that InvocationResponseEncoder handles bytes objects via parent class.
+def test_llmeter_encoder_handles_bytes():
+    """Test that LLMeterEncoder handles bytes objects via base64 marker.
     
     Validates: Requirements 7.1, 7.2
     """
-    from llmeter.results import InvocationResponseEncoder
+    from llmeter.json_utils import LLMeterEncoder
     
     # Test bytes object encoding
     payload = {"image": {"bytes": b"\xff\xd8\xff\xe0"}}
-    encoded = json.dumps(payload, cls=InvocationResponseEncoder)
+    encoded = json.dumps(payload, cls=LLMeterEncoder)
     
     # Verify marker object is present
     assert "__llmeter_bytes__" in encoded
@@ -352,12 +352,12 @@ def test_invocation_response_encoder_handles_bytes():
     assert decoded["image"]["bytes"]["__llmeter_bytes__"] == "/9j/4A=="
 
 
-def test_invocation_response_encoder_str_fallback():
-    """Test that InvocationResponseEncoder falls back to str() for custom objects.
+def test_llmeter_encoder_str_fallback():
+    """Test that LLMeterEncoder falls back to str() for custom objects.
     
     Validates: Requirements 7.1, 7.2
     """
-    from llmeter.results import InvocationResponseEncoder
+    from llmeter.json_utils import LLMeterEncoder
     
     # Create a custom object with __str__ method
     class CustomObject:
@@ -365,19 +365,19 @@ def test_invocation_response_encoder_str_fallback():
             return "custom_string_representation"
     
     payload = {"custom": CustomObject()}
-    encoded = json.dumps(payload, cls=InvocationResponseEncoder)
+    encoded = json.dumps(payload, cls=LLMeterEncoder)
     
     # Verify str() fallback was used
     decoded = json.loads(encoded)
     assert decoded["custom"] == "custom_string_representation"
 
 
-def test_invocation_response_encoder_none_on_str_failure():
-    """Test that InvocationResponseEncoder returns None when str() conversion fails.
+def test_llmeter_encoder_none_on_str_failure():
+    """Test that LLMeterEncoder returns None when str() conversion fails.
     
     Validates: Requirements 7.1, 7.2
     """
-    from llmeter.results import InvocationResponseEncoder
+    from llmeter.json_utils import LLMeterEncoder
     
     # Create a custom object that raises exception in __str__
     class FailingObject:
@@ -385,19 +385,19 @@ def test_invocation_response_encoder_none_on_str_failure():
             raise RuntimeError("Cannot convert to string")
     
     payload = {"failing": FailingObject()}
-    encoded = json.dumps(payload, cls=InvocationResponseEncoder)
+    encoded = json.dumps(payload, cls=LLMeterEncoder)
     
     # Verify None was returned
     decoded = json.loads(encoded)
     assert decoded["failing"] is None
 
 
-def test_invocation_response_encoder_mixed_types():
-    """Test that InvocationResponseEncoder handles mixed types correctly.
+def test_llmeter_encoder_mixed_types():
+    """Test that LLMeterEncoder handles mixed types correctly.
     
     Validates: Requirements 7.1, 7.2
     """
-    from llmeter.results import InvocationResponseEncoder
+    from llmeter.json_utils import LLMeterEncoder
     
     class CustomObject:
         def __str__(self):
@@ -415,7 +415,7 @@ def test_invocation_response_encoder_mixed_types():
         }
     }
     
-    encoded = json.dumps(payload, cls=InvocationResponseEncoder)
+    encoded = json.dumps(payload, cls=LLMeterEncoder)
     decoded = json.loads(encoded)
     
     # Verify bytes were encoded with marker
@@ -519,7 +519,7 @@ def test_invocation_response_to_json_round_trip():
     
     Validates: Requirements 7.1, 7.2, 7.3
     """
-    from llmeter.prompt_utils import llmeter_bytes_decoder
+    from llmeter.json_utils import llmeter_bytes_decoder
     
     # Create original response with binary content
     original_payload = {

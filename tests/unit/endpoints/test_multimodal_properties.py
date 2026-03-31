@@ -13,12 +13,12 @@ import tempfile
 from pathlib import Path
 
 import pytest
-from hypothesis import HealthCheck, given, settings, strategies as st
+from hypothesis import HealthCheck, given, settings
+from hypothesis import strategies as st
 
 from llmeter.endpoints.bedrock import BedrockBase
+from llmeter.json_utils import LLMeterEncoder, llmeter_bytes_decoder
 from llmeter.prompt_utils import (
-    LLMeterBytesEncoder,
-    llmeter_bytes_decoder,
     load_payloads,
     save_payloads,
 )
@@ -598,7 +598,7 @@ def test_property_10_load_prompts_integration(num_prompts):
             assert len(image_blocks) == 1
 
             # Verify the payload can be serialized
-            json_str = json.dumps(payload, cls=LLMeterBytesEncoder)
+            json_str = json.dumps(payload, cls=LLMeterEncoder)
             assert len(json_str) > 0
 
             # Verify it can be deserialized
