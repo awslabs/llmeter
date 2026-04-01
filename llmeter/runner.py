@@ -21,7 +21,7 @@ from tqdm.auto import tqdm, trange
 from upath import UPath as Path
 from upath.types import ReadablePathLike, WritablePathLike
 
-from .utils import ensure_path, now_utc
+from .utils import RunningStats, ensure_path, now_utc
 
 if TYPE_CHECKING:
     # Avoid circular import: We only need typing for Callback
@@ -63,6 +63,8 @@ class _RunConfig:
     run_description: str | None = None
     timeout: int | float = 60
     callbacks: list[Callback] | None = None
+    low_memory: bool = False
+    progress_bar_stats: dict[str, tuple[str, ...] | str] | None = None
     disable_per_client_progress_bar: InitVar[bool] = True
     disable_clients_progress_bar: InitVar[bool] = True
 
@@ -168,6 +170,22 @@ class _Run(_RunConfig):
         self._validate_and_prepare_payload()
         self._responses = []
 
+        if self.low_memory:
+            assert self.output_path is not None, (
+                "output_path is required when low_memory=True "
+                "(responses must be written to disk)"
+            )
+
+        self._running_stats = RunningStats(
+            metrics=[
+                "time_to_last_token",
+                "time_to_first_token",
+                "time_per_output_token",
+                "num_tokens_output",
+                "num_tokens_input",
+            ]
+        )
+
     def _validate_and_prepare_payload(self):
         """Validate and prepare the payload for the test run and update n_requests
 
@@ -257,9 +275,18 @@ class _Run(_RunConfig):
             if self.callbacks is not None:
                 [await cb.after_invoke(response) for cb in self.callbacks]
 
-            self._responses.append(response)
+            if self.low_memory and self._running_stats is not None:
+                self._running_stats.update(response.to_dict())
+            else:
+                self._responses.append(response)
+                self._running_stats.update(response.to_dict())
+
             if self._progress_bar:
                 self._progress_bar.update(1)
+                self._progress_bar.set_postfix(
+                    self._running_stats.snapshot(self.progress_bar_stats),
+                    refresh=False,
+                )
 
             if output_path:
                 output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -490,6 +517,22 @@ class _Run(_RunConfig):
             end_time=run_end_time,
         )
 
+        # Compute stats from the running accumulators
+        result._preloaded_stats = self._running_stats.to_stats(
+            total_requests=result.total_requests,
+            total_test_time=total_test_time,
+            result_dict=result.to_dict(),
+        )
+        result._preloaded_stats["start_time"] = run_start_time
+        result._preloaded_stats["end_time"] = run_end_time
+        result._preloaded_stats["total_test_time"] = total_test_time
+
+        if self.low_memory:
+            logger.info(
+                "Low-memory mode: responses not stored in memory. "
+                "Use result.load_responses() to load from disk."
+            )
+
         if self.callbacks is not None:
             [await cb.after_run(result) for cb in self.callbacks]
 
@@ -560,6 +603,15 @@ class Runner(_RunConfig):
             endpoint. Defaults to 60 seconds.
         callbacks (list[Callback] | None): Optional callbacks to enable during the test Run. See
             `llmeter.callbacks` for more information.
+        low_memory (bool): When ``True``, responses are written to disk but not kept in memory
+            during the run.  Stats are computed incrementally via
+            :class:`~llmeter.utils.RunningStats`.  Requires ``output_path`` to be set.  Use
+            ``result.load_responses()`` to load responses from disk after the run.  Defaults to
+            ``False``.
+        progress_bar_stats (dict | None): Controls which live stats appear on the progress bar.
+            Maps short display labels to field specs — see
+            :attr:`RunningStats.DEFAULT_SNAPSHOT_STATS` for the format and defaults.  Pass ``{}``
+            to disable live stats entirely.  Defaults to ``None`` (use built-in defaults).
         disable_per_client_progress_bar (bool): Set `True` to disable per-client progress bars
             from showing during the run. Default `False` (each client's progress will be shown).
         disable_clients_progress_bar (bool): Set `True` to disable overall progress bar from
@@ -608,6 +660,8 @@ class Runner(_RunConfig):
         run_description: str | None = None,
         timeout: int | float | None = None,
         callbacks: list[Callback] | None = None,
+        low_memory: bool | None = None,
+        progress_bar_stats: dict[str, tuple[str, ...] | str] | None = None,
         disable_per_client_progress_bar: bool | None = None,
         disable_clients_progress_bar: bool | None = None,
     ) -> Result:
@@ -643,6 +697,36 @@ class Runner(_RunConfig):
                 endpoint.
             callbacks (list[Callback] | None): Optional callbacks to enable during the test Run. See
                 `llmeter.callbacks` for more information.
+            low_memory (bool): When ``True``, responses are written to disk but not
+                kept in memory.  Stats are computed incrementally via
+                :class:`~llmeter.utils.RunningStats`.  Requires ``output_path``.
+                Use ``result.load_responses()`` to access responses after the run.
+
+                Example::
+
+                    result = await runner.run(
+                        output_path="/tmp/my_run",
+                        low_memory=True,
+                    )
+                    result.stats          # works (computed incrementally)
+                    result.responses      # [] (empty)
+                    result.load_responses()  # loads from disk
+
+            progress_bar_stats (dict): Controls which live stats appear on the
+                progress bar.  Maps short display labels to field specs — see
+                :attr:`RunningStats.DEFAULT_SNAPSHOT_STATS` for the format and
+                defaults.  Pass ``{}`` to disable live stats entirely.
+
+                Example::
+
+                    # Show only p99 latency and tokens per second:
+                    result = await runner.run(
+                        progress_bar_stats={
+                            "p99_ttlt": ("time_to_last_token", "p99"),
+                            "tps": ("time_per_output_token", "p50", "inv"),
+                            "fail": "failed",
+                        },
+                    )
             disable_per_client_progress_bar (bool): Set `True` to disable per-client progress bars
                 from showing during the run.
             disable_clients_progress_bar (bool): Set `True` to disable overall progress bar from
@@ -675,6 +759,8 @@ class Runner(_RunConfig):
             run_description=run_description,
             timeout=timeout,
             callbacks=callbacks,
+            low_memory=low_memory,
+            progress_bar_stats=progress_bar_stats,
             disable_per_client_progress_bar=disable_per_client_progress_bar,
             disable_clients_progress_bar=disable_clients_progress_bar,
         )
