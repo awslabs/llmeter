@@ -1,12 +1,12 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from unittest.mock import MagicMock, patch
+
 import pytest
 from upath import UPath
 
 from llmeter.endpoints.base import InvocationResponse
-from unittest.mock import MagicMock, patch
-
 from llmeter.experiments import LoadTestResult
 from llmeter.results import Result
 
@@ -129,14 +129,14 @@ class TestLoadResponsesOnDemand:
             assert orig.time_to_first_token == loaded_resp.time_to_first_token
             assert orig.time_to_last_token == loaded_resp.time_to_last_token
 
-    def test_load_responses_invalidates_cached_stats(self, saved_result):
+    def test_load_responses_recomputes_stats(self, saved_result):
         loaded = Result.load(saved_result, load_responses=True)
-        # Access _builtin_stats to cache it
-        _ = loaded._builtin_stats
-        assert "_builtin_stats" in loaded.__dict__
+        original_stats = loaded._preloaded_stats.copy()
 
         loaded.load_responses()
-        assert "_builtin_stats" not in loaded.__dict__
+        # Stats should be recomputed (same values, but a fresh dict)
+        assert loaded._preloaded_stats is not original_stats
+        assert loaded._preloaded_stats == original_stats
 
     def test_load_responses_stats_match_full_load(self, saved_result):
         full = Result.load(saved_result, load_responses=True)

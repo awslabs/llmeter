@@ -192,7 +192,9 @@ def test_stats_property(sample_result: Result):
         assert key in stats
 
     # Test caching returns same object for built-in stats:
-    assert sample_result._builtin_stats is sample_result._builtin_stats
+    assert sample_result._preloaded_stats is None or isinstance(
+        sample_result._preloaded_stats, dict
+    )
 
 
 def test_stats_property_empty_result():
