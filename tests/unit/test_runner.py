@@ -997,3 +997,208 @@ async def test_count_tokens_from_q_with_custom_output_path(run: _Run, tmp_path: 
 
 
 # Add more tests for edge cases and other methods as needed
+
+
+# ── Time-bound (run_duration) tests ──────────────────────────────────────────
+
+
+def test_run_duration_and_n_requests_mutually_exclusive(
+    mock_endpoint: Endpoint, mock_tokenizer: MagicMock
+):
+    """Setting both n_requests and run_duration should raise ValueError."""
+    with pytest.raises(ValueError, match="Cannot set both"):
+        _Run(
+            endpoint=mock_endpoint,
+            tokenizer=mock_tokenizer,
+            payload=[{"prompt": "test"}],
+            n_requests=10,
+            run_duration=5,
+            clients=1,
+            run_name="test_run",
+        )
+
+
+def test_run_duration_sets_time_bound_flag(
+    mock_endpoint: Endpoint, mock_tokenizer: MagicMock
+):
+    """When run_duration is set, _time_bound should be True and _n_requests 0."""
+    run = _Run(
+        endpoint=mock_endpoint,
+        tokenizer=mock_tokenizer,
+        payload=[{"prompt": "test"}],
+        run_duration=5,
+        clients=1,
+        run_name="test_run",
+    )
+    assert run._time_bound is True
+    assert run._n_requests == 0
+
+
+def test_n_requests_sets_count_bound(
+    mock_endpoint: Endpoint, mock_tokenizer: MagicMock
+):
+    """When n_requests is set (no run_duration), _time_bound should be False."""
+    run = _Run(
+        endpoint=mock_endpoint,
+        tokenizer=mock_tokenizer,
+        payload=[{"prompt": "test"}],
+        n_requests=10,
+        clients=1,
+        run_name="test_run",
+    )
+    assert run._time_bound is False
+    assert run._n_requests == 10
+
+
+def test_run_duration_must_be_positive(
+    mock_endpoint: Endpoint, mock_tokenizer: MagicMock
+):
+    """run_duration must be > 0."""
+    with pytest.raises(AssertionError, match="positive"):
+        _Run(
+            endpoint=mock_endpoint,
+            tokenizer=mock_tokenizer,
+            payload=[{"prompt": "test"}],
+            run_duration=-1,
+            clients=1,
+            run_name="test_run",
+        )
+
+
+def test_invoke_for_duration_respects_deadline(
+    mock_endpoint: Endpoint, mock_tokenizer: MagicMock
+):
+    """_invoke_for_duration should stop after the specified duration."""
+    run = _Run(
+        endpoint=mock_endpoint,
+        tokenizer=mock_tokenizer,
+        payload=[{"prompt": "test"}],
+        run_duration=0.5,
+        clients=1,
+        run_name="test_run",
+    )
+    run.callbacks = None
+    run._queue = MagicMock()
+    run._queue._loop.call_soon_threadsafe = MagicMock()
+
+    # Make invoke take ~100ms so we get a handful of requests
+    def slow_invoke(payload):
+        time.sleep(0.1)
+        return InvocationResponse(id="1", input_prompt="test", response_text="response")
+
+    run._endpoint.invoke.side_effect = slow_invoke
+
+    start = time.perf_counter()
+    responses = run._invoke_for_duration(payload=[{"prompt": "test"}], duration=0.5)
+    elapsed = time.perf_counter() - start
+
+    assert len(responses) > 0
+    assert elapsed < 1.0  # Should not overshoot by much
+    assert all(isinstance(r, InvocationResponse) for r in responses)
+
+
+def test_invoke_for_duration_cycles_payloads(
+    mock_endpoint: Endpoint, mock_tokenizer: MagicMock
+):
+    """_invoke_for_duration should cycle through payloads."""
+    run = _Run(
+        endpoint=mock_endpoint,
+        tokenizer=mock_tokenizer,
+        payload=[{"prompt": "a"}, {"prompt": "b"}],
+        run_duration=0.3,
+        clients=1,
+        run_name="test_run",
+    )
+    run.callbacks = None
+    run._queue = MagicMock()
+    run._queue._loop.call_soon_threadsafe = MagicMock()
+
+    payloads_seen = []
+
+    def tracking_invoke(payload):
+        payloads_seen.append(payload)
+        return InvocationResponse(id="1", input_prompt=str(payload), response_text="ok")
+
+    run._endpoint.invoke.side_effect = tracking_invoke
+
+    responses = run._invoke_for_duration(
+        payload=[{"prompt": "a"}, {"prompt": "b"}],
+        duration=0.3,
+        shuffle_order=False,
+    )
+
+    assert len(responses) >= 2
+    # Should see both payloads used (cycling)
+    prompts = [p.get("prompt") for p in payloads_seen]
+    assert "a" in prompts
+    assert "b" in prompts
+
+
+@pytest.mark.asyncio
+async def test_run_with_duration(runner: Runner):
+    """Full run() with run_duration should complete and report actual counts."""
+    result = await runner.run(
+        payload={"prompt": "test"},
+        run_duration=0.3,
+        clients=1,
+    )
+
+    assert result.total_requests > 0
+    assert result.n_requests > 0
+    assert result.total_test_time is not None
+    assert result.total_test_time > 0
+    assert result.stats["total_requests"] == result.total_requests
+
+
+@pytest.mark.asyncio
+async def test_run_with_duration_multiple_clients(runner: Runner):
+    """Time-bound run with multiple clients should aggregate counts."""
+    result = await runner.run(
+        payload={"prompt": "test"},
+        run_duration=0.3,
+        clients=3,
+    )
+
+    assert result.total_requests > 0
+    assert result.clients == 3
+    assert result.total_test_time is not None
+
+
+@pytest.mark.asyncio
+async def test_run_with_duration_and_output_path(runner: Runner, tmp_path: Path):
+    """Time-bound run with output_path should save results to disk."""
+    result = await runner.run(
+        payload={"prompt": "test"},
+        run_duration=0.3,
+        clients=1,
+        output_path=tmp_path / "duration_run",
+        run_name="dur_test",
+    )
+
+    assert result.output_path is not None
+    assert (tmp_path / "duration_run" / "responses.jsonl").exists()
+    assert (tmp_path / "duration_run" / "summary.json").exists()
+    assert (tmp_path / "duration_run" / "stats.json").exists()
+
+
+def test_prepare_run_with_duration(runner: Runner):
+    """_prepare_run should pass run_duration through to _Run."""
+    run = runner._prepare_run(
+        payload={"prompt": "test"},
+        run_duration=30,
+        clients=2,
+    )
+    assert run._time_bound is True
+    assert run.run_duration == 30
+    assert run._n_requests == 0
+
+
+def test_prepare_run_duration_and_n_requests_conflict(runner: Runner):
+    """_prepare_run should raise when both are set."""
+    with pytest.raises(ValueError, match="Cannot set both"):
+        runner._prepare_run(
+            payload={"prompt": "test"},
+            n_requests=10,
+            run_duration=30,
+            clients=2,
+        )

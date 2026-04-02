@@ -120,10 +120,66 @@ class LoadTestResult:
 
 @dataclass
 class LoadTest:
-    """Experiment to explore how performance changes at different concurrency levels
+    """Experiment to explore how performance changes at different concurrency levels.
 
     This experiment creates a series of Runs with different levels of concurrency, defined by
-    `sequence_of_clients`, and runs them one after the other.
+    ``sequence_of_clients``, and runs them one after the other.
+
+    By default, each run sends a fixed number of requests (count-bound). Set ``run_duration``
+    to run each concurrency level for a fixed number of seconds instead (time-bound), which
+    gives a more realistic picture of sustained throughput.
+
+    Attributes:
+        endpoint (Endpoint): The LLM endpoint to test.
+        payload (dict | list[dict]): The request payload(s) to send.
+        sequence_of_clients (list[int]): Concurrency levels to test.
+        min_requests_per_client (int): Minimum requests per client in count-bound mode.
+        min_requests_per_run (int): Minimum total requests per run in count-bound mode.
+        run_duration (int | float | None): When set, each concurrency level runs for this
+            many seconds instead of a fixed request count. Mutually exclusive with
+            ``min_requests_per_client`` / ``min_requests_per_run``.
+        low_memory (bool): When ``True``, responses are written to disk but not kept in
+            memory. Requires ``output_path``. Defaults to ``False``.
+        progress_bar_stats (dict | None): Controls which live stats appear on the progress
+            bar. See ``RunningStats.DEFAULT_SNAPSHOT_STATS`` for the default.
+        output_path (os.PathLike | str | None): Where to save results.
+        tokenizer (Tokenizer | None): Optional tokenizer for token counting.
+        test_name (str | None): Name for this test. Defaults to current date/time.
+        callbacks (list[Callback] | None): Optional callbacks.
+
+    Example::
+
+        # Count-bound: 10 requests per client at each concurrency level
+        load_test = LoadTest(
+            endpoint=my_endpoint,
+            payload=sample_payload,
+            sequence_of_clients=[1, 5, 10, 20],
+            min_requests_per_client=10,
+            output_path="outputs/load_test",
+        )
+        result = await load_test.run()
+        result.plot_results()
+
+        # Time-bound: 60 seconds per concurrency level
+        load_test = LoadTest(
+            endpoint=my_endpoint,
+            payload=sample_payload,
+            sequence_of_clients=[1, 5, 10, 20],
+            run_duration=60,
+            output_path="outputs/load_test",
+        )
+        result = await load_test.run()
+
+        # Time-bound with low-memory mode for large-scale tests
+        load_test = LoadTest(
+            endpoint=my_endpoint,
+            payload=sample_payload,
+            sequence_of_clients=[1, 5, 10, 20, 50],
+            run_duration=120,
+            low_memory=True,
+            output_path="outputs/large_load_test",
+        )
+        result = await load_test.run()
     """
 
     endpoint: Endpoint
@@ -131,6 +187,9 @@ class LoadTest:
     sequence_of_clients: list[int]
     min_requests_per_client: int = 1
     min_requests_per_run: int = 10
+    run_duration: int | float | None = None
+    low_memory: bool = False
+    progress_bar_stats: dict[str, tuple[str, ...] | str] | None = None
     output_path: WritablePathLike | None = None
     tokenizer: Tokenizer | None = None
     test_name: str | None = None
@@ -145,12 +204,39 @@ class LoadTest:
         return int(self.min_requests_per_client)
 
     async def run(self, output_path: WritablePathLike | None = None):
-        """Run the load test.
+        """Run the load test across all configured concurrency levels.
+
+        Creates a :class:`~llmeter.runner.Runner` and iterates through
+        ``sequence_of_clients``, running one test per concurrency level. In
+        time-bound mode (``run_duration`` is set), each level runs for a fixed
+        duration. In count-bound mode, each level sends a fixed number of
+        requests per client.
 
         Args:
             load_path: Optional (local or remote) folder to save results. If provided, individual
             Run results will be written to `{output_path}/{test_name}/{NNNNN-clients}` subfolders.
             Default: `self.output_path` if set, else no files will be saved.
+
+        Returns:
+            LoadTestResult: A result object containing one
+            :class:`~llmeter.results.Result` per concurrency level, keyed by
+            client count.
+
+        Example::
+
+            load_test = LoadTest(
+                endpoint=my_endpoint,
+                payload=sample_payload,
+                sequence_of_clients=[1, 5, 10],
+                run_duration=30,
+            )
+            result = await load_test.run(output_path="outputs/my_test")
+
+            # Access individual results by client count
+            result.results[5].stats["requests_per_minute"]
+
+            # Plot all standard charts
+            result.plot_results()
         """
         output_path = ensure_path(output_path or self.output_path)
         if output_path:
@@ -163,19 +249,34 @@ class LoadTest:
             output_path=test_output_path,
         )
 
-        self._results = [
-            await _runner.run(
-                payload=self.payload,
-                clients=c,
-                n_requests=self._get_n_requests(c),
-                run_name=f"{c:05.0f}-clients",
-                callbacks=self.callbacks,
-                output_path=test_output_path,
-            )
-            for c in tqdm(
-                self.sequence_of_clients, desc="Configurations", disable=_disable_tqdm
-            )
-        ]
+        self._results = []
+        for c in tqdm(
+            self.sequence_of_clients, desc="Configurations", disable=_disable_tqdm
+        ):
+            if self.run_duration is not None:
+                result = await _runner.run(
+                    payload=self.payload,
+                    clients=c,
+                    run_duration=self.run_duration,
+                    run_name=f"{c:05.0f}-clients",
+                    callbacks=self.callbacks,
+                    low_memory=self.low_memory,
+                    progress_bar_stats=self.progress_bar_stats,
+                    output_path=test_output_path,
+                )
+            else:
+                result = await _runner.run(
+                    payload=self.payload,
+                    clients=c,
+                    n_requests=self._get_n_requests(c),
+                    run_name=f"{c:05.0f}-clients",
+                    callbacks=self.callbacks,
+                    low_memory=self.low_memory,
+                    progress_bar_stats=self.progress_bar_stats,
+                    output_path=test_output_path,
+                )
+            self._results.append(result)
+
         return LoadTestResult(
             results={r.clients: r for r in self._results},
             test_name=self._test_name,

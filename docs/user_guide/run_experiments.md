@@ -34,6 +34,69 @@ run_2_results = await endpoint_test.run(payload=sample_payload, n_requests=10, c
 assert run_1_results.output_path != run_2_results.output_path
 ```
 
+### Time-bound runs
+
+By default, a Run sends a fixed number of requests per client (`n_requests`). Alternatively, you can use `run_duration` to run each client for a fixed number of **seconds** instead — useful when you want to measure sustained throughput over a time window rather than a fixed batch size.
+
+```python
+# Run for 60 seconds with 10 concurrent clients:
+results = await endpoint_test.run(
+    payload=sample_payload,
+    run_duration=60,
+    clients=10,
+)
+
+results.total_requests  # actual number of requests completed
+results.stats["requests_per_minute"]  # observed throughput
+```
+
+`n_requests` and `run_duration` are mutually exclusive — set one or the other, not both.
+
+During a time-bound run, the progress bar shows two lines: a time bar that fills as seconds elapse, and a request counter with live statistics (requests per minute, latency percentiles, tokens per second, etc.).
+
+### Live progress-bar statistics
+
+Both count-bound and time-bound runs display live statistics on the progress bar as requests complete. By default these include p50/p90 TTFT and TTLT, median output tokens per second, total input/output tokens, requests per minute, and failure count.
+
+You can customize which stats are shown via the `progress_bar_stats` parameter:
+
+```python
+# Show only p99 latency, tokens/s, and rpm:
+results = await endpoint_test.run(
+    payload=sample_payload,
+    n_requests=100,
+    clients=5,
+    progress_bar_stats={
+        "rpm": "rpm",
+        "p99_ttlt": ("time_to_last_token", "p99"),
+        "tps": ("time_per_output_token", "p50", "inv"),
+        "fail": "failed",
+    },
+)
+```
+
+Pass `progress_bar_stats={}` to disable live stats entirely. See [`RunningStats.DEFAULT_SNAPSHOT_STATS`](../reference/utils.md#llmeter.utils.RunningStats) for the full default configuration.
+
+### Low-memory mode
+
+For large-scale runs where keeping all responses in memory is impractical, set `low_memory=True`. Responses are written to disk as they arrive but not accumulated in memory. Statistics are computed incrementally and available immediately via `result.stats`.
+
+```python
+results = await endpoint_test.run(
+    payload=sample_payload,
+    run_duration=300,
+    clients=50,
+    output_path="outputs/large_run",
+    low_memory=True,
+)
+
+results.stats          # works — computed incrementally during the run
+results.responses      # [] — not in memory
+results.load_responses()  # loads from disk on demand
+```
+
+`low_memory=True` requires `output_path` to be set.
+
 ## Analyzing Run results
 
 The [Result](../reference/results.md#llmeter.results.Result) of a Run provides basic metadata, a wide range of pre-computed `.stats`, and also access to the individual `.responses` ([InvocationResponse](../reference/endpoints/base/#llmeter.endpoints.base.InvocationResponse) objects).

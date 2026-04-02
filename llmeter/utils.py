@@ -1,6 +1,7 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 import bisect
+import time
 from datetime import datetime, timezone
 from itertools import filterfalse
 from math import isnan
@@ -116,7 +117,13 @@ class RunningStats:
     #: * ``(metric_name, aggregation, "inv")`` — same as above but displays the
     #:   reciprocal (e.g. seconds-per-token → tokens-per-second).
     #: * The literal string ``"failed"`` for the running failure count.
+    #: * The literal string ``"rpm"`` for live requests-per-minute based on the
+    #:   send window (first request sent to last request sent).
+    #: * The literal string ``"output_tps"`` for aggregate output tokens per second
+    #:   across all clients, based on the send window.
     DEFAULT_SNAPSHOT_STATS: dict[str, tuple[str, ...] | str] = {
+        "rpm": "rpm",
+        "output_tps": "output_tps",
         "p50_ttft": ("time_to_first_token", "p50"),
         "p90_ttft": ("time_to_first_token", "p90"),
         "p50_ttlt": ("time_to_last_token", "p50"),
@@ -131,8 +138,28 @@ class RunningStats:
         self._metrics = list(metrics)
         self._count = 0
         self._failed = 0
+        self._sends = 0
+        self._first_send_time: float | None = None
+        self._last_send_time: float | None = None
         self._sums: dict[str, float] = {m: 0.0 for m in metrics}
         self._values: dict[str, list[float]] = {m: [] for m in metrics}
+
+    def record_send(self) -> None:
+        """Record that a request was dispatched to the endpoint.
+
+        Call this from the invocation loop each time a request is sent, *before*
+        waiting for the response. This tracks the send-side time window used for
+        accurate RPM and throughput calculations.
+
+        The send window (``_first_send_time`` to ``_last_send_time``) excludes
+        the tail latency of the final response, giving a more accurate picture
+        of the request dispatch rate.
+        """
+        now = time.perf_counter()
+        self._sends += 1
+        if self._first_send_time is None:
+            self._first_send_time = now
+        self._last_send_time = now
 
     def update(self, response_dict: dict[str, Any]) -> None:
         """Record one response's metric values.
@@ -260,6 +287,10 @@ class RunningStats:
                   the value is inverted before display (e.g. seconds-per-token →
                   tokens-per-second).
                 * ``"failed"`` — the literal string; shows the running failure count.
+                * ``"rpm"`` — the literal string; shows live requests-per-minute
+                  estimate based on the send window (first to last request sent).
+                * ``"output_tps"`` — the literal string; shows aggregate output
+                  tokens per second across all clients, based on the send window.
 
                 Defaults to :attr:`DEFAULT_SNAPSHOT_STATS` when ``None``.
 
@@ -287,7 +318,9 @@ class RunningStats:
             # {'tps': '28.3 tok/s'}
         """
         if self._count == 0:
-            return {}
+            if fields is None:
+                fields = self.DEFAULT_SNAPSHOT_STATS
+            return {label: "—" for label in fields}
 
         if fields is None:
             fields = self.DEFAULT_SNAPSHOT_STATS
@@ -298,6 +331,27 @@ class RunningStats:
         for label, spec in fields.items():
             if spec == "failed":
                 info[label] = str(self._failed)
+                continue
+
+            if spec == "rpm":
+                if (
+                    self._first_send_time is not None
+                    and self._last_send_time is not None
+                    and self._last_send_time > self._first_send_time
+                ):
+                    send_window = self._last_send_time - self._first_send_time
+                    info[label] = f"{self._count / send_window * 60:.1f}"
+                continue
+
+            if spec == "output_tps":
+                if (
+                    self._first_send_time is not None
+                    and self._last_send_time is not None
+                    and self._last_send_time > self._first_send_time
+                ):
+                    send_window = self._last_send_time - self._first_send_time
+                    total_out = self._sums.get("num_tokens_output", 0)
+                    info[label] = f"{total_out / send_window:.1f} tok/s"
                 continue
 
             metric = spec[0]
