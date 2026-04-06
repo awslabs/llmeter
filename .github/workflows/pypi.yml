@@ -38,7 +38,7 @@ jobs:
           if [[ $GITHUB_REF_TYPE == "tag" ]] && [[ $GITHUB_REF_NAME == v* ]]
           then
             # Drop leading 'v'
-            uv version ${GITHUB_REF_NAME:1}
+            uv version --no-sync ${GITHUB_REF_NAME:1}
           else
             echo "Invalid tag trigger\nGITHUB_REF_TYPE=${GITHUB_REF_TYPE}\nGITHUB_REF_NAME=${GITHUB_REF_NAME}"
             exit 1
