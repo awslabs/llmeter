@@ -335,18 +335,18 @@ def test_save_method_existing_responses(sample_result: Result, temp_dir: UPath):
 
 def test_llmeter_encoder_handles_bytes():
     """Test that llmeter_default_serializer handles bytes objects via base64 marker.
-    
+
     Validates: Requirements 7.1, 7.2
     """
     from llmeter.json_utils import llmeter_default_serializer
-    
+
     # Test bytes object encoding
     payload = {"image": {"bytes": b"\xff\xd8\xff\xe0"}}
     encoded = json.dumps(payload, default=llmeter_default_serializer)
-    
+
     # Verify marker object is present
     assert "__llmeter_bytes__" in encoded
-    
+
     # Verify it can be decoded back
     decoded = json.loads(encoded, object_hook=lambda d: d)
     assert decoded["image"]["bytes"]["__llmeter_bytes__"] == "/9j/4A=="
@@ -354,19 +354,19 @@ def test_llmeter_encoder_handles_bytes():
 
 def test_llmeter_encoder_str_fallback():
     """Test that llmeter_default_serializer falls back to str() for custom objects.
-    
+
     Validates: Requirements 7.1, 7.2
     """
     from llmeter.json_utils import llmeter_default_serializer
-    
+
     # Create a custom object with __str__ method
     class CustomObject:
         def __str__(self):
             return "custom_string_representation"
-    
+
     payload = {"custom": CustomObject()}
     encoded = json.dumps(payload, default=llmeter_default_serializer)
-    
+
     # Verify str() fallback was used
     decoded = json.loads(encoded)
     assert decoded["custom"] == "custom_string_representation"
@@ -374,19 +374,19 @@ def test_llmeter_encoder_str_fallback():
 
 def test_llmeter_encoder_none_on_str_failure():
     """Test that llmeter_default_serializer returns None when str() conversion fails.
-    
+
     Validates: Requirements 7.1, 7.2
     """
     from llmeter.json_utils import llmeter_default_serializer
-    
+
     # Create a custom object that raises exception in __str__
     class FailingObject:
         def __str__(self):
             raise RuntimeError("Cannot convert to string")
-    
+
     payload = {"failing": FailingObject()}
     encoded = json.dumps(payload, default=llmeter_default_serializer)
-    
+
     # Verify None was returned
     decoded = json.loads(encoded)
     assert decoded["failing"] is None
@@ -394,37 +394,34 @@ def test_llmeter_encoder_none_on_str_failure():
 
 def test_llmeter_encoder_mixed_types():
     """Test that llmeter_default_serializer handles mixed types correctly.
-    
+
     Validates: Requirements 7.1, 7.2
     """
     from llmeter.json_utils import llmeter_default_serializer
-    
+
     class CustomObject:
         def __str__(self):
             return "custom"
-    
+
     # Mix of bytes, custom objects, and standard types
     payload = {
         "bytes_field": b"\x00\x01\x02",
         "custom_field": CustomObject(),
         "string_field": "normal string",
         "int_field": 42,
-        "nested": {
-            "bytes": b"\xff\xfe",
-            "custom": CustomObject()
-        }
+        "nested": {"bytes": b"\xff\xfe", "custom": CustomObject()},
     }
-    
+
     encoded = json.dumps(payload, default=llmeter_default_serializer)
     decoded = json.loads(encoded)
-    
+
     # Verify bytes were encoded with marker
     assert "__llmeter_bytes__" in encoded
-    
+
     # Verify custom objects were converted to strings
     assert decoded["custom_field"] == "custom"
     assert decoded["nested"]["custom"] == "custom"
-    
+
     # Verify standard types remain unchanged
     assert decoded["string_field"] == "normal string"
     assert decoded["int_field"] == 42
@@ -436,7 +433,7 @@ def test_llmeter_encoder_mixed_types():
 
 def test_invocation_response_to_json_with_binary_content():
     """Test InvocationResponse.to_json with binary content in input_payload.
-    
+
     Validates: Requirements 7.1, 7.2
     """
     # Create InvocationResponse with binary content in input_payload
@@ -444,71 +441,77 @@ def test_invocation_response_to_json_with_binary_content():
         response_text="This is an image of a cat",
         input_payload={
             "modelId": "anthropic.claude-3-haiku-20240307-v1:0",
-            "messages": [{
-                "role": "user",
-                "content": [
-                    {"text": "What is in this image?"},
-                    {
-                        "image": {
-                            "format": "jpeg",
-                            "source": {"bytes": b"\xff\xd8\xff\xe0\x00\x10JFIF"}
-                        }
-                    }
-                ]
-            }]
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"text": "What is in this image?"},
+                        {
+                            "image": {
+                                "format": "jpeg",
+                                "source": {"bytes": b"\xff\xd8\xff\xe0\x00\x10JFIF"},
+                            }
+                        },
+                    ],
+                }
+            ],
         },
         id="test-123",
         time_to_first_token=0.5,
         time_to_last_token=1.2,
         num_tokens_input=15,
-        num_tokens_output=8
+        num_tokens_output=8,
     )
-    
+
     # Serialize to JSON
     json_str = response.to_json()
-    
+
     # Verify it's valid JSON
     parsed = json.loads(json_str)
-    
+
     # Verify marker object is present for bytes
     assert "__llmeter_bytes__" in json_str
-    
+
     # Verify structure is preserved
     assert parsed["response_text"] == "This is an image of a cat"
     assert parsed["id"] == "test-123"
-    assert parsed["input_payload"]["modelId"] == "anthropic.claude-3-haiku-20240307-v1:0"
-    
+    assert (
+        parsed["input_payload"]["modelId"] == "anthropic.claude-3-haiku-20240307-v1:0"
+    )
+
     # Verify bytes were encoded with marker
-    bytes_marker = parsed["input_payload"]["messages"][0]["content"][1]["image"]["source"]["bytes"]
+    bytes_marker = parsed["input_payload"]["messages"][0]["content"][1]["image"][
+        "source"
+    ]["bytes"]
     assert "__llmeter_bytes__" in bytes_marker
     assert bytes_marker["__llmeter_bytes__"] == "/9j/4AAQSkZJRg=="
 
 
 def test_invocation_response_to_json_valid_json_output():
     """Test that InvocationResponse.to_json produces valid JSON.
-    
+
     Validates: Requirements 7.1, 7.2
     """
     response = InvocationResponse(
         response_text="Test response",
         input_payload={
             "image_data": b"\x89PNG\r\n\x1a\n",
-            "text": "Analyze this image"
+            "text": "Analyze this image",
         },
-        id="test-456"
+        id="test-456",
     )
-    
+
     # Serialize to JSON
     json_str = response.to_json()
-    
+
     # Verify it's valid JSON (should not raise exception)
     parsed = json.loads(json_str)
-    
+
     # Verify all fields are present
     assert "response_text" in parsed
     assert "input_payload" in parsed
     assert "id" in parsed
-    
+
     # Verify bytes were properly encoded
     assert isinstance(parsed["input_payload"]["image_data"], dict)
     assert "__llmeter_bytes__" in parsed["input_payload"]["image_data"]
@@ -516,39 +519,39 @@ def test_invocation_response_to_json_valid_json_output():
 
 def test_invocation_response_to_json_round_trip():
     """Test round-trip serialization/deserialization with InvocationResponse.
-    
+
     Validates: Requirements 7.1, 7.2, 7.3
     """
     from llmeter.json_utils import llmeter_bytes_decoder
-    
+
     # Create original response with binary content
     original_payload = {
-        "video": {
-            "format": "mp4",
-            "source": {"bytes": b"\x00\x00\x00\x18ftypmp42"}
-        },
-        "prompt": "Describe this video"
+        "video": {"format": "mp4", "source": {"bytes": b"\x00\x00\x00\x18ftypmp42"}},
+        "prompt": "Describe this video",
     }
-    
+
     response = InvocationResponse(
         response_text="A video of a sunset",
         input_payload=original_payload,
         id="test-789",
         time_to_first_token=1.0,
-        time_to_last_token=2.5
+        time_to_last_token=2.5,
     )
-    
+
     # Serialize to JSON
     json_str = response.to_json()
-    
+
     # Deserialize back
     parsed = json.loads(json_str, object_hook=llmeter_bytes_decoder)
-    
+
     # Verify input_payload was restored correctly
     assert parsed["input_payload"] == original_payload
     assert isinstance(parsed["input_payload"]["video"]["source"]["bytes"], bytes)
-    assert parsed["input_payload"]["video"]["source"]["bytes"] == b"\x00\x00\x00\x18ftypmp42"
-    
+    assert (
+        parsed["input_payload"]["video"]["source"]["bytes"]
+        == b"\x00\x00\x00\x18ftypmp42"
+    )
+
     # Verify other fields
     assert parsed["response_text"] == "A video of a sunset"
     assert parsed["id"] == "test-789"
@@ -558,24 +561,21 @@ def test_invocation_response_to_json_round_trip():
 
 def test_invocation_response_to_json_no_binary_content():
     """Test InvocationResponse.to_json with no binary content (backward compatibility).
-    
+
     Validates: Requirements 7.1, 7.2
     """
     response = InvocationResponse(
         response_text="Simple text response",
-        input_payload={
-            "modelId": "test-model",
-            "prompt": "Hello, world!"
-        },
-        id="test-no-binary"
+        input_payload={"modelId": "test-model", "prompt": "Hello, world!"},
+        id="test-no-binary",
     )
-    
+
     # Serialize to JSON
     json_str = response.to_json()
-    
+
     # Verify no marker objects are present
     assert "__llmeter_bytes__" not in json_str
-    
+
     # Verify it's valid JSON
     parsed = json.loads(json_str)
     assert parsed["input_payload"]["prompt"] == "Hello, world!"
@@ -583,22 +583,20 @@ def test_invocation_response_to_json_no_binary_content():
 
 def test_invocation_response_to_json_with_kwargs():
     """Test that InvocationResponse.to_json passes through kwargs to json.dumps.
-    
+
     Validates: Requirements 7.4
     """
     response = InvocationResponse(
-        response_text="Test",
-        input_payload={"data": b"\x01\x02\x03"},
-        id="test-kwargs"
+        response_text="Test", input_payload={"data": b"\x01\x02\x03"}, id="test-kwargs"
     )
-    
+
     # Test with indent parameter
     json_str = response.to_json(indent=2)
-    
+
     # Verify indentation is present
     assert "\n" in json_str
     assert "  " in json_str
-    
+
     # Verify it's still valid JSON
     parsed = json.loads(json_str)
     assert parsed["id"] == "test-kwargs"

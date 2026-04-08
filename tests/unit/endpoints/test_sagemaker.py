@@ -87,7 +87,8 @@ def test_sagemaker_endpoint_invoke(sagemaker_endpoint: SageMakerEndpoint):
         "region": sagemaker_endpoint.region,
         "results": [
             {
-                "Body": f"""{json.dumps(
+                "Body": f"""{
+                    json.dumps(
                         {
                             "generated_text": "Test output",
                             "details": {"generated_tokens": 10},

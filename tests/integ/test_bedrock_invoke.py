@@ -184,7 +184,9 @@ def test_bedrock_invoke_with_image(aws_credentials, aws_region, bedrock_test_mod
 
     response = endpoint.invoke(invoke_payload)
 
-    assert response.error is None, f"Response should not contain errors: {response.error}"
+    assert response.error is None, (
+        f"Response should not contain errors: {response.error}"
+    )
     assert response.response_text is not None, "Response text should not be None"
     assert len(response.response_text) > 0, "Response text should not be empty"
 

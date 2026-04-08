@@ -190,17 +190,17 @@ class TestLoadTestResultFileOutput:
         """Integration test with realistic data (no mocking of plot_load_test_results)."""
         # This test uses the actual plot_load_test_results function
         # but mocks the underlying plotting functions to avoid plotly dependencies
-        with patch(
-            "llmeter.plotting.plotting.latency_clients_fig"
-        ) as mock_latency, patch(
-            "llmeter.plotting.plotting.rpm_clients_fig"
-        ) as mock_rpm, patch(
-            "llmeter.plotting.plotting.error_clients_fig"
-        ) as mock_error, patch(
-            "llmeter.plotting.plotting.average_input_tokens_clients_fig"
-        ) as mock_avg_in, patch(
-            "llmeter.plotting.plotting.average_output_tokens_clients_fig"
-        ) as mock_avg_out:
+        with (
+            patch("llmeter.plotting.plotting.latency_clients_fig") as mock_latency,
+            patch("llmeter.plotting.plotting.rpm_clients_fig") as mock_rpm,
+            patch("llmeter.plotting.plotting.error_clients_fig") as mock_error,
+            patch(
+                "llmeter.plotting.plotting.average_input_tokens_clients_fig"
+            ) as mock_avg_in,
+            patch(
+                "llmeter.plotting.plotting.average_output_tokens_clients_fig"
+            ) as mock_avg_out,
+        ):
             # Mock all plotting functions to return mock figures
             mock_fig = MagicMock()
             for mock_func in [
@@ -354,17 +354,17 @@ class TestLoadTestResultIntegration:
 
     def test_plot_results_return_value_structure(self, realistic_load_test_result):
         """Test that plot_results returns the expected structure from plot_load_test_results."""
-        with patch(
-            "llmeter.plotting.plotting.latency_clients_fig"
-        ) as mock_latency, patch(
-            "llmeter.plotting.plotting.rpm_clients_fig"
-        ) as mock_rpm, patch(
-            "llmeter.plotting.plotting.error_clients_fig"
-        ) as mock_error, patch(
-            "llmeter.plotting.plotting.average_input_tokens_clients_fig"
-        ) as mock_avg_in, patch(
-            "llmeter.plotting.plotting.average_output_tokens_clients_fig"
-        ) as mock_avg_out:
+        with (
+            patch("llmeter.plotting.plotting.latency_clients_fig") as mock_latency,
+            patch("llmeter.plotting.plotting.rpm_clients_fig") as mock_rpm,
+            patch("llmeter.plotting.plotting.error_clients_fig") as mock_error,
+            patch(
+                "llmeter.plotting.plotting.average_input_tokens_clients_fig"
+            ) as mock_avg_in,
+            patch(
+                "llmeter.plotting.plotting.average_output_tokens_clients_fig"
+            ) as mock_avg_out,
+        ):
             # Create distinct mock figures
             mock_figs = [MagicMock() for _ in range(6)]
             mock_latency.side_effect = mock_figs[:2]  # TTFT and TTLT

@@ -61,7 +61,9 @@ def nested_dict_strategy(draw, max_depth=3, allow_bytes=True):
 
     return draw(
         st.dictionaries(
-            keys=st.text(min_size=1, max_size=20).filter(lambda k: k != "__llmeter_bytes__"),
+            keys=st.text(min_size=1, max_size=20).filter(
+                lambda k: k != "__llmeter_bytes__"
+            ),
             values=st.one_of(
                 json_value_strategy(allow_bytes=allow_bytes),
                 nested_dict_strategy(max_depth=max_depth - 1, allow_bytes=allow_bytes),
@@ -279,9 +281,7 @@ class TestRoundTripProperties:
                 # Verify nesting is preserved
                 for key in original.keys():
                     verify_structure(
-                        original[key],
-                        parsed_obj[key],
-                        f"{path}.{key}" if path else key
+                        original[key], parsed_obj[key], f"{path}.{key}" if path else key
                     )
             elif isinstance(original, list):
                 # List structure should be preserved
@@ -294,11 +294,7 @@ class TestRoundTripProperties:
                 )
                 # Verify each element
                 for i, (orig_item, parsed_item) in enumerate(zip(original, parsed_obj)):
-                    verify_structure(
-                        orig_item,
-                        parsed_item,
-                        f"{path}[{i}]"
-                    )
+                    verify_structure(orig_item, parsed_item, f"{path}[{i}]")
             else:
                 # Primitive types should be preserved exactly
                 # Note: We need exact type matching here, not isinstance checks
@@ -347,9 +343,7 @@ class TestRoundTripProperties:
                 assert isinstance(restored, bytes), (
                     f"At {path}: Expected bytes, got {type(restored)}"
                 )
-                assert original == restored, (
-                    f"At {path}: Bytes objects differ"
-                )
+                assert original == restored, f"At {path}: Bytes objects differ"
             elif isinstance(original, dict):
                 assert isinstance(restored, dict), (
                     f"At {path}: Expected dict, got {type(restored)}"
@@ -359,23 +353,15 @@ class TestRoundTripProperties:
                 )
                 for key in original.keys():
                     verify_bytes_equality(
-                        original[key],
-                        restored[key],
-                        f"{path}.{key}" if path else key
+                        original[key], restored[key], f"{path}.{key}" if path else key
                     )
             elif isinstance(original, list):
                 assert isinstance(restored, list), (
                     f"At {path}: Expected list, got {type(restored)}"
                 )
-                assert len(original) == len(restored), (
-                    f"At {path}: List lengths differ"
-                )
+                assert len(original) == len(restored), f"At {path}: List lengths differ"
                 for i, (orig_item, rest_item) in enumerate(zip(original, restored)):
-                    verify_bytes_equality(
-                        orig_item,
-                        rest_item,
-                        f"{path}[{i}]"
-                    )
+                    verify_bytes_equality(orig_item, rest_item, f"{path}[{i}]")
             else:
                 # For primitive types, equality check is sufficient
                 assert original == restored, (
@@ -384,7 +370,6 @@ class TestRoundTripProperties:
 
         # Verify byte-for-byte equality throughout the structure
         verify_bytes_equality(payload, deserialized)
-
 
     @given(payload_with_bytes_strategy())
     @settings(max_examples=100)
@@ -412,38 +397,30 @@ class TestRoundTripProperties:
                 assert isinstance(restored, dict), (
                     f"At {path}: Expected dict, got {type(restored)}"
                 )
-                
+
                 # Get the keys as lists to preserve order
                 original_keys = list(original.keys())
                 restored_keys = list(restored.keys())
-                
+
                 # Verify the keys are in the same order
                 assert original_keys == restored_keys, (
                     f"At {path}: Key ordering differs. "
                     f"Original: {original_keys}, Restored: {restored_keys}"
                 )
-                
+
                 # Recursively verify nested structures
                 for key in original_keys:
                     verify_key_ordering(
-                        original[key],
-                        restored[key],
-                        f"{path}.{key}" if path else key
+                        original[key], restored[key], f"{path}.{key}" if path else key
                     )
             elif isinstance(original, list):
                 assert isinstance(restored, list), (
                     f"At {path}: Expected list, got {type(restored)}"
                 )
-                assert len(original) == len(restored), (
-                    f"At {path}: List lengths differ"
-                )
+                assert len(original) == len(restored), f"At {path}: List lengths differ"
                 # Verify each element
                 for i, (orig_item, rest_item) in enumerate(zip(original, restored)):
-                    verify_key_ordering(
-                        orig_item,
-                        rest_item,
-                        f"{path}[{i}]"
-                    )
+                    verify_key_ordering(orig_item, rest_item, f"{path}[{i}]")
             # For non-dict, non-list types, no key ordering to verify
 
         # Verify key ordering is preserved throughout the structure
@@ -467,7 +444,9 @@ class TestBackwardCompatibilityProperties:
         # Feature: json-serialization-optimization, Property 7: Non-binary payloads are backward compatible
         """
         # Serialize with the new encoder
-        serialized_with_encoder = json.dumps(payload, default=llmeter_default_serializer)
+        serialized_with_encoder = json.dumps(
+            payload, default=llmeter_default_serializer
+        )
 
         # Serialize with standard json.dumps
         serialized_standard = json.dumps(payload)
@@ -505,7 +484,7 @@ class TestErrorHandlingProperties:
         # Create various types of unserializable objects
         unserializable_types = [
             # Custom class instance
-            lambda: type('CustomClass', (), {})(),
+            lambda: type("CustomClass", (), {})(),
             # Function
             lambda: lambda x: x,
             # Set (not JSON serializable)
@@ -513,9 +492,9 @@ class TestErrorHandlingProperties:
             # Complex number
             lambda: complex(1, 2),
             # Object with __dict__
-            lambda: type('ObjWithDict', (), {'attr': 'value'})(),
+            lambda: type("ObjWithDict", (), {"attr": "value"})(),
         ]
-        
+
         # Choose one of the unserializable types
         return draw(st.sampled_from(unserializable_types))()
 
@@ -536,29 +515,30 @@ class TestErrorHandlingProperties:
         unserializable_obj = data.draw(
             TestErrorHandlingProperties.unserializable_object_strategy()
         )
-        
+
         # Create a payload containing the unserializable object
         # We'll place it at various locations in the structure
-        placement_strategy = st.sampled_from([
-            # Direct value
-            lambda obj: {"unserializable": obj},
-            # Nested in dict
-            lambda obj: {"outer": {"inner": {"unserializable": obj}}},
-            # In a list
-            lambda obj: {"items": [1, 2, obj, 4]},
-            # Mixed structure
-            lambda obj: {"data": {"list": [{"nested": obj}]}},
-        ])
-        
+        placement_strategy = st.sampled_from(
+            [
+                # Direct value
+                lambda obj: {"unserializable": obj},
+                # Nested in dict
+                lambda obj: {"outer": {"inner": {"unserializable": obj}}},
+                # In a list
+                lambda obj: {"items": [1, 2, obj, 4]},
+                # Mixed structure
+                lambda obj: {"data": {"list": [{"nested": obj}]}},
+            ]
+        )
+
         payload_creator = data.draw(placement_strategy)
         payload = payload_creator(unserializable_obj)
-        
+
         # The unified encoder falls back to str() for unknown types
         result = json.dumps(payload, default=llmeter_default_serializer)
         # Result should be valid JSON
         parsed = json.loads(result)
         assert isinstance(parsed, dict)
-
 
     @given(st.data())
     @settings(max_examples=100)
@@ -577,21 +557,23 @@ class TestErrorHandlingProperties:
         # Test invalid JSON strings that will raise JSONDecodeError
         # Note: base64.b64decode() is lenient by default and accepts many inputs,
         # so we focus on JSON parsing errors which are more common in practice
-        
+
         # Generate invalid JSON strings that will definitely fail parsing
-        invalid_json_strategy = st.sampled_from([
-            "{invalid json}",
-            '{"key": undefined}',
-            "{'single': 'quotes'}",
-            '{"unclosed": ',
-            '{"trailing": "comma",}',
-            'not json at all',
-            '["unclosed array"',
-            '}invalid start{',
-            '{"double""quotes"}',
-            '{"key": value}',  # unquoted value
-            '[1, 2, 3,]',  # trailing comma in array
-        ])
+        invalid_json_strategy = st.sampled_from(
+            [
+                "{invalid json}",
+                '{"key": undefined}',
+                "{'single': 'quotes'}",
+                '{"unclosed": ',
+                '{"trailing": "comma",}',
+                "not json at all",
+                '["unclosed array"',
+                "}invalid start{",
+                '{"double""quotes"}',
+                '{"key": value}',  # unquoted value
+                "[1, 2, 3,]",  # trailing comma in array
+            ]
+        )
         invalid_json = data.draw(invalid_json_strategy)
 
         # Attempt to deserialize and verify it raises JSONDecodeError
@@ -607,15 +589,15 @@ class TestErrorHandlingProperties:
 
             # The error message should indicate it's a JSON parsing error
             # JSONDecodeError messages typically contain position information
-            assert len(error_msg) > 0, (
-                "Error message should not be empty"
-            )
+            assert len(error_msg) > 0, "Error message should not be empty"
 
             # Verify the exception has the expected attributes
-            assert hasattr(e, 'msg'), "JSONDecodeError should have 'msg' attribute"
-            assert hasattr(e, 'lineno'), "JSONDecodeError should have 'lineno' attribute"
-            assert hasattr(e, 'colno'), "JSONDecodeError should have 'colno' attribute"
-            
+            assert hasattr(e, "msg"), "JSONDecodeError should have 'msg' attribute"
+            assert hasattr(e, "lineno"), (
+                "JSONDecodeError should have 'lineno' attribute"
+            )
+            assert hasattr(e, "colno"), "JSONDecodeError should have 'colno' attribute"
+
             # Verify the error message contains useful information
             # It should mention what went wrong
             assert e.msg, "JSONDecodeError msg should not be empty"
@@ -660,7 +642,9 @@ class TestInvocationResponseProperties:
         assert isinstance(parsed, dict), "to_json() should produce a valid JSON object"
 
         # Verify the input_payload field exists
-        assert "input_payload" in parsed, "Serialized response should contain input_payload"
+        assert "input_payload" in parsed, (
+            "Serialized response should contain input_payload"
+        )
 
         # Helper function to check for bytes in original and markers in serialized
         def has_bytes(obj):
@@ -707,7 +691,7 @@ class TestInvocationResponseProperties:
                     verify_bytes_serialized(
                         original[key],
                         serialized_obj[key],
-                        f"{path}.{key}" if path else key
+                        f"{path}.{key}" if path else key,
                     )
             elif isinstance(original, list):
                 assert isinstance(serialized_obj, list), (
@@ -716,12 +700,10 @@ class TestInvocationResponseProperties:
                 assert len(original) == len(serialized_obj), (
                     f"At {path}: List lengths differ"
                 )
-                for i, (orig_item, ser_item) in enumerate(zip(original, serialized_obj)):
-                    verify_bytes_serialized(
-                        orig_item,
-                        ser_item,
-                        f"{path}[{i}]"
-                    )
+                for i, (orig_item, ser_item) in enumerate(
+                    zip(original, serialized_obj)
+                ):
+                    verify_bytes_serialized(orig_item, ser_item, f"{path}[{i}]")
             # For other types, no special verification needed
 
         # If the input_payload contains bytes, verify they're serialized correctly
@@ -729,7 +711,9 @@ class TestInvocationResponseProperties:
             assert "__llmeter_bytes__" in json_str, (
                 "Serialized JSON should contain marker objects when input_payload has bytes"
             )
-            verify_bytes_serialized(input_payload, parsed["input_payload"], "input_payload")
+            verify_bytes_serialized(
+                input_payload, parsed["input_payload"], "input_payload"
+            )
 
         # Verify other fields are serialized correctly
         assert parsed["response_text"] == "Test response"

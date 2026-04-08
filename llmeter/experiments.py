@@ -17,9 +17,9 @@ from tqdm.auto import tqdm
 from upath import UPath as Path
 from upath.types import ReadablePathLike, WritablePathLike
 
-from llmeter.callbacks.base import Callback
-from llmeter.results import Result
-from llmeter.utils import ensure_path
+from .callbacks.base import Callback
+from .results import Result
+from .utils import ensure_path
 
 from .endpoints.base import Endpoint
 from .plotting import color_sequences, plot_heatmap, plot_load_test_results

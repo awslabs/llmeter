@@ -157,7 +157,7 @@ def plot_heatmap(
             "x": "Number of input tokens",
             "y": "Number of output tokens",
         },
-        title=f'LLMeter: average {dimension.replace("_", " ").capitalize()}',
+        title=f"LLMeter: average {dimension.replace('_', ' ').capitalize()}",
         width=800,
         height=800,
     )
@@ -439,7 +439,7 @@ def latency_clients_fig(
             title=f"{dimension.replace('_', ' ').capitalize()} vs number of clients",
             xaxis_title="Number of clients",
             xaxis_tickformat="s",
-            yaxis_title=f'{dimension.replace("_", " ").capitalize()} (s)',
+            yaxis_title=f"{dimension.replace('_', ' ').capitalize()} (s)",
             yaxis_tickformat=".2s",
         )
         if log_scale:

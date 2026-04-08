@@ -13,7 +13,7 @@ from litellm import CustomStreamWrapper, completion
 from litellm.types.utils import ModelResponse
 from litellm.utils import get_llm_provider  # type: ignore
 
-from llmeter.endpoints import Endpoint, InvocationResponse
+from . import Endpoint, InvocationResponse
 
 logger = logging.getLogger(__name__)
 

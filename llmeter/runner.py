@@ -124,7 +124,11 @@ class _RunConfig:
             config_copy.tokenizer = Tokenizer.to_dict(self.tokenizer)
 
         with run_config_path.open("w") as f:
-            f.write(json.dumps(asdict(config_copy), default=llmeter_default_serializer, indent=4))
+            f.write(
+                json.dumps(
+                    asdict(config_copy), default=llmeter_default_serializer, indent=4
+                )
+            )
 
     @classmethod
     def load(cls, load_path: Path | str, file_name: str = "run_config.json"):

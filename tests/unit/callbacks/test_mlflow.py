@@ -44,11 +44,11 @@ def mlflow_callback_nested():
 
 @pytest.mark.asyncio
 async def test_log_llmeter_run(mlflow_callback, sample_result):
-    with patch("llmeter.callbacks.mlflow.mlflow.log_params") as mock_log_params, patch(
-        "llmeter.callbacks.mlflow.mlflow.log_metrics"
-    ) as mock_log_metrics, patch(
-        "llmeter.results.Result.stats", new_callable=PropertyMock
-    ) as mock_stats:
+    with (
+        patch("llmeter.callbacks.mlflow.mlflow.log_params") as mock_log_params,
+        patch("llmeter.callbacks.mlflow.mlflow.log_metrics") as mock_log_metrics,
+        patch("llmeter.results.Result.stats", new_callable=PropertyMock) as mock_stats,
+    ):
         mock_stats.return_value = {
             "latency_mean": 0.5,
             "latency_p50": 0.4,
@@ -88,11 +88,11 @@ async def test_log_llmeter_run(mlflow_callback, sample_result):
 
 @pytest.mark.asyncio
 async def test_log_nested_run(mlflow_callback_nested, sample_result):
-    with patch("llmeter.callbacks.mlflow.mlflow.start_run") as mock_start_run, patch(
-        "llmeter.callbacks.mlflow.mlflow.log_params"
-    ) as mock_log_params, patch(
-        "llmeter.callbacks.mlflow.mlflow.log_metrics"
-    ) as mock_log_metrics:
+    with (
+        patch("llmeter.callbacks.mlflow.mlflow.start_run") as mock_start_run,
+        patch("llmeter.callbacks.mlflow.mlflow.log_params") as mock_log_params,
+        patch("llmeter.callbacks.mlflow.mlflow.log_metrics") as mock_log_metrics,
+    ):
         mock_context = MagicMock()
         mock_start_run.return_value.__enter__.return_value = mock_context
 

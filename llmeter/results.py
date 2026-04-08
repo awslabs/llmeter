@@ -99,13 +99,18 @@ class Result:
         stats_path = output_path / "stats.json"
         with summary_path.open("w") as f, stats_path.open("w") as s:
             f.write(self.to_json(indent=4))
-            s.write(json.dumps(self.stats, indent=4, default=llmeter_default_serializer))
+            s.write(
+                json.dumps(self.stats, indent=4, default=llmeter_default_serializer)
+            )
 
         responses_path = output_path / "responses.jsonl"
         if not responses_path.exists():
             with responses_path.open("w") as f:
                 for response in self.responses:
-                    f.write(json.dumps(asdict(response), default=llmeter_default_serializer) + "\n")
+                    f.write(
+                        json.dumps(asdict(response), default=llmeter_default_serializer)
+                        + "\n"
+                    )
 
     def to_json(self, default=llmeter_default_serializer, **kwargs):
         """Return the results as a JSON string.

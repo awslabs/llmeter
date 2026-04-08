@@ -203,9 +203,7 @@ class Endpoint(ABC):
         Returns:
             Dict: A dictionary representation of the endpoint configuration.
         """
-        endpoint_conf = {
-            k: v for k, v in vars(self).items() if not k.startswith("_")
-        }
+        endpoint_conf = {k: v for k, v in vars(self).items() if not k.startswith("_")}
         endpoint_conf["endpoint_type"] = self.__class__.__name__
         return endpoint_conf
 

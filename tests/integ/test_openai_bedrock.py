@@ -301,8 +301,12 @@ def test_save_load_openai_payload_with_image_url(tmp_path):
 @pytest.mark.integ
 @pytest.mark.skipif(not OPENAI_AVAILABLE, reason="OpenAI SDK not installed")
 def test_save_load_openai_complete_structure(
-    tmp_path, aws_credentials, aws_region, bedrock_openai_multimodal_test_model,
-    bedrock_openai_multimodal_endpoint_url, test_image_bytes
+    tmp_path,
+    aws_credentials,
+    aws_region,
+    bedrock_openai_multimodal_test_model,
+    bedrock_openai_multimodal_endpoint_url,
+    test_image_bytes,
 ):
     """
     Test round-trip with actual OpenAI chat.completions structure and API call.
@@ -394,8 +398,8 @@ def test_save_load_openai_complete_structure(
     client = OpenAI(api_key=token, base_url=bedrock_openai_multimodal_endpoint_url)
 
     # Convert binary bytes to base64-encoded ASCII strings for API call
-    image1_base64_ascii = base64.b64encode(loaded_image1_binary).decode('utf-8')
-    image2_base64_ascii = base64.b64encode(loaded_image2_binary).decode('utf-8')
+    image1_base64_ascii = base64.b64encode(loaded_image1_binary).decode("utf-8")
+    image2_base64_ascii = base64.b64encode(loaded_image2_binary).decode("utf-8")
 
     # Build API payload - data URI format with JPEG MIME type
     api_payload = {

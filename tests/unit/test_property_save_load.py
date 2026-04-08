@@ -156,7 +156,9 @@ class TestPayloadSaveLoadProperties:
     @given(
         st.lists(
             st.dictionaries(
-                st.text(min_size=1, max_size=50).filter(lambda x: x != "__llmeter_bytes__"),
+                st.text(min_size=1, max_size=50).filter(
+                    lambda x: x != "__llmeter_bytes__"
+                ),
                 st.one_of(
                     st.text(max_size=200),
                     st.integers(),
@@ -173,7 +175,7 @@ class TestPayloadSaveLoadProperties:
     @settings(deadline=None)
     def test_save_load_payloads_preserves_data(self, payloads):
         """Save/load roundtrip should preserve all payload data.
-        
+
         Note: Excludes the reserved key '__llmeter_bytes__' which is used internally
         for binary content serialization.
         """

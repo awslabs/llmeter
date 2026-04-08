@@ -70,9 +70,9 @@ def test_bedrock_converse_non_streaming(
     # Verify token counts are present and positive
     assert response.num_tokens_input is not None, "Input token count should not be None"
     assert response.num_tokens_input > 0, "Input token count should be positive"
-    assert (
-        response.num_tokens_output is not None
-    ), "Output token count should not be None"
+    assert response.num_tokens_output is not None, (
+        "Output token count should not be None"
+    )
     assert response.num_tokens_output > 0, "Output token count should be positive"
 
     # Verify response time is measured and positive
@@ -80,9 +80,9 @@ def test_bedrock_converse_non_streaming(
     assert response.time_to_last_token > 0, "Response time should be positive"
 
     # Verify no errors in response
-    assert (
-        response.error is None
-    ), f"Response should not contain errors: {response.error}"
+    assert response.error is None, (
+        f"Response should not contain errors: {response.error}"
+    )
 
     # Verify response has an ID
     assert response.id is not None, "Response should have an ID"
@@ -134,32 +134,32 @@ def test_bedrock_converse_streaming(
     # Verify token counts are present and positive
     assert response.num_tokens_input is not None, "Input token count should not be None"
     assert response.num_tokens_input > 0, "Input token count should be positive"
-    assert (
-        response.num_tokens_output is not None
-    ), "Output token count should not be None"
+    assert response.num_tokens_output is not None, (
+        "Output token count should not be None"
+    )
     assert response.num_tokens_output > 0, "Output token count should be positive"
 
     # Verify time to first token is measured and positive
-    assert (
-        response.time_to_first_token is not None
-    ), "Time to first token should not be None"
+    assert response.time_to_first_token is not None, (
+        "Time to first token should not be None"
+    )
     assert response.time_to_first_token > 0, "Time to first token should be positive"
 
     # Verify time to last token is measured and positive
-    assert (
-        response.time_to_last_token is not None
-    ), "Time to last token should not be None"
+    assert response.time_to_last_token is not None, (
+        "Time to last token should not be None"
+    )
     assert response.time_to_last_token > 0, "Time to last token should be positive"
 
     # Verify TTLT > TTFT (streaming should take time to complete)
-    assert (
-        response.time_to_last_token > response.time_to_first_token
-    ), "Time to last token should be greater than time to first token"
+    assert response.time_to_last_token > response.time_to_first_token, (
+        "Time to last token should be greater than time to first token"
+    )
 
     # Verify no errors in response
-    assert (
-        response.error is None
-    ), f"Response should not contain errors: {response.error}"
+    assert response.error is None, (
+        f"Response should not contain errors: {response.error}"
+    )
 
     # Verify response has an ID
     assert response.id is not None, "Response should have an ID"
@@ -217,13 +217,13 @@ def test_bedrock_converse_with_image(
     # Verify token counts are present and positive
     assert response.num_tokens_input is not None, "Input token count should not be None"
     assert response.num_tokens_input > 0, "Input token count should be positive"
-    assert (
-        response.num_tokens_input > 30
-    ), "Input token count should include image tokens (expected > 30)"
+    assert response.num_tokens_input > 30, (
+        "Input token count should include image tokens (expected > 30)"
+    )
 
-    assert (
-        response.num_tokens_output is not None
-    ), "Output token count should not be None"
+    assert response.num_tokens_output is not None, (
+        "Output token count should not be None"
+    )
     assert response.num_tokens_output > 0, "Output token count should be positive"
 
     # Verify response time is measured and positive
@@ -231,9 +231,9 @@ def test_bedrock_converse_with_image(
     assert response.time_to_last_token > 0, "Response time should be positive"
 
     # Verify no errors in response
-    assert (
-        response.error is None
-    ), f"Response should not contain errors: {response.error}"
+    assert response.error is None, (
+        f"Response should not contain errors: {response.error}"
+    )
 
     # Verify response has an ID
     assert response.id is not None, "Response should have an ID"
@@ -319,12 +319,16 @@ def test_save_load_payload_with_image(test_payload_with_image, tmp_path):
     assert len(loaded_payloads) == 1, "Should load exactly one payload"
 
     loaded = loaded_payloads[0]
-    original_bytes = test_payload_with_image["messages"][0]["content"][0]["image"]["source"]["bytes"]
+    original_bytes = test_payload_with_image["messages"][0]["content"][0]["image"][
+        "source"
+    ]["bytes"]
     loaded_bytes = loaded["messages"][0]["content"][0]["image"]["source"]["bytes"]
 
     assert isinstance(loaded_bytes, bytes), "Loaded bytes should be bytes type"
     assert loaded_bytes == original_bytes, "Bytes should match after round-trip"
-    assert loaded == test_payload_with_image, "Full payload should match after round-trip"
+    assert loaded == test_payload_with_image, (
+        "Full payload should match after round-trip"
+    )
 
 
 def test_save_load_payload_with_video(tmp_path):
@@ -353,7 +357,9 @@ def test_save_load_payload_with_video(tmp_path):
                     {
                         "video": {
                             "format": "mp4",
-                            "source": {"bytes": b"\x00\x00\x00\x18ftypmp42"},  # MP4 header
+                            "source": {
+                                "bytes": b"\x00\x00\x00\x18ftypmp42"
+                            },  # MP4 header
                         }
                     },
                     {"text": "What is happening in this video?"},
@@ -377,7 +383,9 @@ def test_save_load_payload_with_video(tmp_path):
     assert len(loaded_payloads) == 1, "Should load exactly one payload"
 
     loaded = loaded_payloads[0]
-    original_bytes = video_payload["messages"][0]["content"][0]["video"]["source"]["bytes"]
+    original_bytes = video_payload["messages"][0]["content"][0]["video"]["source"][
+        "bytes"
+    ]
     loaded_bytes = loaded["messages"][0]["content"][0]["video"]["source"]["bytes"]
 
     assert isinstance(loaded_bytes, bytes), "Loaded bytes should be bytes type"
@@ -424,7 +432,9 @@ def test_save_load_multiple_images(tmp_path):
                     {
                         "image": {
                             "format": "png",
-                            "source": {"bytes": b"\x89PNG\r\n\x1a\n\x00\x00"},  # Different PNG
+                            "source": {
+                                "bytes": b"\x89PNG\r\n\x1a\n\x00\x00"
+                            },  # Different PNG
                         }
                     },
                 ],
@@ -441,7 +451,9 @@ def test_save_load_multiple_images(tmp_path):
     with output_file.open("r") as f:
         content = f.read()
         marker_count = content.count("__llmeter_bytes__")
-        assert marker_count == 3, f"File should contain 3 marker objects, found {marker_count}"
+        assert marker_count == 3, (
+            f"File should contain 3 marker objects, found {marker_count}"
+        )
 
     # Load payload and verify all bytes are restored
     loaded_payloads = list(load_payloads(output_file))
@@ -467,7 +479,9 @@ def test_save_load_multiple_images(tmp_path):
 
 
 @pytest.mark.integ
-def test_round_trip_bedrock_converse_structure(test_payload_with_image, tmp_path, aws_credentials, aws_region):
+def test_round_trip_bedrock_converse_structure(
+    test_payload_with_image, tmp_path, aws_credentials, aws_region
+):
     """
     Test round-trip serialization with actual Bedrock Converse API structure.
 
@@ -518,21 +532,25 @@ def test_round_trip_bedrock_converse_structure(test_payload_with_image, tmp_path
     assert loaded["messages"][0]["role"] == complete_payload["messages"][0]["role"]
 
     # Verify image bytes are correctly restored
-    original_bytes = complete_payload["messages"][0]["content"][0]["image"]["source"]["bytes"]
+    original_bytes = complete_payload["messages"][0]["content"][0]["image"]["source"][
+        "bytes"
+    ]
     loaded_bytes = loaded["messages"][0]["content"][0]["image"]["source"]["bytes"]
     assert isinstance(loaded_bytes, bytes)
     assert loaded_bytes == original_bytes
 
     # Verify complete equality
     assert loaded == complete_payload, "Complete payload should match after round-trip"
-    
+
     # Verify the loaded payload can be used with the endpoint's invoke method
     # Extract model_id from the loaded payload
     model_id = loaded.pop("modelId")
     endpoint = BedrockConverse(model_id=model_id, region=aws_region)
     response = endpoint.invoke(loaded)
-    
+
     # Verify the endpoint successfully processed the loaded payload
     assert response.response_text is not None, "Response should contain text"
     assert len(response.response_text) > 0, "Response text should not be empty"
-    assert response.error is None, f"Response should not contain errors: {response.error}"
+    assert response.error is None, (
+        f"Response should not contain errors: {response.error}"
+    )

@@ -93,10 +93,13 @@ async def test_compute_dimensions_from_endpoint_single_variant():
     """SageMakerRTEndpointCompute.from_endpoint handles single-variant endpoints"""
     # Price List API isn't in moto, so also need to mock out this:
     lookup_price_mock = Mock(return_value=9)
-    with mock_aws(), patch.object(
-        SageMakerRTEndpointCompute,
-        "fetch_sm_hosting_od_price",
-        new=lookup_price_mock,
+    with (
+        mock_aws(),
+        patch.object(
+            SageMakerRTEndpointCompute,
+            "fetch_sm_hosting_od_price",
+            new=lookup_price_mock,
+        ),
     ):
         # Set up dummy environment in moto:
         sagemaker = boto3.client("sagemaker")
@@ -144,10 +147,13 @@ async def test_compute_dimensions_from_endpoint_multi_variant():
     """SageMakerRTEndpointCompute.from_endpoint handles multi-variant endpoints"""
     # Price List API isn't in moto, so also need to mock out this:
     lookup_price_mock = Mock(return_value=9)
-    with mock_aws(), patch.object(
-        SageMakerRTEndpointCompute,
-        "fetch_sm_hosting_od_price",
-        new=lookup_price_mock,
+    with (
+        mock_aws(),
+        patch.object(
+            SageMakerRTEndpointCompute,
+            "fetch_sm_hosting_od_price",
+            new=lookup_price_mock,
+        ),
     ):
         # Set up dummy environment in moto:
         sagemaker = boto3.client("sagemaker")
@@ -278,10 +284,13 @@ async def test_storage_dimensions_from_endpoint_single_variant():
     """SageMakerRTEndpointStorage.from_endpoint handles single-variant endpoints"""
     # Price List API isn't in moto, so also need to mock out this:
     lookup_price_mock = Mock(return_value=9)
-    with mock_aws(), patch.object(
-        SageMakerRTEndpointStorage,
-        "fetch_sm_hosting_ebs_price",
-        new=lookup_price_mock,
+    with (
+        mock_aws(),
+        patch.object(
+            SageMakerRTEndpointStorage,
+            "fetch_sm_hosting_ebs_price",
+            new=lookup_price_mock,
+        ),
     ):
         # Set up dummy environment in moto:
         sagemaker = boto3.client("sagemaker")
@@ -330,10 +339,13 @@ async def test_storage_dimensions_from_endpoint_no_ebs():
     """
     # Price List API isn't in moto, so also need to mock out this:
     lookup_price_mock = Mock(return_value=9)
-    with mock_aws(), patch.object(
-        SageMakerRTEndpointStorage,
-        "fetch_sm_hosting_ebs_price",
-        new=lookup_price_mock,
+    with (
+        mock_aws(),
+        patch.object(
+            SageMakerRTEndpointStorage,
+            "fetch_sm_hosting_ebs_price",
+            new=lookup_price_mock,
+        ),
     ):
         # Set up dummy environment in moto:
         sagemaker = boto3.client("sagemaker")
@@ -371,10 +383,13 @@ async def test_storage_dimensions_from_endpoint_multi_variant():
     """SageMakerRTEndpointStorage.from_endpoint handles multi-variant endpoints"""
     # Price List API isn't in moto, so also need to mock out this:
     lookup_price_mock = Mock(return_value=9)
-    with mock_aws(), patch.object(
-        SageMakerRTEndpointStorage,
-        "fetch_sm_hosting_ebs_price",
-        new=lookup_price_mock,
+    with (
+        mock_aws(),
+        patch.object(
+            SageMakerRTEndpointStorage,
+            "fetch_sm_hosting_ebs_price",
+            new=lookup_price_mock,
+        ),
     ):
         # Set up dummy environment in moto:
         sagemaker = boto3.client("sagemaker")
@@ -439,10 +454,13 @@ async def test_storage_dimensions_from_endpoint_multi_variant_partial_ebs():
     """
     # Price List API isn't in moto, so also need to mock out this:
     lookup_price_mock = Mock(return_value=9)
-    with mock_aws(), patch.object(
-        SageMakerRTEndpointStorage,
-        "fetch_sm_hosting_ebs_price",
-        new=lookup_price_mock,
+    with (
+        mock_aws(),
+        patch.object(
+            SageMakerRTEndpointStorage,
+            "fetch_sm_hosting_ebs_price",
+            new=lookup_price_mock,
+        ),
     ):
         # Set up dummy environment in moto:
         sagemaker = boto3.client("sagemaker")

@@ -132,7 +132,9 @@ class TestDetectFormatFromBytes:
         """Test that detection returns None when puremagic is not available."""
         # Mock puremagic to raise ImportError when accessed
         with patch("llmeter.prompt_utils.puremagic") as mock_puremagic:
-            mock_puremagic.from_string.side_effect = ImportError("puremagic not available")
+            mock_puremagic.from_string.side_effect = ImportError(
+                "puremagic not available"
+            )
             mime_type = detect_format_from_bytes(b"\xff\xd8\xff\xe0")
             assert mime_type is None
 
@@ -188,7 +190,9 @@ class TestDetectFormatFromFile:
         try:
             # Mock puremagic to raise ImportError when accessed
             with patch("llmeter.prompt_utils.puremagic") as mock_puremagic:
-                mock_puremagic.magic_file.side_effect = ImportError("puremagic not available")
+                mock_puremagic.magic_file.side_effect = ImportError(
+                    "puremagic not available"
+                )
                 mime_type = detect_format_from_file(temp_path)
                 # Should fall back to extension-based detection
                 assert mime_type == "image/jpeg"
@@ -204,7 +208,9 @@ class TestDetectFormatFromFile:
         try:
             # Mock puremagic to raise ImportError when accessed
             with patch("llmeter.prompt_utils.puremagic") as mock_puremagic:
-                mock_puremagic.magic_file.side_effect = ImportError("puremagic not available")
+                mock_puremagic.magic_file.side_effect = ImportError(
+                    "puremagic not available"
+                )
                 mime_type = detect_format_from_file(temp_path)
                 # Should fall back to extension-based detection, which returns None for no extension
                 assert mime_type is None

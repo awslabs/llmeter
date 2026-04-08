@@ -289,7 +289,6 @@ class TestLLMeterBytesDecoder:
         """
         import binascii
 
-
         # Marker with invalid base64 string
         invalid_marker = {"__llmeter_bytes__": "not-valid-base64!!!"}
 
@@ -344,7 +343,6 @@ class TestLLMeterBytesDecoder:
         """
         import base64
         import os
-
 
         # Create 1MB of random binary data
         large_data = os.urandom(1024 * 1024)
@@ -424,7 +422,6 @@ class TestLLMeterBytesDecoder:
         Validates: Requirements 2.1, 2.3
         """
         import base64
-
 
         # Binary data with special characters
         special_data = b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01"
@@ -796,9 +793,7 @@ class TestLoadPayloads:
             # Verify bytes were restored from marker
             loaded_payload = payloads[0]
             assert loaded_payload["modelId"] == "test-model"
-            assert isinstance(
-                loaded_payload["image"]["source"]["bytes"], bytes
-            )
+            assert isinstance(loaded_payload["image"]["source"]["bytes"], bytes)
             assert loaded_payload["image"]["source"]["bytes"] == b"hello world"
 
     def test_load_payloads_bytes_correctly_restored(self):
@@ -874,9 +869,7 @@ class TestLoadPayloads:
                 {"modelId": "test-model-1", "prompt": "Hello world", "maxTokens": 100},
                 {
                     "modelId": "test-model-2",
-                    "messages": [
-                        {"role": "user", "content": "What is the weather?"}
-                    ],
+                    "messages": [{"role": "user", "content": "What is the weather?"}],
                 },
                 {
                     "modelId": "test-model-3",
@@ -923,7 +916,9 @@ class TestLoadPayloads:
                             {
                                 "image": {
                                     "format": "jpeg",
-                                    "source": {"bytes": b"\xff\xd8\xff\xe0\x00\x10JFIF"},
+                                    "source": {
+                                        "bytes": b"\xff\xd8\xff\xe0\x00\x10JFIF"
+                                    },
                                 }
                             },
                         ],
@@ -1279,7 +1274,9 @@ class TestPromptUtilsProperties:
     @given(
         st.lists(
             st.dictionaries(
-                st.text(min_size=1, max_size=50).filter(lambda k: k != "__llmeter_bytes__"),
+                st.text(min_size=1, max_size=50).filter(
+                    lambda k: k != "__llmeter_bytes__"
+                ),
                 st.one_of(st.text(max_size=100), st.integers(), st.booleans()),
                 min_size=1,
                 max_size=10,
@@ -1396,13 +1393,10 @@ class TestErrorHandling:
         """
         import binascii
 
-
         # Create a marker object with invalid base64 (incorrect padding)
         # Base64 strings must have length that is a multiple of 4
         # A single character will trigger binascii.Error
-        invalid_marker = {
-            "__llmeter_bytes__": "a"
-        }
+        invalid_marker = {"__llmeter_bytes__": "a"}
 
         # Should raise binascii.Error when trying to decode
         with pytest.raises(binascii.Error):
@@ -1422,13 +1416,7 @@ class TestErrorHandling:
             # Using a single character which will trigger binascii.Error
             invalid_payload = {
                 "modelId": "test-model",
-                "image": {
-                    "source": {
-                        "bytes": {
-                            "__llmeter_bytes__": "a"
-                        }
-                    }
-                },
+                "image": {"source": {"bytes": {"__llmeter_bytes__": "a"}}},
             }
 
             # Write to file
@@ -1648,16 +1636,17 @@ class TestPerformance:
         elapsed_ms = (end_time - start_time) * 1000
 
         # Verify serialization completed within 100ms
-        assert (
-            elapsed_ms < 100
-        ), f"Serialization took {elapsed_ms:.2f}ms, expected < 100ms"
+        assert elapsed_ms < 100, (
+            f"Serialization took {elapsed_ms:.2f}ms, expected < 100ms"
+        )
 
         # Verify the result is valid JSON
         assert isinstance(serialized, str)
         parsed = json.loads(serialized)
-        assert "__llmeter_bytes__" in parsed["messages"][0]["content"][1]["image"][
-            "source"
-        ]["bytes"]
+        assert (
+            "__llmeter_bytes__"
+            in parsed["messages"][0]["content"][1]["image"]["source"]["bytes"]
+        )
 
     def test_1mb_image_deserialization_performance(self):
         """Test that 1MB image deserialization completes within 100ms.
@@ -1687,9 +1676,9 @@ class TestPerformance:
         elapsed_ms = (end_time - start_time) * 1000
 
         # Verify deserialization completed within 100ms
-        assert (
-            elapsed_ms < 100
-        ), f"Deserialization took {elapsed_ms:.2f}ms, expected < 100ms"
+        assert elapsed_ms < 100, (
+            f"Deserialization took {elapsed_ms:.2f}ms, expected < 100ms"
+        )
 
         # Verify the result is correct
         assert isinstance(deserialized["image"]["source"]["bytes"], bytes)
@@ -1730,9 +1719,9 @@ class TestPerformance:
         # Allow 50% overhead for Python string internals and JSON structure
         max_acceptable_size = base64_expected_size * 1.5
 
-        assert (
-            serialized_size < max_acceptable_size
-        ), f"Serialized size {serialized_size} exceeds expected {max_acceptable_size}"
+        assert serialized_size < max_acceptable_size, (
+            f"Serialized size {serialized_size} exceeds expected {max_acceptable_size}"
+        )
 
     def test_deserialization_no_unnecessary_copies(self):
         """Test that deserialization doesn't create unnecessary data copies.
@@ -1768,9 +1757,9 @@ class TestPerformance:
         # bytes objects have minimal overhead
         max_acceptable_size = original_size * 1.1
 
-        assert (
-            deserialized_size < max_acceptable_size
-        ), f"Deserialized size {deserialized_size} exceeds expected {max_acceptable_size}"
+        assert deserialized_size < max_acceptable_size, (
+            f"Deserialized size {deserialized_size} exceeds expected {max_acceptable_size}"
+        )
 
     def test_round_trip_performance_with_multiple_images(self):
         """Test round-trip performance with multiple large images.
@@ -1787,9 +1776,7 @@ class TestPerformance:
         images = [os.urandom(512 * 1024) for _ in range(3)]
         payload = {
             "modelId": "test-model",
-            "images": [
-                {"id": i, "data": img} for i, img in enumerate(images)
-            ],
+            "images": [{"id": i, "data": img} for i, img in enumerate(images)],
         }
 
         # Measure serialization time
@@ -1805,12 +1792,12 @@ class TestPerformance:
 
         # With 3 images, we allow proportionally more time (but still reasonable)
         # Each operation should complete in under 200ms for 1.5MB total
-        assert (
-            serialize_time < 200
-        ), f"Serialization took {serialize_time:.2f}ms, expected < 200ms"
-        assert (
-            deserialize_time < 200
-        ), f"Deserialization took {deserialize_time:.2f}ms, expected < 200ms"
+        assert serialize_time < 200, (
+            f"Serialization took {serialize_time:.2f}ms, expected < 200ms"
+        )
+        assert deserialize_time < 200, (
+            f"Deserialization took {deserialize_time:.2f}ms, expected < 200ms"
+        )
 
         # Verify correctness
         assert len(deserialized["images"]) == 3
@@ -1846,9 +1833,9 @@ class TestPerformance:
 
         # Large should take roughly 2x the time (allow 3x for variance)
         # This verifies linear scaling, not quadratic or worse
-        assert (
-            large_time < small_time * 3
-        ), f"Performance doesn't scale linearly: {small_time:.4f}s vs {large_time:.4f}s"
+        assert large_time < small_time * 3, (
+            f"Performance doesn't scale linearly: {small_time:.4f}s vs {large_time:.4f}s"
+        )
 
     def test_deserialization_performance_scales_linearly(self):
         """Test that deserialization performance scales linearly with data size.
@@ -1860,7 +1847,6 @@ class TestPerformance:
         """
         import os
         import time
-
 
         # Test with 256KB
         small_data = os.urandom(256 * 1024)
@@ -1882,6 +1868,6 @@ class TestPerformance:
 
         # Large should take roughly 2x the time (allow 3x for variance)
         # This verifies linear scaling, not quadratic or worse
-        assert (
-            large_time < small_time * 3
-        ), f"Performance doesn't scale linearly: {small_time:.4f}s vs {large_time:.4f}s"
+        assert large_time < small_time * 3, (
+            f"Performance doesn't scale linearly: {small_time:.4f}s vs {large_time:.4f}s"
+        )

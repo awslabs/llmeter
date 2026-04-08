@@ -332,7 +332,9 @@ class TestBedrockInvoke:
         with _mock_invoke_model_response(
             body={"output": {"message": {"content": [{"text": "Hi"}]}}},
         ) as mock_response:
-            endpoint._bedrock_client.invoke_model = MagicMock(return_value=mock_response)
+            endpoint._bedrock_client.invoke_model = MagicMock(
+                return_value=mock_response
+            )
 
             payload = {
                 "messages": [{"role": "user", "content": [{"text": "Hello"}]}],
@@ -342,7 +344,9 @@ class TestBedrockInvoke:
         # Grab the body kwarg that was sent to the mock
         call_kwargs = endpoint._bedrock_client.invoke_model.call_args
         sent_body = call_kwargs.kwargs.get("body") or call_kwargs[1].get("body")
-        sent_json = sent_body.decode("utf-8") if isinstance(sent_body, bytes) else sent_body
+        sent_json = (
+            sent_body.decode("utf-8") if isinstance(sent_body, bytes) else sent_body
+        )
         assert "__llmeter_bytes__" not in sent_json
 
 

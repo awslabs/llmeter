@@ -92,9 +92,7 @@ def bedrock_test_model():
     Returns:
         str: Bedrock model ID for testing.
     """
-    return os.environ.get(
-        "BEDROCK_TEST_MODEL", "global.amazon.nova-2-lite-v1:0"
-    )
+    return os.environ.get("BEDROCK_TEST_MODEL", "global.amazon.nova-2-lite-v1:0")
 
 
 @pytest.fixture(scope="session")
@@ -111,9 +109,7 @@ def bedrock_openai_test_model():
     Returns:
         str: OpenAI model ID for Bedrock OpenAI SDK testing.
     """
-    return os.environ.get(
-        "BEDROCK_OPENAI_TEST_MODEL", "openai.gpt-oss-20b-1:0"
-    )
+    return os.environ.get("BEDROCK_OPENAI_TEST_MODEL", "openai.gpt-oss-20b-1:0")
 
 
 @pytest.fixture(scope="session")
