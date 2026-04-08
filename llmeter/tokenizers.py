@@ -8,6 +8,8 @@ from typing import Any
 from upath import UPath
 import json
 
+from .utils import ensure_path
+
 
 class Tokenizer(ABC):
     def __init__(self, *args, **kwargs):
@@ -54,7 +56,7 @@ class Tokenizer(ABC):
         """
         if tokenizer_path is None:
             return DummyTokenizer()
-        tokenizer_path = UPath(tokenizer_path)
+        tokenizer_path = ensure_path(tokenizer_path)
         with tokenizer_path.open("r") as f:
             tokenizer_info = json.load(f)
 
@@ -122,7 +124,7 @@ def save_tokenizer(tokenizer: Any, output_path: UPath | str) -> UPath:
     """
     tokenizer_info = _to_dict(tokenizer)
 
-    output_path = UPath(output_path)
+    output_path = ensure_path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w") as f:
         json.dump(tokenizer_info, f)
