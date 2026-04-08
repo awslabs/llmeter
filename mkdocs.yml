@@ -67,6 +67,7 @@ nav:
     - results: reference/results.md
     - runner: reference/runner.md
     - tokenizers: reference/tokenizers.md
+    - prompt_utils: reference/prompt_utils.md
     - utils: reference/utils.md
 repo_url: https://github.com/awslabs/llmeter
 repo_name: awslabs/llmeter
@@ -90,4 +91,20 @@ extra_css:
   - stylesheets/extra.css
 plugins:
 - search
-- mkdocstrings
+- mkdocstrings:
+    default_handler: python
+    handlers:
+      python:
+        options:
+          docstring_style: google
+          docstring_options:
+            ignore_init_summary: true
+          show_source: true
+          show_root_heading: true
+          show_root_full_path: false
+          show_symbol_type_heading: true
+          show_symbol_type_toc: true
+          merge_init_into_class: true
+          show_if_no_docstring: false
+          signature_crossrefs: true
+          separate_signature: true

@@ -98,13 +98,25 @@ ruff check llmeter/ && ruff format llmeter/
 
 This project uses [Zensical](https://zensical.org/) (A compatible [alernative to MkDocs](https://squidfunk.github.io/mkdocs-material/blog/2025/11/05/zensical/)) to power an interactive docs website, hosted on GitHub pages. This documentation should be updated as part of contributed changes, wherever appropriate.
 
-To test the docs locally, ensure you've installed llmeter with the `docs` group and run:
+To work on docs locally, install only the docs dependencies (this avoids pulling in the full project dependency tree):
 
-```
-uv run zensical serve
+```bash
+uv sync --only-group docs
 ```
 
-This should start the dev server for preview at http://localhost:8000/, which should automatically refresh as you edit the `docs/`.
+Then preview with the dev server:
+
+```bash
+uv run --no-sync zensical serve
+```
+
+This starts a preview at http://localhost:8000/ that auto-refreshes as you edit `docs/`.
+
+To do a clean production build:
+
+```bash
+uv run --no-sync zensical build --clean
+```
 
 ⚠️ Note - The following processes are stil **manual** for now (contributions to automate this work are much appreciated!):
 - When adding/renaming/deleting .py modules in LLMeter, you need to update the corresponding API reference folders and .md files under `docs/reference`
