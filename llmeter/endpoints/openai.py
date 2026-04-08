@@ -6,12 +6,12 @@ import base64
 import logging
 import os
 import time
-from typing import Any, Dict
+from collections.abc import Sequence
+from typing import Any, cast
 from uuid import uuid4
 
-import jmespath
 from openai import APIConnectionError, OpenAI
-from openai.types.chat import ChatCompletion
+from openai.types.chat import ChatCompletion, ChatCompletionChunk, CompletionCreateParams
 
 from ..prompt_utils import (
     ContentItem,
@@ -121,21 +121,29 @@ class OpenAIEndpoint(Endpoint):
         super().__init__(endpoint_name, model_id, provider=provider)
         self._client = OpenAI(api_key=api_key, **kwargs)
 
-    def _parse_payload(self, payload):
-        jmes_path = "[:].content"
+    def _parse_payload(self, payload) -> str:
+        """Extract the user message text from a Chat Completions payload.
+
+        Args:
+            payload: Request payload containing ``messages``
+
+        Returns:
+            str: Concatenated message contents
+        """
         messages = payload.get("messages")
-        result = jmespath.search(jmes_path, messages)
-        if result is None:
+        if not messages:
             return ""
-        return "\n".join(result)
+        contents = [msg["content"] for msg in messages if "content" in msg]
+        return "\n".join(contents)
 
     @staticmethod
     def create_payload(
-        user_message: str | list[ContentItem],
-        max_tokens: int = 256,
-        **kwargs: Any,
-    ) -> dict:
-        """Create a payload for the OpenAI API request.
+        user_message: str | list[ContentItem], max_tokens: int = 256, **kwargs: Any
+    ) -> CompletionCreateParams:
+        """Create a payload for the OpenAI Chat Completions API request.
+
+        This is a convenience helper. You can also build the payload directly
+        using ``openai.types.chat.CompletionCreateParams``.
 
         Args:
             user_message: A single text string, or an ordered list mixing strings
@@ -144,7 +152,7 @@ class OpenAIEndpoint(Endpoint):
             **kwargs: Additional payload parameters.
 
         Returns:
-            dict: Formatted payload for API request.
+            dict: Formatted OpenAI CompletionCreateParams input payload
 
         Examples:
             Text only::
@@ -157,6 +165,7 @@ class OpenAIEndpoint(Endpoint):
                     ImageContent.from_path("photo.jpg"),
                     "What's in this image?",
                 ])
+            
         """
         if not isinstance(max_tokens, int) or max_tokens <= 0:
             raise ValueError("max_tokens must be a positive integer")
@@ -180,22 +189,29 @@ class OpenAIEndpoint(Endpoint):
                 "messages": [{"role": "user", "content": items[0]}],
                 "max_tokens": max_tokens,
             }
-            payload.update(kwargs)
-            return payload
-
-        content_blocks = _build_content_blocks_openai(items)
-        payload = {
-            "messages": [{"role": "user", "content": content_blocks}],
-            "max_tokens": max_tokens,
-        }
+        else:
+            content_blocks = _build_content_blocks_openai(items)
+            payload = {
+                "messages": [{"role": "user", "content": content_blocks}],
+                "max_tokens": max_tokens,
+            }
         payload.update(kwargs)
-        return payload
+        return cast(CompletionCreateParams, payload)
 
 
 class OpenAICompletionEndpoint(OpenAIEndpoint):
     """Endpoint for OpenAI-compatible Chat Completion APIs (non-streaming mode)"""
 
-    def invoke(self, payload: Dict, **kwargs: Any) -> InvocationResponse:
+    def invoke(self, payload: CompletionCreateParams, **kwargs: Any) -> InvocationResponse:
+        """Invoke the OpenAI chat completion API.
+
+        Args:
+            payload (CompletionCreateParams): Request payload
+            **kwargs (Any): Additional parameters for the request
+
+        Returns:
+            InvocationResponse: Response from the API
+        """
         payload = {**kwargs, **payload}
         payload["model"] = self.model_id
 
@@ -229,7 +245,16 @@ class OpenAICompletionEndpoint(OpenAIEndpoint):
 class OpenAICompletionStreamEndpoint(OpenAIEndpoint):
     """Endpoint for OpenAI-compatible Chat Completion APIs (streaming mode)"""
 
-    def invoke(self, payload: Dict, **kwargs: Any) -> InvocationResponse:
+    def invoke(self, payload: CompletionCreateParams, **kwargs: Any) -> InvocationResponse:
+        """Invoke the OpenAI streaming chat completion API.
+
+        Args:
+            payload (CompletionCreateParams): Request payload
+            **kwargs (Any): Additional parameters for the request
+
+        Returns:
+            InvocationResponse: Response from the API
+        """
         payload = {**kwargs, **payload}
         payload["model"] = self.model_id
 
@@ -239,7 +264,7 @@ class OpenAICompletionStreamEndpoint(OpenAIEndpoint):
 
         try:
             start_t = time.perf_counter()
-            client_response: ChatCompletion = self._client.chat.completions.create(
+            client_response = self._client.chat.completions.create(
                 **payload
             )
         except (APIConnectionError, Exception) as e:
@@ -253,23 +278,43 @@ class OpenAICompletionStreamEndpoint(OpenAIEndpoint):
         return response
 
     def _parse_converse_stream_response(
-        self, client_response: ChatCompletion, start_t: float
+        self, client_response, start_t: float
     ) -> InvocationResponse:
+        """Parse the streaming API response from OpenAI chat completion API.
+
+        Args:
+            client_response: Stream of ``ChatCompletionChunk`` objects
+            start_t: Start time of the API call in seconds
+
+        Returns:
+            InvocationResponse with concatenated text, token counts, TTFT and TTLT
+        """
         prompt_tokens = None
         completion_tokens = None
-
-        first_chunk = next(client_response)  # type: ignore
-        time_to_first_token = time.perf_counter() - start_t
-        response_id = first_chunk.id  # type: ignore
-        response_text = first_chunk.choices[0].delta.content or ""
+        response_text = ""
+        response_id = None
+        time_to_first_token = None
 
         for chunk in client_response:
-            if chunk.choices and chunk.choices[0].delta.content:  # type: ignore
-                response_text += chunk.choices[0].delta.content or ""  # type: ignore
-            if hasattr(chunk, "usage") and chunk.usage is not None:  # type: ignore
-                prompt_tokens = chunk.usage.prompt_tokens  # type: ignore
-                completion_tokens = chunk.usage.completion_tokens  # type: ignore
+            chunk: ChatCompletionChunk
+            if response_id is None:
+                response_id = chunk.id
+
+            if chunk.choices:
+                content = chunk.choices[0].delta.content
+                if content:
+                    if time_to_first_token is None:
+                        time_to_first_token = time.perf_counter() - start_t
+                    response_text += content
+
+            if chunk.usage is not None:
+                prompt_tokens = chunk.usage.prompt_tokens
+                completion_tokens = chunk.usage.completion_tokens
+
         time_to_last_token = time.perf_counter() - start_t
+
+        if time_to_first_token is None:
+            time_to_first_token = time_to_last_token
 
         return InvocationResponse(
             id=response_id,

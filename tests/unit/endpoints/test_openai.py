@@ -463,8 +463,11 @@ class TestOpenAICompletionStreamEndpoint:
         """Test _parse_converse_stream_response with empty stream."""
         start_time = time.perf_counter()
 
-        with pytest.raises(StopIteration):
-            endpoint._parse_converse_stream_response(iter([]), start_time)
+        response = endpoint._parse_converse_stream_response(iter([]), start_time)
+
+        assert response.response_text == ""
+        assert response.num_tokens_input is None
+        assert response.num_tokens_output is None
 
     def test_parse_converse_stream_response_no_usage(self, endpoint):
         """Test _parse_converse_stream_response without usage information."""
@@ -472,14 +475,13 @@ class TestOpenAICompletionStreamEndpoint:
         chunk1.id = "chatcmpl-test123"
         chunk1.choices = [MagicMock()]
         chunk1.choices[0].delta.content = "Hello"
+        chunk1.usage = None
 
         chunk2 = MagicMock()
         chunk2.id = "chatcmpl-test123"
         chunk2.choices = [MagicMock()]
         chunk2.choices[0].delta.content = None
-        # No usage attribute - explicitly delete it
-        if hasattr(chunk2, "usage"):
-            delattr(chunk2, "usage")
+        chunk2.usage = None
 
         start_time = time.perf_counter()
         response = endpoint._parse_converse_stream_response(
@@ -753,6 +755,7 @@ class TestOpenAIEndpointEdgeCases:
         chunk1.id = "chatcmpl-test123"
         chunk1.choices = [MagicMock()]
         chunk1.choices[0].delta.content = "Hello"
+        chunk1.usage = None
 
         chunk2 = MagicMock()
         chunk2.id = "chatcmpl-test123"
