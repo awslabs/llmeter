@@ -16,7 +16,7 @@ from unittest.mock import Mock, patch
 from hypothesis import given, settings, strategies as st
 
 from llmeter.endpoints.base import InvocationResponse
-from llmeter.endpoints.openai_response import ResponseEndpoint, ResponseStreamEndpoint
+from llmeter.endpoints.openai_response import OpenAIResponseEndpoint, OpenAIResponseStreamEndpoint
 
 
 # Feature: openai-response-api, Property 7: Payload Creation Format
@@ -48,7 +48,7 @@ def test_property_payload_creation_format(user_message, max_tokens, temperature,
     if top_p is not None:
         kwargs["top_p"] = top_p
 
-    payload = ResponseEndpoint.create_payload(
+    payload = OpenAIResponseEndpoint.create_payload(
         user_message=user_message, max_tokens=max_tokens, **kwargs
     )
 
@@ -126,7 +126,7 @@ def test_property_non_streaming_response_parsing_completeness(
 
     mock_client.responses.create.return_value = mock_response
 
-    endpoint = ResponseEndpoint(model_id="gpt-4")
+    endpoint = OpenAIResponseEndpoint(model_id="gpt-4")
     payload = {"input": "Test", "max_tokens": 256}
     result = endpoint.invoke(payload)
 
@@ -215,7 +215,7 @@ def test_property_streaming_response_assembly(
     # Mock the streaming response
     mock_client.responses.create.return_value = iter(mock_events)
 
-    endpoint = ResponseStreamEndpoint(model_id="gpt-4")
+    endpoint = OpenAIResponseStreamEndpoint(model_id="gpt-4")
     payload = {"input": "Test", "max_tokens": 256}
     result = endpoint.invoke(payload)
 
@@ -288,7 +288,7 @@ def test_property_payload_preservation(
         mock_response.usage.output_tokens = 5
         mock_client.responses.create.return_value = mock_response
 
-    endpoint = ResponseEndpoint(model_id="gpt-4")
+    endpoint = OpenAIResponseEndpoint(model_id="gpt-4")
     payload = {"input": input_text, "max_tokens": max_tokens}
     result = endpoint.invoke(payload)
 
@@ -344,7 +344,7 @@ def test_property_input_prompt_extraction(mock_openai_class, input_value):
     mock_response.usage.output_tokens = 5
     mock_client.responses.create.return_value = mock_response
 
-    endpoint = ResponseEndpoint(model_id="gpt-4")
+    endpoint = OpenAIResponseEndpoint(model_id="gpt-4")
     payload = {"input": input_value, "max_tokens": 256}
     result = endpoint.invoke(payload)
 
@@ -417,9 +417,9 @@ def test_property_error_handling_without_exceptions(
 
     # Test with appropriate endpoint type
     if endpoint_type == "non_streaming":
-        endpoint = ResponseEndpoint(model_id="gpt-4")
+        endpoint = OpenAIResponseEndpoint(model_id="gpt-4")
     else:
-        endpoint = ResponseStreamEndpoint(model_id="gpt-4")
+        endpoint = OpenAIResponseStreamEndpoint(model_id="gpt-4")
 
     payload = {"input": "Test", "max_tokens": 256}
 
@@ -471,7 +471,7 @@ def test_property_parameter_forwarding(
     mock_response.usage.output_tokens = 5
     mock_client.responses.create.return_value = mock_response
 
-    endpoint = ResponseEndpoint(model_id="gpt-4-test")
+    endpoint = OpenAIResponseEndpoint(model_id="gpt-4-test")
     payload = {"input": "Test", "max_tokens": 256}
 
     # Build kwargs with non-None parameters

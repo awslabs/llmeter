@@ -12,7 +12,7 @@ from openai import (
     RateLimitError,
 )
 
-from llmeter.endpoints.openai_response import ResponseEndpoint, ResponseStreamEndpoint
+from llmeter.endpoints.openai_response import OpenAIResponseEndpoint, OpenAIResponseStreamEndpoint
 
 
 class TestResponseEndpointErrorHandling:
@@ -30,7 +30,7 @@ class TestResponseEndpointErrorHandling:
             message="Connection failed", request=mock_request
         )
 
-        endpoint = ResponseEndpoint(model_id="gpt-4", api_key="dummy-key")
+        endpoint = OpenAIResponseEndpoint(model_id="gpt-4", api_key="dummy-key")
         payload = {"input": "Hello"}
         response = endpoint.invoke(payload)
 
@@ -49,7 +49,7 @@ class TestResponseEndpointErrorHandling:
             "Invalid API key", response=Mock(), body=None
         )
 
-        endpoint = ResponseEndpoint(model_id="gpt-4", api_key="dummy-key")
+        endpoint = OpenAIResponseEndpoint(model_id="gpt-4", api_key="dummy-key")
         payload = {"input": "Hello"}
         response = endpoint.invoke(payload)
 
@@ -68,7 +68,7 @@ class TestResponseEndpointErrorHandling:
             "Rate limit exceeded", response=Mock(), body=None
         )
 
-        endpoint = ResponseEndpoint(model_id="gpt-4", api_key="dummy-key")
+        endpoint = OpenAIResponseEndpoint(model_id="gpt-4", api_key="dummy-key")
         payload = {"input": "Hello"}
         response = endpoint.invoke(payload)
 
@@ -87,7 +87,7 @@ class TestResponseEndpointErrorHandling:
             "Invalid request", response=Mock(), body=None
         )
 
-        endpoint = ResponseEndpoint(model_id="gpt-4", api_key="dummy-key")
+        endpoint = OpenAIResponseEndpoint(model_id="gpt-4", api_key="dummy-key")
         payload = {"input": "Hello"}
         response = endpoint.invoke(payload)
 
@@ -104,7 +104,7 @@ class TestResponseEndpointErrorHandling:
         mock_openai_class.return_value = mock_client
         mock_client.responses.create.side_effect = Exception("Unexpected error")
 
-        endpoint = ResponseEndpoint(model_id="gpt-4", api_key="dummy-key")
+        endpoint = OpenAIResponseEndpoint(model_id="gpt-4", api_key="dummy-key")
         payload = {"input": "Hello"}
         response = endpoint.invoke(payload)
 
@@ -130,7 +130,7 @@ class TestResponseStreamEndpointErrorHandling:
             message="Connection failed", request=mock_request
         )
 
-        endpoint = ResponseStreamEndpoint(model_id="gpt-4", api_key="dummy-key")
+        endpoint = OpenAIResponseStreamEndpoint(model_id="gpt-4", api_key="dummy-key")
         payload = {"input": "Hello"}
         response = endpoint.invoke(payload)
 
@@ -149,7 +149,7 @@ class TestResponseStreamEndpointErrorHandling:
             "Invalid API key", response=Mock(), body=None
         )
 
-        endpoint = ResponseStreamEndpoint(model_id="gpt-4", api_key="dummy-key")
+        endpoint = OpenAIResponseStreamEndpoint(model_id="gpt-4", api_key="dummy-key")
         payload = {"input": "Hello"}
         response = endpoint.invoke(payload)
 
@@ -168,7 +168,7 @@ class TestResponseStreamEndpointErrorHandling:
             "Rate limit exceeded", response=Mock(), body=None
         )
 
-        endpoint = ResponseStreamEndpoint(model_id="gpt-4", api_key="dummy-key")
+        endpoint = OpenAIResponseStreamEndpoint(model_id="gpt-4", api_key="dummy-key")
         payload = {"input": "Hello"}
         response = endpoint.invoke(payload)
 
@@ -187,7 +187,7 @@ class TestResponseStreamEndpointErrorHandling:
             "Invalid request", response=Mock(), body=None
         )
 
-        endpoint = ResponseStreamEndpoint(model_id="gpt-4", api_key="dummy-key")
+        endpoint = OpenAIResponseStreamEndpoint(model_id="gpt-4", api_key="dummy-key")
         payload = {"input": "Hello"}
         response = endpoint.invoke(payload)
 
@@ -204,7 +204,7 @@ class TestResponseStreamEndpointErrorHandling:
         mock_openai_class.return_value = mock_client
         mock_client.responses.create.side_effect = Exception("Unexpected error")
 
-        endpoint = ResponseStreamEndpoint(model_id="gpt-4", api_key="dummy-key")
+        endpoint = OpenAIResponseStreamEndpoint(model_id="gpt-4", api_key="dummy-key")
         payload = {"input": "Hello"}
         response = endpoint.invoke(payload)
 

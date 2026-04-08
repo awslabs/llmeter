@@ -10,7 +10,7 @@ additional parameters are correctly passed through to the API.
 
 from unittest.mock import Mock, patch
 
-from llmeter.endpoints.openai_response import ResponseEndpoint, ResponseStreamEndpoint
+from llmeter.endpoints.openai_response import OpenAIResponseEndpoint, OpenAIResponseStreamEndpoint
 
 
 class TestModelSpecificParameters:
@@ -22,7 +22,7 @@ class TestModelSpecificParameters:
 
         **Validates: Requirements 12.4**
         """
-        payload = ResponseEndpoint.create_payload(
+        payload = OpenAIResponseEndpoint.create_payload(
             user_message="Write a creative story",
             max_tokens=256,
             temperature=0.8,
@@ -38,7 +38,7 @@ class TestModelSpecificParameters:
 
         **Validates: Requirements 12.5**
         """
-        payload = ResponseEndpoint.create_payload(
+        payload = OpenAIResponseEndpoint.create_payload(
             user_message="Generate text",
             max_tokens=256,
             top_p=0.9,
@@ -54,7 +54,7 @@ class TestModelSpecificParameters:
 
         **Validates: Requirements 12.4, 12.5, 12.6**
         """
-        payload = ResponseEndpoint.create_payload(
+        payload = OpenAIResponseEndpoint.create_payload(
             user_message="Generate text",
             max_tokens=512,
             temperature=0.7,
@@ -91,7 +91,7 @@ class TestModelSpecificParameters:
         mock_client.responses.create.return_value = mock_response
 
         # Create endpoint and invoke with temperature
-        endpoint = ResponseEndpoint(model_id="gpt-4")
+        endpoint = OpenAIResponseEndpoint(model_id="gpt-4")
         payload = {
             "input": "Write a story",
             "max_tokens": 256,
@@ -132,7 +132,7 @@ class TestModelSpecificParameters:
         mock_client.responses.create.return_value = mock_response
 
         # Create endpoint and invoke with top_p
-        endpoint = ResponseEndpoint(model_id="gpt-4")
+        endpoint = OpenAIResponseEndpoint(model_id="gpt-4")
         payload = {
             "input": "Generate text",
             "max_tokens": 256,
@@ -173,7 +173,7 @@ class TestModelSpecificParameters:
         mock_client.responses.create.return_value = mock_response
 
         # Create endpoint and invoke with multiple parameters
-        endpoint = ResponseEndpoint(model_id="gpt-4")
+        endpoint = OpenAIResponseEndpoint(model_id="gpt-4")
         payload = {
             "input": "Generate text",
             "max_tokens": 512,
@@ -223,7 +223,7 @@ class TestModelSpecificParameters:
         mock_client.responses.create.return_value = mock_response
 
         # Create endpoint
-        endpoint = ResponseEndpoint(model_id="gpt-4")
+        endpoint = OpenAIResponseEndpoint(model_id="gpt-4")
 
         # Create payload with some parameters
         payload = {
@@ -293,7 +293,7 @@ class TestModelSpecificParameters:
         )
 
         # Create streaming endpoint and invoke with temperature
-        endpoint = ResponseStreamEndpoint(model_id="gpt-4")
+        endpoint = OpenAIResponseStreamEndpoint(model_id="gpt-4")
         payload = {
             "input": "Generate text",
             "max_tokens": 256,
@@ -351,7 +351,7 @@ class TestModelSpecificParameters:
         )
 
         # Create streaming endpoint and invoke with multiple parameters
-        endpoint = ResponseStreamEndpoint(model_id="gpt-4")
+        endpoint = OpenAIResponseStreamEndpoint(model_id="gpt-4")
         payload = {
             "input": "Generate text",
             "max_tokens": 512,
@@ -401,7 +401,7 @@ class TestModelSpecificParameters:
         mock_client.responses.create.return_value = mock_response
 
         # Create endpoint with specific model_id
-        endpoint = ResponseEndpoint(model_id="gpt-4-turbo")
+        endpoint = OpenAIResponseEndpoint(model_id="gpt-4-turbo")
         payload = {
             "input": "Test message",
             "max_tokens": 256,

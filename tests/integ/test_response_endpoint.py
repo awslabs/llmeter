@@ -32,7 +32,7 @@ try:
 except ImportError:
     OPENAI_AVAILABLE = False
 
-from llmeter.endpoints.openai_response import ResponseEndpoint, ResponseStreamEndpoint
+from llmeter.endpoints.openai_response import OpenAIResponseEndpoint, OpenAIResponseStreamEndpoint
 
 
 def _mantle_base_url(region: str) -> str:
@@ -67,13 +67,13 @@ def test_response_endpoint_non_streaming(
     token = provide_token(region=aws_region)
     model_id = _strip_model_version(bedrock_openai_test_model)
 
-    endpoint = ResponseEndpoint(
+    endpoint = OpenAIResponseEndpoint(
         model_id=model_id,
         api_key=token,
         base_url=_mantle_base_url(aws_region),
     )
 
-    payload = ResponseEndpoint.create_payload(
+    payload = OpenAIResponseEndpoint.create_payload(
         user_message="Hello, this is a test message. Please respond with a brief greeting.",
         max_output_tokens=100,
     )
@@ -120,13 +120,13 @@ def test_response_endpoint_streaming(
     token = provide_token(region=aws_region)
     model_id = _strip_model_version(bedrock_openai_test_model)
 
-    endpoint = ResponseStreamEndpoint(
+    endpoint = OpenAIResponseStreamEndpoint(
         model_id=model_id,
         api_key=token,
         base_url=_mantle_base_url(aws_region),
     )
 
-    payload = ResponseEndpoint.create_payload(
+    payload = OpenAIResponseEndpoint.create_payload(
         user_message="Hello, this is a test message. Please respond with a brief greeting.",
         max_output_tokens=100,
     )

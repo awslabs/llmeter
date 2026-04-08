@@ -11,7 +11,7 @@ correctly and that structured outputs are parsed properly.
 from unittest.mock import Mock, patch
 
 
-from llmeter.endpoints.openai_response import ResponseEndpoint, ResponseStreamEndpoint
+from llmeter.endpoints.openai_response import OpenAIResponseEndpoint, OpenAIResponseStreamEndpoint
 
 
 class TestResponseFormatConfiguration:
@@ -39,7 +39,7 @@ class TestResponseFormatConfiguration:
             },
         }
 
-        payload = ResponseEndpoint.create_payload(
+        payload = OpenAIResponseEndpoint.create_payload(
             user_message="Generate a person with name and age",
             max_tokens=256,
             text={"format": json_schema},
@@ -56,7 +56,7 @@ class TestResponseFormatConfiguration:
 
         **Validates: Requirements 7.1, 7.2**
         """
-        payload = ResponseEndpoint.create_payload(
+        payload = OpenAIResponseEndpoint.create_payload(
             user_message="Generate JSON output",
             max_tokens=256,
             text={"format": {"type": "json_object"}},
@@ -88,7 +88,7 @@ class TestResponseFormatConfiguration:
         mock_client.responses.create.return_value = mock_response
 
         # Create endpoint and invoke with text.format
-        endpoint = ResponseEndpoint(model_id="gpt-4")
+        endpoint = OpenAIResponseEndpoint(model_id="gpt-4")
         json_schema = {
             "type": "json_schema",
             "json_schema": {
@@ -145,7 +145,7 @@ class TestResponseFormatConfiguration:
         mock_client.responses.create.return_value = mock_response
 
         # Create endpoint and invoke
-        endpoint = ResponseEndpoint(model_id="gpt-4")
+        endpoint = OpenAIResponseEndpoint(model_id="gpt-4")
         payload = {
             "input": "Generate a person",
             "max_tokens": 256,
@@ -203,7 +203,7 @@ class TestResponseFormatConfiguration:
         )
 
         # Create streaming endpoint and invoke with text.format
-        endpoint = ResponseStreamEndpoint(model_id="gpt-4")
+        endpoint = OpenAIResponseStreamEndpoint(model_id="gpt-4")
         json_schema = {"type": "json_object"}
 
         payload = {
@@ -253,7 +253,7 @@ class TestResponseFormatConfiguration:
         mock_client.responses.create.return_value = mock_response
 
         # Create endpoint and invoke without text.format (default text modality)
-        endpoint = ResponseEndpoint(model_id="gpt-4")
+        endpoint = OpenAIResponseEndpoint(model_id="gpt-4")
         payload = {
             "input": "Say hello",
             "max_tokens": 256,
@@ -288,7 +288,7 @@ class TestResponseFormatConfiguration:
         mock_client.responses.create.return_value = mock_response
 
         # Create endpoint and invoke with JSON format
-        endpoint = ResponseEndpoint(model_id="gpt-4")
+        endpoint = OpenAIResponseEndpoint(model_id="gpt-4")
         payload = {
             "input": "Generate JSON data",
             "max_tokens": 256,

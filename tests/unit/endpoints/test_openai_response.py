@@ -10,7 +10,7 @@ error handling, and timing measurements for the ResponseEndpoint class.
 
 from unittest.mock import Mock, patch
 
-from llmeter.endpoints.openai_response import ResponseEndpoint
+from llmeter.endpoints.openai_response import OpenAIResponseEndpoint
 
 
 class TestResponseEndpointInitialization:
@@ -22,7 +22,7 @@ class TestResponseEndpointInitialization:
     @patch("llmeter.endpoints.openai.OpenAI")
     def test_init_with_model_id(self, mock_openai_class):
         """Test endpoint initialization with model_id parameter."""
-        endpoint = ResponseEndpoint(model_id="gpt-4")
+        endpoint = OpenAIResponseEndpoint(model_id="gpt-4")
 
         assert endpoint.model_id == "gpt-4"
         assert endpoint.endpoint_name == "openai-response"
@@ -32,7 +32,7 @@ class TestResponseEndpointInitialization:
     @patch("llmeter.endpoints.openai.OpenAI")
     def test_init_with_api_key(self, mock_openai_class):
         """Test endpoint initialization with optional api_key parameter."""
-        endpoint = ResponseEndpoint(model_id="gpt-4", api_key="test-key-123")
+        endpoint = OpenAIResponseEndpoint(model_id="gpt-4", api_key="test-key-123")
 
         assert endpoint.model_id == "gpt-4"
         # Verify OpenAI client was initialized with api_key
@@ -42,7 +42,7 @@ class TestResponseEndpointInitialization:
     @patch("llmeter.endpoints.openai.OpenAI")
     def test_init_with_custom_endpoint_name(self, mock_openai_class):
         """Test endpoint initialization with custom endpoint_name."""
-        endpoint = ResponseEndpoint(
+        endpoint = OpenAIResponseEndpoint(
             model_id="gpt-4", endpoint_name="custom-response-endpoint"
         )
 
@@ -52,14 +52,14 @@ class TestResponseEndpointInitialization:
     @patch("llmeter.endpoints.openai.OpenAI")
     def test_init_default_provider_value(self, mock_openai_class):
         """Test that provider defaults to 'openai'."""
-        endpoint = ResponseEndpoint(model_id="gpt-4")
+        endpoint = OpenAIResponseEndpoint(model_id="gpt-4")
 
         assert endpoint.provider == "openai"
 
     @patch("llmeter.endpoints.openai.OpenAI")
     def test_init_with_custom_provider(self, mock_openai_class):
         """Test endpoint initialization with custom provider."""
-        endpoint = ResponseEndpoint(model_id="gpt-4", provider="custom-provider")
+        endpoint = OpenAIResponseEndpoint(model_id="gpt-4", provider="custom-provider")
 
         assert endpoint.provider == "custom-provider"
 
@@ -72,7 +72,7 @@ class TestResponseEndpointPayloadCreation:
 
     def test_create_payload_with_single_string(self):
         """Test create_payload with single string message."""
-        payload = ResponseEndpoint.create_payload(
+        payload = OpenAIResponseEndpoint.create_payload(
             user_message="Hello, how are you?", max_output_tokens=256
         )
 
@@ -83,7 +83,7 @@ class TestResponseEndpointPayloadCreation:
     def test_create_payload_with_sequence_of_strings(self):
         """Test create_payload with sequence of messages."""
         messages = ["First message", "Second message", "Third message"]
-        payload = ResponseEndpoint.create_payload(user_message=messages, max_output_tokens=512)
+        payload = OpenAIResponseEndpoint.create_payload(user_message=messages, max_output_tokens=512)
 
         assert isinstance(payload, dict)
         assert "input" in payload
@@ -97,7 +97,7 @@ class TestResponseEndpointPayloadCreation:
 
     def test_create_payload_with_max_output_tokens(self):
         """Test create_payload with max_output_tokens parameter."""
-        payload = ResponseEndpoint.create_payload(
+        payload = OpenAIResponseEndpoint.create_payload(
             user_message="Test message", max_output_tokens=1024
         )
 
@@ -105,13 +105,13 @@ class TestResponseEndpointPayloadCreation:
 
     def test_create_payload_default_max_output_tokens(self):
         """Test that max_output_tokens defaults to 256."""
-        payload = ResponseEndpoint.create_payload(user_message="Test")
+        payload = OpenAIResponseEndpoint.create_payload(user_message="Test")
 
         assert payload["max_output_tokens"] == 256
 
     def test_create_payload_with_instructions(self):
         """Test create_payload with instructions parameter."""
-        payload = ResponseEndpoint.create_payload(
+        payload = OpenAIResponseEndpoint.create_payload(
             user_message="Write a story",
             max_output_tokens=256,
             instructions="You are a creative storyteller",
@@ -122,7 +122,7 @@ class TestResponseEndpointPayloadCreation:
 
     def test_create_payload_without_instructions(self):
         """Test create_payload without instructions parameter."""
-        payload = ResponseEndpoint.create_payload(
+        payload = OpenAIResponseEndpoint.create_payload(
             user_message="Test message", max_output_tokens=256
         )
 
@@ -130,7 +130,7 @@ class TestResponseEndpointPayloadCreation:
 
     def test_create_payload_with_temperature_kwarg(self):
         """Test create_payload with temperature in kwargs."""
-        payload = ResponseEndpoint.create_payload(
+        payload = OpenAIResponseEndpoint.create_payload(
             user_message="Test", max_output_tokens=256, temperature=0.8
         )
 
@@ -138,7 +138,7 @@ class TestResponseEndpointPayloadCreation:
 
     def test_create_payload_with_top_p_kwarg(self):
         """Test create_payload with top_p in kwargs."""
-        payload = ResponseEndpoint.create_payload(
+        payload = OpenAIResponseEndpoint.create_payload(
             user_message="Test", max_output_tokens=256, top_p=0.9
         )
 
@@ -146,7 +146,7 @@ class TestResponseEndpointPayloadCreation:
 
     def test_create_payload_with_multiple_kwargs(self):
         """Test create_payload with multiple additional kwargs."""
-        payload = ResponseEndpoint.create_payload(
+        payload = OpenAIResponseEndpoint.create_payload(
             user_message="Test",
             max_output_tokens=256,
             temperature=0.7,
@@ -183,7 +183,7 @@ class TestResponseEndpointResponseParsing:
 
         mock_client.responses.create.return_value = mock_response
 
-        endpoint = ResponseEndpoint(model_id="gpt-4")
+        endpoint = OpenAIResponseEndpoint(model_id="gpt-4")
         payload = {"input": "Hello, how are you?", "max_output_tokens": 256}
         response = endpoint.invoke(payload)
 
@@ -210,7 +210,7 @@ class TestResponseEndpointResponseParsing:
 
         mock_client.responses.create.return_value = mock_response
 
-        endpoint = ResponseEndpoint(model_id="gpt-4")
+        endpoint = OpenAIResponseEndpoint(model_id="gpt-4")
         payload = {"input": "Test", "max_output_tokens": 256}
         response = endpoint.invoke(payload)
 
@@ -238,7 +238,7 @@ class TestResponseEndpointResponseParsing:
 
         mock_client.responses.create.return_value = mock_response
 
-        endpoint = ResponseEndpoint(model_id="gpt-4")
+        endpoint = OpenAIResponseEndpoint(model_id="gpt-4")
         payload = {"input": "Test", "max_output_tokens": 256}
         response = endpoint.invoke(payload)
 
@@ -264,7 +264,7 @@ class TestResponseEndpointResponseParsing:
 
         mock_client.responses.create.return_value = mock_response
 
-        endpoint = ResponseEndpoint(model_id="gpt-4")
+        endpoint = OpenAIResponseEndpoint(model_id="gpt-4")
         payload = {"input": "Test", "max_output_tokens": 256}
         response = endpoint.invoke(payload)
 
@@ -286,7 +286,7 @@ class TestResponseEndpointResponseParsing:
 
         mock_client.responses.create.return_value = mock_response
 
-        endpoint = ResponseEndpoint(model_id="gpt-4")
+        endpoint = OpenAIResponseEndpoint(model_id="gpt-4")
         payload = {"input": "Test", "max_output_tokens": 256}
         response = endpoint.invoke(payload)
 
@@ -314,7 +314,7 @@ class TestResponseEndpointErrorHandling:
             message="Connection failed", request=mock_request
         )
 
-        endpoint = ResponseEndpoint(model_id="gpt-4")
+        endpoint = OpenAIResponseEndpoint(model_id="gpt-4")
         payload = {"input": "Test", "max_tokens": 256}
         response = endpoint.invoke(payload)
 
@@ -337,7 +337,7 @@ class TestResponseEndpointErrorHandling:
             "Invalid API key", response=Mock(), body=None
         )
 
-        endpoint = ResponseEndpoint(model_id="gpt-4")
+        endpoint = OpenAIResponseEndpoint(model_id="gpt-4")
         payload = {"input": "Test", "max_tokens": 256}
         response = endpoint.invoke(payload)
 
@@ -360,7 +360,7 @@ class TestResponseEndpointErrorHandling:
             "Rate limit exceeded", response=Mock(), body=None
         )
 
-        endpoint = ResponseEndpoint(model_id="gpt-4")
+        endpoint = OpenAIResponseEndpoint(model_id="gpt-4")
         payload = {"input": "Test", "max_tokens": 256}
         response = endpoint.invoke(payload)
 
@@ -383,7 +383,7 @@ class TestResponseEndpointErrorHandling:
             "Invalid request", response=Mock(), body=None
         )
 
-        endpoint = ResponseEndpoint(model_id="gpt-4")
+        endpoint = OpenAIResponseEndpoint(model_id="gpt-4")
         payload = {"input": "Test", "max_tokens": 256}
         response = endpoint.invoke(payload)
 
@@ -402,7 +402,7 @@ class TestResponseEndpointErrorHandling:
 
         mock_client.responses.create.side_effect = Exception("Unexpected error")
 
-        endpoint = ResponseEndpoint(model_id="gpt-4")
+        endpoint = OpenAIResponseEndpoint(model_id="gpt-4")
         payload = {"input": "Test", "max_tokens": 256}
         response = endpoint.invoke(payload)
 
@@ -435,7 +435,7 @@ class TestResponseEndpointTimingMeasurements:
 
         mock_client.responses.create.return_value = mock_response
 
-        endpoint = ResponseEndpoint(model_id="gpt-4")
+        endpoint = OpenAIResponseEndpoint(model_id="gpt-4")
         payload = {"input": "Test", "max_tokens": 256}
         response = endpoint.invoke(payload)
 
@@ -462,7 +462,7 @@ class TestResponseEndpointTimingMeasurements:
 
         mock_client.responses.create.return_value = mock_response
 
-        endpoint = ResponseEndpoint(model_id="gpt-4")
+        endpoint = OpenAIResponseEndpoint(model_id="gpt-4")
         payload = {"input": "Test", "max_tokens": 256}
         response = endpoint.invoke(payload)
 

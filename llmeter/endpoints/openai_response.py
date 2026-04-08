@@ -19,7 +19,7 @@ from .openai import OpenAIEndpoint
 logger = logging.getLogger(__name__)
 
 
-class ResponseEndpoint(OpenAIEndpoint):
+class OpenAIResponseEndpoint(OpenAIEndpoint):
     """Endpoint for OpenAI Responses API (non-streaming).
 
     This endpoint provides access to OpenAI's newer Responses API which offers
@@ -70,27 +70,27 @@ class ResponseEndpoint(OpenAIEndpoint):
         try:
             client_response = self._client.responses.create(**payload)
         except APIConnectionError as e:
-            logger.error(e)
+            logger.exception(e)
             return InvocationResponse.error_output(
                 input_payload=payload, id=uuid4().hex, error=str(e)
             )
         except AuthenticationError as e:
-            logger.error(e)
+            logger.exception(e)
             return InvocationResponse.error_output(
                 input_payload=payload, id=uuid4().hex, error=str(e)
             )
         except RateLimitError as e:
-            logger.error(e)
+            logger.exception(e)
             return InvocationResponse.error_output(
                 input_payload=payload, id=uuid4().hex, error=str(e)
             )
         except BadRequestError as e:
-            logger.error(e)
+            logger.exception(e)
             return InvocationResponse.error_output(
                 input_payload=payload, id=uuid4().hex, error=str(e)
             )
         except Exception as e:
-            logger.error(e)
+            logger.exception(e)
             return InvocationResponse.error_output(
                 input_payload=payload, id=uuid4().hex, error=str(e)
             )
@@ -207,7 +207,7 @@ class ResponseEndpoint(OpenAIEndpoint):
         return ""
 
 
-class ResponseStreamEndpoint(OpenAIEndpoint):
+class OpenAIResponseStreamEndpoint(OpenAIEndpoint):
     """Endpoint for OpenAI Responses API (streaming).
 
     This endpoint provides streaming access to OpenAI's Responses API, enabling
@@ -262,27 +262,27 @@ class ResponseStreamEndpoint(OpenAIEndpoint):
             start_t = time.perf_counter()
             client_response = self._client.responses.create(**payload)
         except APIConnectionError as e:
-            logger.error(e)
+            logger.exception(e)
             return InvocationResponse.error_output(
                 input_payload=payload, id=uuid4().hex, error=str(e)
             )
         except AuthenticationError as e:
-            logger.error(e)
+            logger.exception(e)
             return InvocationResponse.error_output(
                 input_payload=payload, id=uuid4().hex, error=str(e)
             )
         except RateLimitError as e:
-            logger.error(e)
+            logger.exception(e)
             return InvocationResponse.error_output(
                 input_payload=payload, id=uuid4().hex, error=str(e)
             )
         except BadRequestError as e:
-            logger.error(e)
+            logger.exception(e)
             return InvocationResponse.error_output(
                 input_payload=payload, id=uuid4().hex, error=str(e)
             )
         except Exception as e:
-            logger.error(e)
+            logger.exception(e)
             return InvocationResponse.error_output(
                 input_payload=payload, id=uuid4().hex, error=str(e)
             )

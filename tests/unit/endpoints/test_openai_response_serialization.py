@@ -17,7 +17,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from llmeter.endpoints.base import Endpoint
-from llmeter.endpoints.openai_response import ResponseEndpoint, ResponseStreamEndpoint
+from llmeter.endpoints.openai_response import OpenAIResponseEndpoint, OpenAIResponseStreamEndpoint
 
 
 class TestEndpointSerialization:
@@ -29,7 +29,7 @@ class TestEndpointSerialization:
     @patch("llmeter.endpoints.openai.OpenAI")
     def test_to_dict_produces_valid_dictionary(self, mock_openai_class):
         """Test to_dict produces valid dictionary."""
-        endpoint = ResponseEndpoint(
+        endpoint = OpenAIResponseEndpoint(
             model_id="gpt-4",
             endpoint_name="test-response",
             provider="openai",
@@ -50,7 +50,7 @@ class TestEndpointSerialization:
         assert result["model_id"] == "gpt-4"
         assert result["endpoint_name"] == "test-response"
         assert result["provider"] == "openai"
-        assert result["endpoint_type"] == "ResponseEndpoint"
+        assert result["endpoint_type"] == "OpenAIResponseEndpoint"
 
         # Verify private attributes are excluded
         assert not any(key.startswith("_") for key in result.keys())
@@ -59,7 +59,7 @@ class TestEndpointSerialization:
     def test_save_creates_file_with_correct_content(self, mock_openai_class):
         """Test save creates file with correct content."""
         with tempfile.TemporaryDirectory() as tmpdir:
-            endpoint = ResponseEndpoint(
+            endpoint = OpenAIResponseEndpoint(
                 model_id="gpt-4-turbo",
                 endpoint_name="saved-endpoint",
                 provider="openai",
@@ -80,14 +80,14 @@ class TestEndpointSerialization:
             assert data["model_id"] == "gpt-4-turbo"
             assert data["endpoint_name"] == "saved-endpoint"
             assert data["provider"] == "openai"
-            assert data["endpoint_type"] == "ResponseEndpoint"
+            assert data["endpoint_type"] == "OpenAIResponseEndpoint"
 
     @patch("llmeter.endpoints.openai.OpenAI")
     def test_load_from_file_reconstructs_endpoint(self, mock_openai_class):
         """Test load_from_file reconstructs endpoint."""
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create and save endpoint
-            original = ResponseEndpoint(
+            original = OpenAIResponseEndpoint(
                 model_id="gpt-4",
                 endpoint_name="original-endpoint",
                 provider="openai",
@@ -100,7 +100,7 @@ class TestEndpointSerialization:
             loaded = Endpoint.load_from_file(output_path)
 
             # Verify loaded endpoint has correct type
-            assert isinstance(loaded, ResponseEndpoint)
+            assert isinstance(loaded, OpenAIResponseEndpoint)
 
             # Verify loaded endpoint has correct attributes
             assert loaded.model_id == "gpt-4"
@@ -112,7 +112,7 @@ class TestEndpointSerialization:
         """Test round trip (save then load)."""
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create original endpoint
-            original = ResponseEndpoint(
+            original = OpenAIResponseEndpoint(
                 model_id="gpt-4-turbo",
                 endpoint_name="roundtrip-test",
                 provider="openai",
@@ -147,7 +147,7 @@ class TestStreamEndpointSerialization:
     @patch("llmeter.endpoints.openai.OpenAI")
     def test_stream_endpoint_to_dict(self, mock_openai_class):
         """Test streaming endpoint to_dict produces valid dictionary."""
-        endpoint = ResponseStreamEndpoint(
+        endpoint = OpenAIResponseStreamEndpoint(
             model_id="gpt-4",
             endpoint_name="test-stream",
             provider="openai",
@@ -168,14 +168,14 @@ class TestStreamEndpointSerialization:
         assert result["model_id"] == "gpt-4"
         assert result["endpoint_name"] == "test-stream"
         assert result["provider"] == "openai"
-        assert result["endpoint_type"] == "ResponseStreamEndpoint"
+        assert result["endpoint_type"] == "OpenAIResponseStreamEndpoint"
 
     @patch("llmeter.endpoints.openai.OpenAI")
     def test_stream_endpoint_save_and_load(self, mock_openai_class):
         """Test streaming endpoint save and load."""
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create and save endpoint
-            original = ResponseStreamEndpoint(
+            original = OpenAIResponseStreamEndpoint(
                 model_id="gpt-4-turbo",
                 endpoint_name="stream-endpoint",
                 provider="openai",
@@ -188,7 +188,7 @@ class TestStreamEndpointSerialization:
             loaded = Endpoint.load_from_file(output_path)
 
             # Verify loaded endpoint has correct type
-            assert isinstance(loaded, ResponseStreamEndpoint)
+            assert isinstance(loaded, OpenAIResponseStreamEndpoint)
 
             # Verify loaded endpoint has correct attributes
             assert loaded.model_id == "gpt-4-turbo"
@@ -200,7 +200,7 @@ class TestStreamEndpointSerialization:
         """Test streaming endpoint round trip."""
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create original endpoint
-            original = ResponseStreamEndpoint(
+            original = OpenAIResponseStreamEndpoint(
                 model_id="gpt-4",
                 endpoint_name="stream-roundtrip",
                 provider="openai",
@@ -256,7 +256,7 @@ class TestSerializationPropertyTests:
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create original endpoint
-            original = ResponseEndpoint(
+            original = OpenAIResponseEndpoint(
                 model_id=model_id,
                 endpoint_name=endpoint_name,
                 provider=provider,
@@ -309,7 +309,7 @@ class TestSerializationPropertyTests:
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create original endpoint
-            original = ResponseStreamEndpoint(
+            original = OpenAIResponseStreamEndpoint(
                 model_id=model_id,
                 endpoint_name=endpoint_name,
                 provider=provider,
@@ -364,7 +364,7 @@ class TestInvocationResponseTypeConsistency:
         mock_client.responses.create.return_value = mock_response
 
         # Create endpoint and invoke
-        endpoint = ResponseEndpoint(model_id="gpt-4")
+        endpoint = OpenAIResponseEndpoint(model_id="gpt-4")
         payload = {"input": "Test", "max_tokens": 256}
         response = endpoint.invoke(payload)
 
@@ -410,7 +410,7 @@ class TestInvocationResponseTypeConsistency:
         )
 
         # Create endpoint and invoke
-        endpoint = ResponseStreamEndpoint(model_id="gpt-4")
+        endpoint = OpenAIResponseStreamEndpoint(model_id="gpt-4")
         payload = {"input": "Test", "max_tokens": 256}
         response = endpoint.invoke(payload)
 
@@ -439,7 +439,7 @@ class TestInvocationResponseTypeConsistency:
         )
 
         # Create endpoint and invoke
-        endpoint = ResponseEndpoint(model_id="gpt-4")
+        endpoint = OpenAIResponseEndpoint(model_id="gpt-4")
         payload = {"input": "Test", "max_tokens": 256}
         response = endpoint.invoke(payload)
 
@@ -467,7 +467,7 @@ class TestInvocationResponseTypeConsistency:
         )
 
         # Create endpoint and invoke
-        endpoint = ResponseStreamEndpoint(model_id="gpt-4")
+        endpoint = OpenAIResponseStreamEndpoint(model_id="gpt-4")
         payload = {"input": "Test", "max_tokens": 256}
         response = endpoint.invoke(payload)
 
@@ -512,7 +512,7 @@ class TestInvocationResponseTypeConsistency:
         mock_client.responses.create.return_value = mock_response
 
         # Create endpoint and invoke
-        endpoint = ResponseEndpoint(model_id="gpt-4")
+        endpoint = OpenAIResponseEndpoint(model_id="gpt-4")
         response = endpoint.invoke(payload)
 
         # Verify return type
@@ -571,7 +571,7 @@ class TestInvocationResponseTypeConsistency:
         )
 
         # Create endpoint and invoke
-        endpoint = ResponseStreamEndpoint(model_id="gpt-4")
+        endpoint = OpenAIResponseStreamEndpoint(model_id="gpt-4")
         response = endpoint.invoke(payload)
 
         # Verify return type
