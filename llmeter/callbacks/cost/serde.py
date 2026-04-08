@@ -205,7 +205,12 @@ class JSONableBase:
             f.write(self.to_json(indent=indent, **kwargs))
         return output_path
 
-    def to_json(self, **kwargs) -> str:
-        """Serialize this object to JSON, with optional kwargs passed through to `json.dumps()`"""
-        kwargs.setdefault("cls", LLMeterEncoder)
-        return json.dumps(self.to_dict(), **kwargs)
+    def to_json(self, cls: type[json.JSONEncoder] = LLMeterEncoder, **kwargs) -> str:
+        """Serialize this object to JSON.
+
+        Args:
+            cls: JSON encoder class. Defaults to
+                :class:`~llmeter.json_utils.LLMeterEncoder`.
+            **kwargs: Extra keyword arguments passed to :func:`json.dumps`.
+        """
+        return json.dumps(self.to_dict(), cls=cls, **kwargs)

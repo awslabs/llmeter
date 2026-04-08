@@ -107,13 +107,18 @@ class Result:
                 for response in self.responses:
                     f.write(json.dumps(asdict(response), cls=LLMeterEncoder) + "\n")
 
-    def to_json(self, **kwargs):
-        """Return the results as a JSON string."""
-        kwargs.setdefault("cls", LLMeterEncoder)
+    def to_json(self, cls: type[json.JSONEncoder] = LLMeterEncoder, **kwargs):
+        """Return the results as a JSON string.
+
+        Args:
+            cls: JSON encoder class. Defaults to
+                :class:`~llmeter.json_utils.LLMeterEncoder`.
+            **kwargs: Extra keyword arguments passed to :func:`json.dumps`.
+        """
         summary = {
             k: o for k, o in asdict(self).items() if k not in ["responses", "stats"]
         }
-        return json.dumps(summary, **kwargs)
+        return json.dumps(summary, cls=cls, **kwargs)
 
     def to_dict(self, include_responses: bool = False):
         """Return the results as a dictionary with JSON-serializable values."""
