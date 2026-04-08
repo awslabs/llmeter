@@ -31,7 +31,7 @@ except ImportError as e:
 # Multi-modal content utilities
 
 
-def read_file(file_path: str) -> bytes:
+def read_file(file_path: ReadablePathLike) -> bytes:
     """Read binary content from a file.
 
     Args:
@@ -44,17 +44,12 @@ def read_file(file_path: str) -> bytes:
         FileNotFoundError: If file doesn't exist
         IOError: If file cannot be read
     """
-    try:
-        _path = ensure_path(file_path)
-        with _path.open("rb") as f:
-            return f.read()
-    except FileNotFoundError:
-        raise FileNotFoundError(f"File not found: {file_path}")
-    except Exception as e:
-        raise IOError(f"Failed to read file {file_path}: {e}")
+    _path = ensure_path(file_path)
+    with _path.open("rb") as f:
+        return f.read()
 
 
-def detect_format_from_extension(file_path: str) -> str | None:
+def detect_format_from_extension(file_path: ReadablePathLike) -> str | None:
     """Detect MIME type from file extension.
 
     Args:
@@ -116,7 +111,7 @@ def detect_format_from_bytes(content: bytes) -> str | None:
     return None
 
 
-def detect_format_from_file(file_path: str) -> str | None:
+def detect_format_from_file(file_path: ReadablePathLike) -> str | None:
     """Detect MIME type from file using puremagic or extension fallback.
 
     Args:
