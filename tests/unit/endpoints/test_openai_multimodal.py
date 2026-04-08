@@ -1,6 +1,7 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import base64
 import tempfile
 from pathlib import Path
 
@@ -14,9 +15,8 @@ class TestOpenAIMultiModal:
 
     def test_create_payload_single_image_from_file(self):
         """Test creating payload with single image from file path."""
-        # Create a temporary image file
         with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as f:
-            f.write(b"\xff\xd8\xff\xe0")  # JPEG magic bytes
+            f.write(b"\xff\xd8\xff\xe0")
             temp_path = f.name
 
         try:
@@ -30,29 +30,31 @@ class TestOpenAIMultiModal:
 
             content = payload["messages"][0]["content"]
             assert len(content) == 2  # text + image
-            assert content[0]["text"] == "What's in this image?"
-            assert "image" in content[1]
-            # OpenAI uses full MIME types
-            assert content[1]["image"]["format"] == "image/jpeg"
-            assert "bytes" in content[1]["image"]["source"]
+            assert content[0] == {"type": "text", "text": "What's in this image?"}
 
+            img_block = content[1]
+            assert img_block["type"] == "image_url"
+            url = img_block["image_url"]["url"]
+            assert url.startswith("data:image/jpeg;base64,")
+            # Verify round-trip of the bytes
+            b64_data = url.split(",", 1)[1]
+            assert base64.b64decode(b64_data) == b"\xff\xd8\xff\xe0"
         finally:
             Path(temp_path).unlink()
 
     def test_create_payload_single_image_from_bytes(self):
         """Test creating payload with single image from bytes."""
-        # Create a minimal valid JPEG file
         jpeg_bytes = (
-            b"\xff\xd8"  # SOI (Start of Image)
+            b"\xff\xd8"  # SOI
             b"\xff\xe0"  # APP0 marker
-            b"\x00\x10"  # APP0 length (16 bytes)
+            b"\x00\x10"  # APP0 length
             b"JFIF\x00"  # JFIF identifier
-            b"\x01\x01"  # JFIF version 1.1
-            b"\x00"  # density units (0 = no units)
-            b"\x00\x01"  # X density = 1
-            b"\x00\x01"  # Y density = 1
-            b"\x00\x00"  # thumbnail width and height = 0
-            b"\xff\xd9"  # EOI (End of Image)
+            b"\x01\x01"  # version
+            b"\x00"  # density units
+            b"\x00\x01"  # X density
+            b"\x00\x01"  # Y density
+            b"\x00\x00"  # thumbnail
+            b"\xff\xd9"  # EOI
         )
 
         try:
@@ -62,22 +64,21 @@ class TestOpenAIMultiModal:
                 max_tokens=256,
             )
 
-            assert "messages" in payload
             content = payload["messages"][0]["content"]
-            assert len(content) == 2  # text + image
-            assert "image" in content[1]
-            # OpenAI uses full MIME types
-            assert content[1]["image"]["format"] == "image/jpeg"
-            assert content[1]["image"]["source"]["bytes"] == jpeg_bytes
+            assert len(content) == 2
+            img_block = content[1]
+            assert img_block["type"] == "image_url"
+            url = img_block["image_url"]["url"]
+            assert url.startswith("data:image/jpeg;base64,")
+            b64_data = url.split(",", 1)[1]
+            assert base64.b64decode(b64_data) == jpeg_bytes
         except ValueError as e:
-            # If puremagic can't detect the format, skip this test
             if "Cannot detect format from bytes" in str(e):
                 pytest.skip("puremagic cannot detect format from minimal JPEG bytes")
             raise
 
     def test_create_payload_mixed_content(self):
-        """Test creating payload with mixed content types."""
-        # Create temporary files
+        """Test creating payload with image + PDF document."""
         with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as img_file:
             img_file.write(b"\xff\xd8\xff\xe0")
             img_path = img_file.name
@@ -96,16 +97,81 @@ class TestOpenAIMultiModal:
 
             content = payload["messages"][0]["content"]
             assert len(content) == 3  # text + image + document
-            assert content[0]["text"] == "Analyze this"
-            assert "image" in content[1]
-            # OpenAI uses full MIME types
-            assert content[1]["image"]["format"] == "image/jpeg"
-            assert "document" in content[2]
-            assert content[2]["document"]["format"] == "application/pdf"
+            assert content[0] == {"type": "text", "text": "Analyze this"}
 
+            # Image block
+            assert content[1]["type"] == "image_url"
+            assert content[1]["image_url"]["url"].startswith("data:image/jpeg;base64,")
+
+            # Document block (PDF → file content part)
+            assert content[2]["type"] == "file"
+            assert content[2]["file"]["file_data"].startswith(
+                "data:application/pdf;base64,"
+            )
+            assert "filename" in content[2]["file"]
         finally:
             Path(img_path).unlink()
             Path(doc_path).unlink()
+
+    def test_create_payload_audio_from_file(self):
+        """Test creating payload with audio from file path."""
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+            f.write(b"RIFF\x00\x00\x00\x00WAVEfmt ")
+            temp_path = f.name
+
+        try:
+            payload = OpenAIEndpoint.create_payload(
+                user_message="Transcribe this",
+                audio=[temp_path],
+                max_tokens=256,
+            )
+
+            content = payload["messages"][0]["content"]
+            assert len(content) == 2
+            audio_block = content[1]
+            assert audio_block["type"] == "input_audio"
+            assert audio_block["input_audio"]["format"] == "wav"
+            assert isinstance(audio_block["input_audio"]["data"], str)
+            # Verify it's valid base64
+            base64.b64decode(audio_block["input_audio"]["data"])
+        finally:
+            Path(temp_path).unlink()
+
+    def test_create_payload_audio_mp3_from_file(self):
+        """Test creating payload with MP3 audio."""
+        with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
+            f.write(b"\xff\xfb\x90\x00")  # MP3 frame header
+            temp_path = f.name
+
+        try:
+            payload = OpenAIEndpoint.create_payload(
+                user_message="What is said?",
+                audio=[temp_path],
+                max_tokens=256,
+            )
+
+            content = payload["messages"][0]["content"]
+            audio_block = content[1]
+            assert audio_block["type"] == "input_audio"
+            assert audio_block["input_audio"]["format"] == "mp3"
+        finally:
+            Path(temp_path).unlink()
+
+    def test_create_payload_video_raises(self):
+        """Test that video content raises ValueError (not supported by OpenAI inline)."""
+        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as f:
+            f.write(b"\x00\x00\x00\x18ftypmp42")
+            temp_path = f.name
+
+        try:
+            with pytest.raises(ValueError, match="does not support inline video"):
+                OpenAIEndpoint.create_payload(
+                    user_message="Describe this",
+                    videos=[temp_path],
+                    max_tokens=256,
+                )
+        finally:
+            Path(temp_path).unlink()
 
     def test_create_payload_text_only_backward_compatible(self):
         """Test that text-only payloads still work (backward compatibility)."""
@@ -115,7 +181,6 @@ class TestOpenAIMultiModal:
 
         assert "messages" in payload
         content = payload["messages"][0]["content"]
-        # Text-only should be a string, not a list
         assert content == "Hello, world!"
 
     def test_create_payload_invalid_image_type(self):

@@ -2,7 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """LLMeter targets for testing OpenAI ChatCompletions-compatible endpoints (wherever they're hosted)"""
 
+import base64
 import logging
+import os
 import time
 from typing import Any, Dict, Sequence
 from uuid import uuid4
@@ -16,30 +18,87 @@ from ..prompt_utils import read_file, detect_format_from_bytes, detect_format_fr
 
 logger = logging.getLogger(__name__)
 
+# MIME types supported by OpenAI, grouped by content part type
+_OPENAI_IMAGE_MIMES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
+_OPENAI_AUDIO_MIMES = {"audio/mpeg", "audio/wav"}
+_OPENAI_FILE_MIMES = {"application/pdf"}
 
-def _mime_to_openai_format(mime_type: str) -> str | None:
-    """Convert MIME type to OpenAI format string.
+# Map MIME → OpenAI audio "format" field value
+_MIME_TO_OPENAI_AUDIO_FMT: dict[str, str] = {
+    "audio/mpeg": "mp3",
+    "audio/wav": "wav",
+}
 
-    OpenAI expects full MIME types for media content.
+
+def _mime_to_openai_format(mime_type: str) -> dict | None:
+    """Convert a MIME type and raw bytes into an OpenAI content-part dict.
+
+    Returns a *partial* content block (without the data filled in) so the caller
+    can see which content-part shape to use, or ``None`` if the MIME type is not
+    supported by OpenAI.
+
+    The returned dict has the ``"type"`` key already set and the nested structure
+    ready for the caller to inject base64 data.
+
+    Supported mappings:
+
+    * ``image/*``  → ``{"type": "image_url", ...}``
+    * ``audio/*``  → ``{"type": "input_audio", ...}``
+    * ``application/pdf`` → ``{"type": "file", ...}``
+    """
+    if mime_type in _OPENAI_IMAGE_MIMES:
+        return {"_kind": "image", "mime": mime_type}
+    if mime_type in _OPENAI_AUDIO_MIMES:
+        return {"_kind": "audio", "fmt": _MIME_TO_OPENAI_AUDIO_FMT[mime_type]}
+    if mime_type in _OPENAI_FILE_MIMES:
+        return {"_kind": "file", "mime": mime_type}
+    return None
+
+
+def _make_openai_content_block(
+    data: bytes,
+    mime_type: str,
+    *,
+    filename: str | None = None,
+) -> dict:
+    """Build a single OpenAI content-part dict from raw bytes and MIME type.
 
     Args:
-        mime_type: MIME type (e.g., "image/jpeg", "application/pdf")
+        data: Raw binary content.
+        mime_type: Detected MIME type (must be in the supported set).
+        filename: Optional filename hint (used for file/document parts).
 
     Returns:
-        str | None: Format string (full MIME type) or None if not recognized
+        A dict ready to be appended to the ``content`` list of a message.
+
+    Raises:
+        ValueError: If *mime_type* is not supported by OpenAI.
     """
-    # OpenAI uses full MIME types
-    supported_mimes = {
-        "image/jpeg",
-        "image/png",
-        "image/gif",
-        "image/webp",
-        "application/pdf",
-        "video/mp4",
-        "audio/mpeg",
-        "audio/wav",
+    info = _mime_to_openai_format(mime_type)
+    if info is None:
+        raise ValueError(f"Unsupported MIME type for OpenAI: '{mime_type}'")
+
+    b64 = base64.b64encode(data).decode("utf-8")
+    kind = info["_kind"]
+
+    if kind == "image":
+        return {
+            "type": "image_url",
+            "image_url": {"url": f"data:{mime_type};base64,{b64}"},
+        }
+    if kind == "audio":
+        return {
+            "type": "input_audio",
+            "input_audio": {"data": b64, "format": info["fmt"]},
+        }
+    # kind == "file"
+    block: dict = {
+        "type": "file",
+        "file": {"file_data": f"data:{mime_type};base64,{b64}"},
     }
-    return mime_type if mime_type in supported_mimes else None
+    if filename:
+        block["file"]["filename"] = filename
+    return block
 
 
 def _build_content_blocks_openai(
@@ -49,73 +108,74 @@ def _build_content_blocks_openai(
     videos: list[bytes] | list[str] | None,
     audio: list[bytes] | list[str] | None,
 ) -> list[dict]:
-    """Build content blocks from parameters for OpenAI API.
+    """Build content blocks from parameters for OpenAI Chat Completions API.
 
-    Returns list of content block dictionaries in OpenAI format.
+    Produces content-part dicts that conform to the OpenAI SDK types:
+
+    * Text → ``{"type": "text", "text": "..."}``
+    * Image → ``{"type": "image_url", "image_url": {"url": "data:image/...;base64,..."}}``
+    * Audio → ``{"type": "input_audio", "input_audio": {"data": "...", "format": "wav"|"mp3"}}``
+    * Document (PDF) → ``{"type": "file", "file": {"file_data": "data:application/pdf;base64,..."}}``
 
     Args:
-        user_message: Text message(s)
-        images: List of image bytes or file paths
-        documents: List of document bytes or file paths
-        videos: List of video bytes or file paths
-        audio: List of audio bytes or file paths
+        user_message: Text message(s).
+        images: Image bytes or file paths.
+        documents: Document bytes or file paths (currently only PDF is supported by OpenAI).
+        videos: Video bytes or file paths.  OpenAI Chat Completions does not support
+            inline video; a ``ValueError`` is raised if any are provided.
+        audio: Audio bytes or file paths.
 
     Returns:
-        list[dict]: Content blocks
+        list[dict]: Content blocks.
 
     Raises:
-        ValueError: If format cannot be auto-detected from bytes
+        ValueError: If format cannot be detected, MIME type is unsupported, or
+            video content is provided (not supported by OpenAI inline).
     """
-    content = []
+    if videos:
+        raise ValueError(
+            "OpenAI Chat Completions API does not support inline video content. "
+            "Consider extracting frames as images instead."
+        )
 
-    # Add text blocks first
+    content: list[dict] = []
+
+    # Text blocks
     if user_message:
         messages = [user_message] if isinstance(user_message, str) else user_message
         for msg in messages:
-            content.append({"text": msg})
+            content.append({"type": "text", "text": msg})
 
-    # Add media blocks in order: images, videos, audio, documents
-    for media_list, media_type in [
+    # Media blocks — images, audio, documents
+    for media_list, media_label in [
         (images, "image"),
-        (videos, "video"),
         (audio, "audio"),
         (documents, "document"),
     ]:
-        if media_list:
-            for item in media_list:
-                if isinstance(item, bytes):
-                    # Bytes provided directly - detect MIME type from content
-                    data = item
-                    mime_type = detect_format_from_bytes(data)
-                    if mime_type is None:
-                        raise ValueError(
-                            f"Cannot detect format from bytes for {media_type}. "
-                            "Either install puremagic for content-based detection "
-                            "or provide file path for extension-based detection."
-                        )
-                    fmt = _mime_to_openai_format(mime_type)
-                    if fmt is None:
-                        raise ValueError(
-                            f"Unsupported MIME type '{mime_type}' for {media_type}"
-                        )
-                else:
-                    # File path - read and detect MIME type from file
-                    data = read_file(item)
-                    mime_type = detect_format_from_file(item)
-                    if mime_type is None:
-                        raise ValueError(f"Cannot detect format from file: {item}")
-                    fmt = _mime_to_openai_format(mime_type)
-                    if fmt is None:
-                        raise ValueError(
-                            f"Unsupported MIME type '{mime_type}' for file: {item}"
-                        )
+        if not media_list:
+            continue
+        for item in media_list:
+            if isinstance(item, bytes):
+                data = item
+                mime_type = detect_format_from_bytes(data)
+                if mime_type is None:
+                    raise ValueError(
+                        f"Cannot detect format from bytes for {media_label}. "
+                        "Either install puremagic for content-based detection "
+                        "or provide a file path for extension-based detection."
+                    )
+            else:
+                data = read_file(item)
+                mime_type = detect_format_from_file(item)
+                if mime_type is None:
+                    raise ValueError(f"Cannot detect format from file: {item}")
 
-                content.append({media_type: {"format": fmt, "source": {"bytes": data}}})
+            filename = os.path.basename(item) if isinstance(item, str) else None
+            content.append(
+                _make_openai_content_block(data, mime_type, filename=filename)
+            )
 
     return content
-
-
-logger = logging.getLogger(__name__)
 
 
 class OpenAIEndpoint(Endpoint):
