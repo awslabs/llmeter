@@ -59,6 +59,7 @@ nav:
       - bedrock_invoke: reference/endpoints/bedrock_invoke.md
       - litellm: reference/endpoints/litellm.md
       - openai: reference/endpoints/openai.md
+      - openai_response: reference/endpoints/openai_response.md
       - sagemaker: reference/endpoints/sagemaker.md
     - experiments: reference/experiments.md
     - json_utils: reference/json_utils.md
