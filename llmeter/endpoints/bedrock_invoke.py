@@ -12,7 +12,6 @@ import jmespath
 from botocore.config import Config
 from botocore.exceptions import ClientError
 
-from ..json_utils import LLMeterEncoder
 from .base import Endpoint, InvocationResponse
 
 logger = logging.getLogger(__name__)
@@ -262,7 +261,7 @@ class BedrockInvoke(Endpoint):
             raise TypeError("Payload must be a dictionary")
 
         try:
-            req_body = json.dumps(payload, cls=LLMeterEncoder).encode("utf-8")
+            req_body = json.dumps(payload).encode("utf-8")
             try:
                 start_t = time.perf_counter()
                 client_response = self._bedrock_client.invoke_model(  # type: ignore
@@ -354,7 +353,7 @@ class BedrockInvokeStream(BedrockInvoke):
         )
 
     def invoke(self, payload: dict) -> InvocationResponse:
-        req_body = json.dumps(payload, cls=LLMeterEncoder).encode("utf-8")
+        req_body = json.dumps(payload).encode("utf-8")
         try:
             start_t = time.perf_counter()
             client_response = self._bedrock_client.invoke_model_with_response_stream(  # type: ignore

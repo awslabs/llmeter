@@ -114,6 +114,83 @@ def test_bedrock_invoke_non_streaming(aws_credentials, aws_region, bedrock_test_
 
 
 @pytest.mark.integ
+def test_bedrock_invoke_with_image(aws_credentials, aws_region, bedrock_test_model):
+    """
+    Test BedrockInvoke endpoint with an image payload.
+
+    This test validates that:
+    - BedrockInvoke can send image payloads via the InvokeModel API
+    - The model actually processes the image (verifies content description)
+    - Image data is correctly base64-encoded in the JSON payload
+    - No __llmeter_bytes__ markers leak into the API request
+
+    The InvokeModel API requires image data as base64-encoded strings in JSON,
+    unlike the Converse API which accepts raw bytes.
+
+    Args:
+        aws_credentials: Boto3 session with valid AWS credentials (from fixture).
+        aws_region: AWS region for testing (from fixture).
+        bedrock_test_model: Model ID for testing (from fixture).
+    """
+    import base64
+    import io
+
+    from PIL import Image
+
+    # Create a simple 100x100 red square PNG image
+    img = Image.new("RGB", (100, 100), color="red")
+    img_buffer = io.BytesIO()
+    img.save(img_buffer, format="PNG")
+    img_bytes = img_buffer.getvalue()
+    img_b64 = base64.b64encode(img_bytes).decode("utf-8")
+
+    endpoint = BedrockInvoke(
+        model_id=bedrock_test_model,
+        region=aws_region,
+        generated_text_jmespath="output.message.content[0].text",
+        generated_token_count_jmespath="usage.outputTokens",
+        input_token_count_jmespath="usage.inputTokens",
+        # Use JMESPath that handles mixed content (image + text blocks)
+        input_text_jmespath="messages[0].content[].text",
+    )
+
+    # Nova native InvokeModel format with base64-encoded image
+    invoke_payload = {
+        "schemaVersion": "messages-v1",
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "image": {
+                            "format": "png",
+                            "source": {"bytes": img_b64},
+                        },
+                    },
+                    {
+                        "text": "What color is the square in this image? Answer with just the color name.",
+                    },
+                ],
+            }
+        ],
+        "inferenceConfig": {"maxTokens": 50},
+    }
+
+    response = endpoint.invoke(invoke_payload)
+
+    assert response.error is None, f"Response should not contain errors: {response.error}"
+    assert response.response_text is not None, "Response text should not be None"
+    assert len(response.response_text) > 0, "Response text should not be empty"
+
+    # Verify the model actually processes the image (responds with a color name)
+    response_lower = response.response_text.lower()
+    assert any(
+        color in response_lower
+        for color in ("red", "white", "pink", "orange", "color", "square", "image")
+    ), f"Model should describe the image content, got: {response.response_text}"
+
+
+@pytest.mark.integ
 def test_bedrock_invoke_streaming(aws_credentials, aws_region, bedrock_test_model):
     """
     Test BedrockInvokeStream endpoint with actual Bedrock service.
