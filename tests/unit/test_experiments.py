@@ -559,7 +559,7 @@ class TestLoadTestTimeBound:
 
     def test_load_test_with_progress_bar_stats(self, mock_endpoint):
         """progress_bar_stats should be stored on the LoadTest instance."""
-        custom_stats = {"rpm": "rpm", "fail": "failed"}
+        custom_stats = {"rpm": "rpm", "fail": "failed_requests"}
         lt = LoadTest(
             endpoint=mock_endpoint,
             payload={"input": "test"},

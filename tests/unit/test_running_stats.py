@@ -152,69 +152,47 @@ class TestToStats:
         assert stats["total_input_tokens"] == 0
 
 
-# ── snapshot ─────────────────────────────────────────────────────────────────
+# ── send-window throughput in to_stats ────────────────────────────────────────
 
 
-class TestSnapshot:
-    def test_placeholder_when_empty(self, rs):
-        result = rs.snapshot()
-        assert all(v == "—" for v in result.values())
-        # Should have all default keys
-        assert "rpm" in result
-        assert "p50_ttft" in result
-        assert "fail" in result
-        assert "output_tps" in result
-
-    def test_placeholder_with_custom_fields(self, rs):
-        fields = {"my_rpm": "rpm", "my_fail": "failed"}
-        result = rs.snapshot(fields)
-        assert result == {"my_rpm": "—", "my_fail": "—"}
-
-    def test_failed_count(self, populated_rs):
-        result = populated_rs.snapshot({"fail": "failed"})
-        assert result["fail"] == "1"
-
+class TestSendWindowStats:
     def test_rpm_uses_send_window(self, rs):
         rs._first_send_time = 100.0
         rs._last_send_time = 110.0  # 10 second window
         rs.update({"error": None})
         rs.update({"error": None})
         rs.update({"error": None})
-        result = rs.snapshot({"rpm": "rpm"})
+        stats = rs.to_stats()
         # 3 responses / 10 seconds * 60 = 18.0 rpm
-        assert result["rpm"] == "18.0"
-
-    def test_rpm_not_shown_with_single_send(self, rs):
-        """With only one send, first == last, no window to compute RPM."""
-        rs._first_send_time = 100.0
-        rs._last_send_time = 100.0
-        rs.update({"error": None})
-        result = rs.snapshot({"rpm": "rpm"})
-        assert "rpm" not in result
+        assert stats["rpm"] == pytest.approx(18.0)
 
     def test_output_tps_uses_send_window(self, rs):
         rs._first_send_time = 100.0
         rs._last_send_time = 110.0  # 10 second window
         rs.update({"num_tokens_output": 500, "error": None})
         rs.update({"num_tokens_output": 300, "error": None})
-        result = rs.snapshot({"tps": "output_tps"})
+        stats = rs.to_stats()
         # 800 tokens / 10 seconds = 80.0 tok/s
-        assert result["tps"] == "80.0 tok/s"
+        assert stats["output_tps"] == pytest.approx(80.0)
 
-    def test_sum_aggregation(self, populated_rs):
-        result = populated_rs.snapshot({"out": ("num_tokens_output", "sum")})
-        assert result["out"] == "83"
+    def test_no_send_window_when_single_send(self, rs):
+        """With only one send, first == last, no window to compute RPM."""
+        rs._first_send_time = 100.0
+        rs._last_send_time = 100.0
+        rs.update({"error": None})
+        stats = rs.to_stats()
+        assert "rpm" not in stats
+        assert "output_tps" not in stats
 
-    def test_percentile_aggregation(self, populated_rs):
-        result = populated_rs.snapshot({"p50": ("time_to_first_token", "p50")})
-        assert "p50" in result
-        assert result["p50"].endswith("s")
+    def test_no_send_window_when_no_sends(self, rs):
+        stats = rs.to_stats()
+        assert "rpm" not in stats
+        assert "output_tps" not in stats
 
-    def test_inverse_aggregation(self, populated_rs):
-        result = populated_rs.snapshot({"tps": ("time_per_output_token", "p50", "inv")})
-        assert "tps" in result
-        assert "tok/s" in result["tps"]
-
-    def test_empty_fields_returns_empty(self, populated_rs):
-        result = populated_rs.snapshot({})
-        assert result == {}
+    def test_send_window_helper(self, rs):
+        assert rs._send_window() is None
+        rs._first_send_time = 10.0
+        rs._last_send_time = 10.0
+        assert rs._send_window() is None
+        rs._last_send_time = 20.0
+        assert rs._send_window() == pytest.approx(10.0)

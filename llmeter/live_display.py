@@ -15,60 +15,117 @@ from collections import OrderedDict
 
 logger = logging.getLogger(__name__)
 
-# Mapping from key substrings to (group_name, display_order).
-# Stats are grouped by the first matching pattern; unmatched keys go to "Other".
-_GROUP_PATTERNS: list[tuple[str, str]] = [
-    ("rpm", "Throughput"),
-    ("tps", "Throughput"),
-    ("ttft", "TTFT"),
-    ("ttlt", "TTLT"),
-    ("token", "Tokens"),
-    ("fail", "Errors"),
-]
+#: Default grouping of stat keys for display.  Each entry is
+#: ``(group_name, tuple_of_substrings)``; a stat key is assigned to the first
+#: group whose substring matches (case-insensitive).  Unmatched keys fall into
+#: ``"Other"``.  The tuple order defines the column order in the rendered table.
+DEFAULT_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("Throughput", ("rpm", "tps")),
+    ("TTFT", ("ttft",)),
+    ("TTLT", ("ttlt",)),
+    ("Tokens", ("token",)),
+    ("Errors", ("fail",)),
+    ("Other", ("",)),
+)
 
-_GROUP_ORDER = ["Throughput", "TTFT", "TTLT", "Tokens", "Errors", "Other"]
+#: Default stats to show on the progress bar during a run.
+#:
+#: Each entry maps a short display label to a *stat spec*:
+#:
+#: * A plain string — the canonical key in ``RunningStats.to_stats()``
+#:   (e.g. ``"failed_requests"``, ``"rpm"``, ``"time_to_first_token-p50"``).
+#: * A ``(stat_key, "inv")`` tuple — display the reciprocal of the value
+#:   (e.g. seconds-per-token → tokens-per-second).
+DEFAULT_DISPLAY_STATS: dict[str, str | tuple[str, str]] = {
+    "rpm": "rpm",
+    "output_tps": "output_tps",
+    "p50_ttft": "time_to_first_token-p50",
+    "p90_ttft": "time_to_first_token-p90",
+    "p50_ttlt": "time_to_last_token-p50",
+    "p90_ttlt": "time_to_last_token-p90",
+    "p50_tps": ("time_per_output_token-p50", "inv"),
+    "input_tokens": "num_tokens_input-sum",
+    "output_tokens": "num_tokens_output-sum",
+    "fail": "failed_requests",
+}
 
 
-def _classify(key: str) -> str:
+def _format_stat(key: str, value: float | int, *, invert: bool = False) -> str:
+    """Format a single stat value as a human-readable string.
+
+    Args:
+        key: The canonical stat key (used to infer units).
+        value: The raw numeric value.
+        invert: If ``True``, display ``1/value`` (e.g. time → rate).
+
+    Returns:
+        A formatted string like ``"0.312s"``, ``"28.3 tok/s"``, or ``"83"``.
+    """
+    if invert and value > 0:
+        return f"{1.0 / value:.1f} tok/s"
+    if "tps" in key or "output_tps" in key:
+        return f"{value:.1f} tok/s"
+    if "time" in key or "ttft" in key or "ttlt" in key:
+        return f"{value:.3f}s"
+    if "rpm" in key:
+        return f"{value:.1f}"
+    if isinstance(value, float) and value == int(value):
+        return str(int(value))
+    if isinstance(value, int):
+        return str(value)
+    return f"{value:.1f}"
+
+
+def _classify(
+    key: str,
+    groups: tuple[tuple[str, tuple[str, ...]], ...] = DEFAULT_GROUPS,
+) -> str:
     """Return the group name for a stat key based on substring matching.
 
-    Matches the key (case-insensitive) against ``_GROUP_PATTERNS``. The first
-    matching pattern determines the group. Unmatched keys are placed in
-    ``"Other"``.
+    Matches the key (case-insensitive) against *groups*. The first matching
+    pattern determines the group. Unmatched keys are placed in ``"Other"``.
 
     Args:
         key (str): The stat display label to classify (e.g. ``"p50_ttft"``).
+        groups: Group definitions to match against. Defaults to
+            :data:`DEFAULT_GROUPS`.
 
     Returns:
         str: The group name (e.g. ``"TTFT"``, ``"Throughput"``, ``"Other"``).
     """
     key_lower = key.lower()
-    for pattern, group in _GROUP_PATTERNS:
-        if pattern in key_lower:
-            return group
+    for group_name, patterns in groups:
+        for pattern in patterns:
+            if pattern and pattern in key_lower:
+                return group_name
     return "Other"
 
 
-def _group_stats(stats: dict[str, str]) -> OrderedDict[str, list[tuple[str, str]]]:
+def _group_stats(
+    stats: dict[str, str],
+    groups: tuple[tuple[str, tuple[str, ...]], ...] = DEFAULT_GROUPS,
+) -> OrderedDict[str, list[tuple[str, str]]]:
     """Organize stats into ordered groups for display.
 
     Each stat key is classified via :func:`_classify` and placed into the
     corresponding group. Groups are returned in the canonical order defined
-    by ``_GROUP_ORDER``, with empty groups omitted.
+    by *groups*, with empty groups omitted.
 
     Args:
         stats (dict[str, str]): Mapping of stat labels to formatted values.
+        groups: Group definitions controlling classification and order.
+            Defaults to :data:`DEFAULT_GROUPS`.
 
     Returns:
         OrderedDict[str, list[tuple[str, str]]]: Groups in display order, where
         each value is a list of ``(label, formatted_value)`` tuples.
     """
-    groups: dict[str, list[tuple[str, str]]] = {}
+    buckets: dict[str, list[tuple[str, str]]] = {}
     for k, v in stats.items():
-        group = _classify(k)
-        groups.setdefault(group, []).append((k, v))
-    # Return in canonical order, skipping empty groups
-    return OrderedDict((g, groups[g]) for g in _GROUP_ORDER if g in groups)
+        group = _classify(k, groups)
+        buckets.setdefault(group, []).append((k, v))
+    group_order = [name for name, _ in groups]
+    return OrderedDict((g, buckets[g]) for g in group_order if g in buckets)
 
 
 def _in_notebook() -> bool:
@@ -95,43 +152,114 @@ class LiveStatsDisplay:
 
     In Jupyter notebooks, renders a grouped HTML table that updates in-place.
     Stats are automatically organized into logical groups (Throughput, TTFT,
-    TTLT, Tokens, Errors) based on their key names.
+    TTLT, Tokens, Errors) based on their display label names.
 
     In terminals, prints a compact grouped multi-line block using ANSI escape
     codes to overwrite previous output.
 
+    The display owns all alias mapping and formatting.  Callers pass raw
+    numeric stats (e.g. from ``RunningStats.to_stats()``) and the display
+    selects, aliases, formats, and groups them for presentation.
+
     Args:
         disabled (bool): If ``True``, all display calls are no-ops.
+        groups: Group definitions controlling how display labels are classified
+            and ordered.  Defaults to :data:`DEFAULT_GROUPS`.
+        display_stats: Mapping of ``{display_label: stat_spec}`` controlling
+            which stats to show and how to label them.  Each *stat_spec* is
+            either a plain canonical key string (e.g. ``"time_to_first_token-p50"``)
+            or a ``(key, "inv")`` tuple for reciprocal display.
+            Defaults to :data:`DEFAULT_DISPLAY_STATS`.
 
     Example::
 
         display = LiveStatsDisplay()
-        display.update({"rpm": "185.9", "p50_ttft": "0.312s", "fail": "0"})
-        display.update({"rpm": "190.2", "p50_ttft": "0.305s", "fail": "1"})
+        raw = running_stats.to_stats()
+        display.update(raw)
         display.close()
     """
 
-    def __init__(self, disabled: bool = False):
+    def __init__(
+        self,
+        disabled: bool = False,
+        groups: tuple[tuple[str, tuple[str, ...]], ...] = DEFAULT_GROUPS,
+        display_stats: dict[str, str | tuple[str, str]] | None = None,
+    ):
         self._disabled = disabled
+        self._groups = groups
+        self._display_stats = (
+            display_stats if display_stats is not None else DEFAULT_DISPLAY_STATS
+        )
         self._is_notebook = _in_notebook()
         self._handle = None
         self._last_line_count = 0
 
-    def update(self, stats: dict[str, str], extra_prefix: str = "") -> None:
-        """Refresh the display with new stats.
+    def format_stats(
+        self,
+        raw: dict[str, object],
+    ) -> dict[str, str]:
+        """Select and format raw stats for display.
+
+        Picks the stats listed in ``self._display_stats`` from *raw*, applies
+        alias renaming and formatting, and returns an ordered dict of
+        ``{display_label: formatted_value}`` strings.
 
         Args:
-            stats (dict[str, str]): Mapping of label to formatted value.
+            raw: Flat dictionary of raw numeric stats, as returned by
+                ``RunningStats.to_stats()``.
+
+        Returns:
+            Ordered dict of ``{label: formatted_string}`` suitable for
+            rendering.
+        """
+        if not raw:
+            return {label: "—" for label in self._display_stats}
+
+        info: dict[str, str] = {}
+        for label, spec in self._display_stats.items():
+            if isinstance(spec, tuple):
+                key, modifier = spec[0], spec[1]
+                invert = modifier == "inv"
+            else:
+                key = spec
+                invert = False
+
+            val = raw.get(key)
+            if val is None:
+                info[label] = "—"
+                continue
+
+            try:
+                info[label] = _format_stat(key, float(val), invert=invert)
+            except (TypeError, ValueError):
+                info[label] = str(val)
+
+        return info
+
+    def update(
+        self,
+        raw_stats: dict[str, object],
+        extra_prefix: str = "",
+    ) -> None:
+        """Refresh the display with new raw stats.
+
+        Args:
+            raw_stats: Flat dictionary of raw numeric stats from
+                ``RunningStats.to_stats()``.
             extra_prefix (str): Optional prefix text shown before the table
                 (e.g. ``"reqs=127"`` for time-bound runs).
         """
-        if self._disabled or not stats:
+        if self._disabled:
+            return
+
+        formatted = self.format_stats(raw_stats)
+        if not formatted:
             return
 
         if self._is_notebook:
-            self._update_notebook(stats, extra_prefix)
+            self._update_notebook(formatted, extra_prefix)
         else:
-            self._update_terminal(stats, extra_prefix)
+            self._update_terminal(formatted, extra_prefix)
 
     def _update_notebook(self, stats: dict[str, str], extra_prefix: str) -> None:
         """Render stats as a grouped HTML table in a Jupyter notebook.
@@ -146,9 +274,7 @@ class LiveStatsDisplay:
         """
         from IPython.display import HTML, display
 
-        groups = _group_stats(stats)
-
-        # Build one column per group: header on top, key=value rows below
+        groups = _group_stats(stats, self._groups)
         # All columns rendered side-by-side in a single table row
         max_rows = max(len(items) for items in groups.values())
 
@@ -210,7 +336,7 @@ class LiveStatsDisplay:
         if self._last_line_count > 0:
             sys.stderr.write(f"\033[{self._last_line_count}A\033[J")
 
-        groups = _group_stats(stats)
+        groups = _group_stats(stats, self._groups)
         lines = []
         if extra_prefix:
             lines.append(f"  {extra_prefix}")

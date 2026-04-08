@@ -75,7 +75,7 @@ results = await endpoint_test.run(
 )
 ```
 
-Pass `progress_bar_stats={}` to disable live stats entirely. See [`RunningStats.DEFAULT_SNAPSHOT_STATS`](../reference/utils.md#llmeter.utils.RunningStats) for the full default configuration.
+Pass `progress_bar_stats={}` to disable live stats entirely. See [`DEFAULT_DISPLAY_STATS`](../reference/live_display.md) for the full default configuration.
 
 ### Low-memory mode
 

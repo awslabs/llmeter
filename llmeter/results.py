@@ -23,9 +23,9 @@ class Result:
     """Results of a test run."""
 
     responses: list[InvocationResponse]
-    total_requests: int
-    clients: int
-    n_requests: int
+    total_requests: int | None = None
+    clients: int = 1
+    n_requests: int | None = None
     total_test_time: float | None = None
     model_id: str | None = None
     output_path: WritablePathLike | None = None
@@ -253,8 +253,19 @@ class Result:
             else:
                 result._preloaded_stats = None
         else:
-            # Compute stats from the loaded responses
+            # Compute stats from the loaded responses, but also merge any
+            # contributed stats that were persisted in stats.json so they
+            # survive a save/load round-trip.
             result._preloaded_stats = cls._compute_stats(result)
+            stats_path = result_path / "stats.json"
+            if stats_path.exists():
+                with stats_path.open("r") as s:
+                    saved_stats = json.loads(s.read())
+                # Contributed stats are any keys in the saved file that are
+                # not produced by _compute_stats (i.e. they came from callbacks).
+                for key, value in saved_stats.items():
+                    if key not in result._preloaded_stats:
+                        result._preloaded_stats[key] = value
 
         return result
 
@@ -330,7 +341,9 @@ class Result:
             stats = self._preloaded_stats.copy()
         else:
             # Fallback: compute from responses (e.g. Result constructed manually)
-            stats = self._compute_stats(self)
+            # Cache so subsequent accesses don't recompute.
+            self._preloaded_stats = self._compute_stats(self)
+            stats = self._preloaded_stats.copy()
 
         if self._contributed_stats:
             stats.update(self._contributed_stats)

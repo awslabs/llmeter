@@ -109,31 +109,6 @@ class RunningStats:
         # {'failed_requests': 0, ..., 'time_to_first_token-p50': 0.4, ...}
     """
 
-    #: Default stats shown on the progress bar during a run.
-    #: Each entry maps a short display label to a spec:
-    #:
-    #: * ``(metric_name, aggregation)`` — aggregation can be ``"p50"``, ``"p90"``,
-    #:   ``"p99"``, ``"average"``, or ``"sum"``.
-    #: * ``(metric_name, aggregation, "inv")`` — same as above but displays the
-    #:   reciprocal (e.g. seconds-per-token → tokens-per-second).
-    #: * The literal string ``"failed"`` for the running failure count.
-    #: * The literal string ``"rpm"`` for live requests-per-minute based on the
-    #:   send window (first request sent to last request sent).
-    #: * The literal string ``"output_tps"`` for aggregate output tokens per second
-    #:   across all clients, based on the send window.
-    DEFAULT_SNAPSHOT_STATS: dict[str, tuple[str, ...] | str] = {
-        "rpm": "rpm",
-        "output_tps": "output_tps",
-        "p50_ttft": ("time_to_first_token", "p50"),
-        "p90_ttft": ("time_to_first_token", "p90"),
-        "p50_ttlt": ("time_to_last_token", "p50"),
-        "p90_ttlt": ("time_to_last_token", "p90"),
-        "p50_tps": ("time_per_output_token", "p50", "inv"),
-        "input_tokens": ("num_tokens_input", "sum"),
-        "output_tokens": ("num_tokens_output", "sum"),
-        "fail": "failed",
-    }
-
     def __init__(self, metrics: Sequence[str]):
         self._metrics = list(metrics)
         self._count = 0
@@ -266,114 +241,29 @@ class RunningStats:
             for j, v in agg.items():
                 stats[f"{m}-{j}"] = v
 
+        # Send-window throughput (live RPM and output tokens/s).
+        # These use the dispatch timestamps rather than response timestamps,
+        # giving a more accurate picture of the request rate.
+        send_window = self._send_window()
+        if send_window and send_window > 0:
+            stats["rpm"] = self._count / send_window * 60
+            total_out = self._sums.get("num_tokens_output", 0)
+            stats["output_tps"] = total_out / send_window
+
         return stats
 
-    def snapshot(
-        self,
-        fields: dict[str, tuple[str, ...] | str] | None = None,
-    ) -> dict[str, str]:
-        """Format a subset of :meth:`to_stats` for progress-bar display.
+    def _send_window(self) -> float | None:
+        """Return the elapsed seconds between first and last ``record_send`` call.
 
-        Calls :meth:`to_stats` internally and picks only the requested fields,
-        formatting each value as a human-readable string.
-
-        Args:
-            fields: Mapping of ``{display_label: spec}``.  Each *spec* is one of:
-
-                * ``(metric, aggregation)`` — a 2-tuple where *metric* is a tracked
-                  metric name and *aggregation* is ``"p50"``, ``"p90"``, ``"p99"``,
-                  ``"average"``, or ``"sum"``.
-                * ``(metric, aggregation, "inv")`` — a 3-tuple; same as above but
-                  the value is inverted before display (e.g. seconds-per-token →
-                  tokens-per-second).
-                * ``"failed"`` — the literal string; shows the running failure count.
-                * ``"rpm"`` — the literal string; shows live requests-per-minute
-                  estimate based on the send window (first to last request sent).
-                * ``"output_tps"`` — the literal string; shows aggregate output
-                  tokens per second across all clients, based on the send window.
-
-                Defaults to :attr:`DEFAULT_SNAPSHOT_STATS` when ``None``.
-
-        Returns:
-            An ordered dict of ``{label: formatted_value}`` strings suitable for
-            ``tqdm.set_postfix()``.
-
-        Example::
-
-            # Use defaults:
-            rs.snapshot()
-            # {'p50_ttft': '0.312s', 'p90_ttlt': '1.203s', ..., 'fail': '0'}
-
-            # Custom selection — only p99 latency and failures:
-            rs.snapshot({
-                "p99_ttlt": ("time_to_last_token", "p99"),
-                "fail": "failed",
-            })
-            # {'p99_ttlt': '2.105s', 'fail': '1'}
-
-            # Inverted metric — tokens per second from time_per_output_token:
-            rs.snapshot({
-                "tps": ("time_per_output_token", "p50", "inv"),
-            })
-            # {'tps': '28.3 tok/s'}
+        Returns ``None`` when fewer than two sends have been recorded.
         """
-        if self._count == 0:
-            if fields is None:
-                fields = self.DEFAULT_SNAPSHOT_STATS
-            return {label: "—" for label in fields}
-
-        if fields is None:
-            fields = self.DEFAULT_SNAPSHOT_STATS
-
-        raw = self.to_stats()
-
-        info: dict[str, str] = {}
-        for label, spec in fields.items():
-            if spec == "failed":
-                info[label] = str(self._failed)
-                continue
-
-            if spec == "rpm":
-                if (
-                    self._first_send_time is not None
-                    and self._last_send_time is not None
-                    and self._last_send_time > self._first_send_time
-                ):
-                    send_window = self._last_send_time - self._first_send_time
-                    info[label] = f"{self._count / send_window * 60:.1f}"
-                continue
-
-            if spec == "output_tps":
-                if (
-                    self._first_send_time is not None
-                    and self._last_send_time is not None
-                    and self._last_send_time > self._first_send_time
-                ):
-                    send_window = self._last_send_time - self._first_send_time
-                    total_out = self._sums.get("num_tokens_output", 0)
-                    info[label] = f"{total_out / send_window:.1f} tok/s"
-                continue
-
-            metric = spec[0]
-            agg = spec[1]
-            invert = len(spec) > 2 and spec[2] == "inv"
-
-            if agg == "sum":
-                info[label] = f"{self._sums.get(metric, 0):.0f}"
-                continue
-
-            val = raw.get(f"{metric}-{agg}")
-            if val is None:
-                continue
-
-            if invert and val > 0:
-                info[label] = f"{1.0 / val:.1f} tok/s"
-            elif "time" in metric:
-                info[label] = f"{val:.3f}s"
-            else:
-                info[label] = f"{val:.1f}"
-
-        return info
+        if (
+            self._first_send_time is not None
+            and self._last_send_time is not None
+            and self._last_send_time > self._first_send_time
+        ):
+            return self._last_send_time - self._first_send_time
+        return None
 
 
 def now_utc() -> datetime:

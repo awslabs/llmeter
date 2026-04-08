@@ -70,11 +70,11 @@ def run(mock_endpoint: MagicMock, mock_tokenizer: MagicMock):
     mock_run._queue = AsyncMock()
     mock_run._queue.task_done = MagicMock()
 
-    # Mock the _invoke_n_c method to return a simple result
-    async def mock_invoke_n_c(payload, n_requests, clients):
+    # Mock the _invoke_clients method to return a simple result
+    async def mock_invoke_clients(payload, n_requests=None, duration=None, clients=1):
         return 1.0, [], []
 
-    mock_run._invoke_n_c = mock_invoke_n_c
+    mock_run._invoke_clients = mock_invoke_clients
 
     # Mock the _process_results_from_q method
     async def mock_process_results_from_q(output_path=None):
@@ -126,7 +126,7 @@ async def test_invoke_n(run: _Run):
         ]
     )
 
-    result = await run._invoke_n(
+    result = await run._invoke_client(
         payload=[{"prompt": "test1"}, {"prompt": "test2"}], n=2
     )
 
@@ -180,7 +180,7 @@ async def test_invoke_n_no_wait(run: _Run):
 @pytest.mark.asyncio
 async def test_invoke_n_c(run: _Run):
     # Remove the fixture override and create a proper mock
-    async def mock_invoke_n_c(payload, n_requests, clients):
+    async def mock_invoke_clients(payload, n_requests=None, duration=None, clients=1):
         # Simulate the actual behavior
         responses = [
             InvocationResponse(id="1", input_prompt="test1", response_text="response1"),
@@ -189,9 +189,9 @@ async def test_invoke_n_c(run: _Run):
         return 1.5, responses, []  # total_time, responses, errors
 
     # Replace the fixture mock with our test-specific mock
-    run._invoke_n_c = mock_invoke_n_c
+    run._invoke_clients = mock_invoke_clients
 
-    total_test_time, responses, _ = await run._invoke_n_c(
+    total_test_time, responses, _ = await run._invoke_clients(
         payload=[{"prompt": "test"}], n_requests=2, clients=1
     )
 
@@ -238,7 +238,7 @@ async def test_run_with_output_path(runner: Runner, tmp_path: Path):
 
 @pytest.mark.asyncio
 async def test_run_error_handling(run: _Run):
-    run._invoke_n_c = AsyncMock(side_effect=Exception("Test error"))
+    run._invoke_clients = AsyncMock(side_effect=Exception("Test error"))
     run._process_results_from_q = AsyncMock()
 
     with pytest.raises(Exception, match="Test error"):
@@ -432,7 +432,7 @@ def test_run_output_path(runner: Runner, tmp_path: Path):
 @pytest.mark.asyncio
 async def test_invoke_n_edge_cases(run: _Run):
     # Test with empty payload
-    result = await run._invoke_n(payload=[], n=5)
+    result = await run._invoke_client(payload=[], n=5)
     assert not result
 
     # Test with n=None (should use all payloads)
@@ -442,7 +442,7 @@ async def test_invoke_n_edge_cases(run: _Run):
             InvocationResponse(id="2", input_prompt="test2", response_text="response2"),
         ]
     )
-    result = await run._invoke_n(
+    result = await run._invoke_client(
         payload=[{"prompt": "test1"}, {"prompt": "test2"}], n=None
     )
     assert len(result) == 2
@@ -535,7 +535,9 @@ def test_prepare_run_combinations(
     )
 
     assert isinstance(run.payload, list)
-    assert run.n_requests == n_requests
+    # When n_requests is None, it defaults to len(payload)
+    expected_n = n_requests if n_requests is not None else len(run.payload)
+    assert run.n_requests == expected_n
     assert run.clients == clients
     assert run.output_path == (Path(output_path) if output_path else None)
     assert run.run_name is not None
@@ -566,7 +568,9 @@ async def test_run_with_different_payloads(
 
 @pytest.mark.asyncio
 async def test_invoke_n_c_concurrent_execution(run: _Run):
-    async def mock_invoke_n(payload, n, add_start_jitter=True, shuffle_order=True):
+    async def mock_invoke_client(
+        payload, n=None, duration=None, add_start_jitter=True, shuffle_order=True
+    ):
         await asyncio.sleep(0.1)  # Simulate some processing time
         return [
             InvocationResponse(
@@ -575,10 +579,10 @@ async def test_invoke_n_c_concurrent_execution(run: _Run):
             for i in range(n)
         ]
 
-    run._invoke_n = mock_invoke_n  # type: ignore
+    run._invoke_client = mock_invoke_client  # type: ignore
 
     start_time = time.perf_counter()
-    total_test_time, _, _ = await run._invoke_n_c(
+    total_test_time, _, _ = await run._invoke_clients(
         payload=[{"prompt": "test"}], n_requests=5, clients=3
     )
     end_time = time.perf_counter()
@@ -757,7 +761,9 @@ def test_prepare_run_more_edge_cases(
     )
 
     assert isinstance(run_config.payload, list)
-    assert run_config.n_requests == n_requests
+    # When n_requests is None, it defaults to len(payload)
+    expected_n = n_requests if n_requests is not None else len(run_config.payload)
+    assert run_config.n_requests == expected_n
     assert run_config.clients == clients if clients is not None else 1
     assert run_config.output_path == (Path(output_path) if output_path else None)
     assert run_config.run_name is not None
@@ -806,7 +812,9 @@ async def test_run_with_optional_parameters(
 async def test_invoke_n_c_with_different_clients(
     run: _Run, clients: Literal[1] | Literal[3] | Literal[5] | Literal[10]
 ):
-    async def mock_invoke_n(payload, n, add_start_jitter=True, shuffle_order=True):
+    async def mock_invoke_client(
+        payload, n=None, duration=None, add_start_jitter=True, shuffle_order=True
+    ):
         await asyncio.sleep(0.1)  # Simulate some processing time
         return [
             InvocationResponse(
@@ -815,10 +823,10 @@ async def test_invoke_n_c_with_different_clients(
             for i in range(n)
         ]
 
-    run._invoke_n = mock_invoke_n  # type: ignore
+    run._invoke_client = mock_invoke_client  # type: ignore
 
     start_time = time.perf_counter()
-    total_test_time, _, _ = await run._invoke_n_c(
+    total_test_time, _, _ = await run._invoke_clients(
         payload=[{"prompt": "test"}], n_requests=5, clients=clients
     )
     end_time = time.perf_counter()
@@ -956,7 +964,7 @@ async def test_invoke_n_with_different_options(
         ]
     )
 
-    result = await run._invoke_n(
+    result = await run._invoke_client(
         payload=[{"prompt": "test1"}, {"prompt": "test2"}],
         n=2,
         shuffle_order=shuffle_order,
@@ -965,7 +973,7 @@ async def test_invoke_n_with_different_options(
 
     assert len(result) == 2
     run._invoke_n_no_wait.assert_called_once_with(
-        [{"prompt": "test1"}, {"prompt": "test2"}], 2, shuffle_order
+        [{"prompt": "test1"}, {"prompt": "test2"}], 2, None, shuffle_order
     )
 
 
@@ -1021,7 +1029,7 @@ def test_run_duration_and_n_requests_mutually_exclusive(
 def test_run_duration_sets_time_bound_flag(
     mock_endpoint: Endpoint, mock_tokenizer: MagicMock
 ):
-    """When run_duration is set, _time_bound should be True and _n_requests 0."""
+    """When run_duration is set, _time_bound should be True and n_requests 0."""
     run = _Run(
         endpoint=mock_endpoint,
         tokenizer=mock_tokenizer,
@@ -1031,7 +1039,7 @@ def test_run_duration_sets_time_bound_flag(
         run_name="test_run",
     )
     assert run._time_bound is True
-    assert run._n_requests == 0
+    assert run.n_requests == 0
 
 
 def test_n_requests_sets_count_bound(
@@ -1047,7 +1055,7 @@ def test_n_requests_sets_count_bound(
         run_name="test_run",
     )
     assert run._time_bound is False
-    assert run._n_requests == 10
+    assert run.n_requests == 10
 
 
 def test_run_duration_must_be_positive(
@@ -1068,7 +1076,7 @@ def test_run_duration_must_be_positive(
 def test_invoke_for_duration_respects_deadline(
     mock_endpoint: Endpoint, mock_tokenizer: MagicMock
 ):
-    """_invoke_for_duration should stop after the specified duration."""
+    """_invoke_n_no_wait with duration should stop after the specified duration."""
     run = _Run(
         endpoint=mock_endpoint,
         tokenizer=mock_tokenizer,
@@ -1089,7 +1097,7 @@ def test_invoke_for_duration_respects_deadline(
     run._endpoint.invoke.side_effect = slow_invoke
 
     start = time.perf_counter()
-    responses = run._invoke_for_duration(payload=[{"prompt": "test"}], duration=0.5)
+    responses = run._invoke_n_no_wait(payload=[{"prompt": "test"}], duration=0.5)
     elapsed = time.perf_counter() - start
 
     assert len(responses) > 0
@@ -1100,7 +1108,7 @@ def test_invoke_for_duration_respects_deadline(
 def test_invoke_for_duration_cycles_payloads(
     mock_endpoint: Endpoint, mock_tokenizer: MagicMock
 ):
-    """_invoke_for_duration should cycle through payloads."""
+    """_invoke_n_no_wait with duration should cycle through payloads."""
     run = _Run(
         endpoint=mock_endpoint,
         tokenizer=mock_tokenizer,
@@ -1121,7 +1129,7 @@ def test_invoke_for_duration_cycles_payloads(
 
     run._endpoint.invoke.side_effect = tracking_invoke
 
-    responses = run._invoke_for_duration(
+    responses = run._invoke_n_no_wait(
         payload=[{"prompt": "a"}, {"prompt": "b"}],
         duration=0.3,
         shuffle_order=False,
@@ -1190,7 +1198,7 @@ def test_prepare_run_with_duration(runner: Runner):
     )
     assert run._time_bound is True
     assert run.run_duration == 30
-    assert run._n_requests == 0
+    assert run.n_requests == 0
 
 
 def test_prepare_run_duration_and_n_requests_conflict(runner: Runner):

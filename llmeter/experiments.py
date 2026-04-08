@@ -9,7 +9,7 @@ single [Run][llmeter.runner.Runner].
 import logging
 import os
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from math import ceil
 from typing import Callable, Literal
 
@@ -141,7 +141,7 @@ class LoadTest:
         low_memory (bool): When ``True``, responses are written to disk but not kept in
             memory. Requires ``output_path``. Defaults to ``False``.
         progress_bar_stats (dict | None): Controls which live stats appear on the progress
-            bar. See ``RunningStats.DEFAULT_SNAPSHOT_STATS`` for the default.
+            bar. See ``DEFAULT_DISPLAY_STATS`` in ``llmeter.live_display`` for the default.
         output_path (os.PathLike | str | None): Where to save results.
         tokenizer (Tokenizer | None): Optional tokenizer for token counting.
         test_name (str | None): Name for this test. Defaults to current date/time.
@@ -187,9 +187,9 @@ class LoadTest:
     sequence_of_clients: list[int]
     min_requests_per_client: int = 1
     min_requests_per_run: int = 10
-    run_duration: int | float | None = None
+    run_duration: int | float | timedelta | None = None
     low_memory: bool = False
-    progress_bar_stats: dict[str, tuple[str, ...] | str] | None = None
+    progress_bar_stats: dict[str, str | tuple[str, str]] | None = None
     output_path: WritablePathLike | None = None
     tokenizer: Tokenizer | None = None
     test_name: str | None = None
