@@ -15,7 +15,7 @@ from uuid import uuid4
 from upath import UPath as Path
 from upath.types import ReadablePathLike, WritablePathLike
 
-from ..json_utils import LLMeterEncoder
+from ..json_utils import llmeter_default_serializer
 from ..utils import ensure_path
 
 
@@ -49,24 +49,23 @@ class InvocationResponse:
     error: str | None = None
     retries: int | None = None
 
-    def to_json(self, cls: type[json.JSONEncoder] = LLMeterEncoder, **kwargs) -> str:
+    def to_json(self, default=llmeter_default_serializer, **kwargs) -> str:
         """Serialize this response to a JSON string.
 
-        Uses :class:`~llmeter.json_utils.LLMeterEncoder` by default, which
-        handles ``bytes``, ``datetime``, ``PathLike``, and other common
-        non-serializable types.  See that class for details on encoding
-        behaviour and how to extend it.
+        Uses :func:`~llmeter.json_utils.llmeter_default_serializer` by default,
+        which handles ``bytes``, ``datetime``, ``PathLike``, and other common
+        non-serializable types.
 
         Args:
-            cls: JSON encoder class passed to :func:`json.dumps`.
-                Defaults to :class:`~llmeter.json_utils.LLMeterEncoder`.
+            default: Fallback serializer passed to :func:`json.dumps`.
+                Defaults to :func:`~llmeter.json_utils.llmeter_default_serializer`.
             **kwargs: Additional arguments passed to :func:`json.dumps`
                 (e.g., ``indent``, ``sort_keys``).
 
         Returns:
             str: JSON representation of the response.
         """
-        return json.dumps(asdict(self), cls=cls, **kwargs)
+        return json.dumps(asdict(self), default=default, **kwargs)
 
     @staticmethod
     def error_output(
@@ -194,7 +193,7 @@ class Endpoint(ABC):
         output_path = ensure_path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with output_path.open("w") as f:
-            json.dump(self, f, indent=4, cls=LLMeterEncoder)
+            json.dump(self, f, indent=4, default=llmeter_default_serializer)
         return output_path
 
     def to_dict(self) -> dict:

@@ -329,20 +329,20 @@ def test_save_method_existing_responses(sample_result: Result, temp_dir: UPath):
         assert responses[-1]["id"] == "extra_response"
 
 
-# Tests for LLMeterEncoder
+# Tests for llmeter_default_serializer
 # Validates Requirements: 7.1, 7.2
 
 
 def test_llmeter_encoder_handles_bytes():
-    """Test that LLMeterEncoder handles bytes objects via base64 marker.
+    """Test that llmeter_default_serializer handles bytes objects via base64 marker.
     
     Validates: Requirements 7.1, 7.2
     """
-    from llmeter.json_utils import LLMeterEncoder
+    from llmeter.json_utils import llmeter_default_serializer
     
     # Test bytes object encoding
     payload = {"image": {"bytes": b"\xff\xd8\xff\xe0"}}
-    encoded = json.dumps(payload, cls=LLMeterEncoder)
+    encoded = json.dumps(payload, default=llmeter_default_serializer)
     
     # Verify marker object is present
     assert "__llmeter_bytes__" in encoded
@@ -353,11 +353,11 @@ def test_llmeter_encoder_handles_bytes():
 
 
 def test_llmeter_encoder_str_fallback():
-    """Test that LLMeterEncoder falls back to str() for custom objects.
+    """Test that llmeter_default_serializer falls back to str() for custom objects.
     
     Validates: Requirements 7.1, 7.2
     """
-    from llmeter.json_utils import LLMeterEncoder
+    from llmeter.json_utils import llmeter_default_serializer
     
     # Create a custom object with __str__ method
     class CustomObject:
@@ -365,7 +365,7 @@ def test_llmeter_encoder_str_fallback():
             return "custom_string_representation"
     
     payload = {"custom": CustomObject()}
-    encoded = json.dumps(payload, cls=LLMeterEncoder)
+    encoded = json.dumps(payload, default=llmeter_default_serializer)
     
     # Verify str() fallback was used
     decoded = json.loads(encoded)
@@ -373,11 +373,11 @@ def test_llmeter_encoder_str_fallback():
 
 
 def test_llmeter_encoder_none_on_str_failure():
-    """Test that LLMeterEncoder returns None when str() conversion fails.
+    """Test that llmeter_default_serializer returns None when str() conversion fails.
     
     Validates: Requirements 7.1, 7.2
     """
-    from llmeter.json_utils import LLMeterEncoder
+    from llmeter.json_utils import llmeter_default_serializer
     
     # Create a custom object that raises exception in __str__
     class FailingObject:
@@ -385,7 +385,7 @@ def test_llmeter_encoder_none_on_str_failure():
             raise RuntimeError("Cannot convert to string")
     
     payload = {"failing": FailingObject()}
-    encoded = json.dumps(payload, cls=LLMeterEncoder)
+    encoded = json.dumps(payload, default=llmeter_default_serializer)
     
     # Verify None was returned
     decoded = json.loads(encoded)
@@ -393,11 +393,11 @@ def test_llmeter_encoder_none_on_str_failure():
 
 
 def test_llmeter_encoder_mixed_types():
-    """Test that LLMeterEncoder handles mixed types correctly.
+    """Test that llmeter_default_serializer handles mixed types correctly.
     
     Validates: Requirements 7.1, 7.2
     """
-    from llmeter.json_utils import LLMeterEncoder
+    from llmeter.json_utils import llmeter_default_serializer
     
     class CustomObject:
         def __str__(self):
@@ -415,7 +415,7 @@ def test_llmeter_encoder_mixed_types():
         }
     }
     
-    encoded = json.dumps(payload, cls=LLMeterEncoder)
+    encoded = json.dumps(payload, default=llmeter_default_serializer)
     decoded = json.loads(encoded)
     
     # Verify bytes were encoded with marker

@@ -1,10 +1,10 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Property-based tests for LLMeterEncoder and llmeter_bytes_decoder.
+"""Property-based tests for llmeter_default_serializer and llmeter_bytes_decoder.
 
 This module contains property-based tests using Hypothesis to verify that
-LLMeterEncoder correctly handles all supported types (bytes, datetime, date,
+llmeter_default_serializer correctly handles all supported types (bytes, datetime, date,
 time, PathLike, to_dict() objects, and str() fallback) and that
 llmeter_bytes_decoder restores binary content from marker objects.
 
@@ -20,7 +20,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 from hypothesis.strategies import composite
 
-from llmeter.json_utils import LLMeterEncoder, llmeter_bytes_decoder
+from llmeter.json_utils import llmeter_default_serializer, llmeter_bytes_decoder
 
 # Test infrastructure is set up and ready for property test implementation
 # This file will contain property-based tests for:
@@ -109,7 +109,7 @@ class TestSerializationProperties:
         base64-encoded string value.
         """
         # Serialize the payload
-        serialized = json.dumps(payload, cls=LLMeterEncoder)
+        serialized = json.dumps(payload, default=llmeter_default_serializer)
 
         # Verify it's valid JSON by parsing it
         parsed = json.loads(serialized)
@@ -243,7 +243,7 @@ class TestRoundTripProperties:
         # Feature: json-serialization-optimization, Property 2: Serialization preserves non-binary structure
         """
         # Serialize the payload
-        serialized = json.dumps(payload, cls=LLMeterEncoder)
+        serialized = json.dumps(payload, default=llmeter_default_serializer)
 
         # Parse the JSON (without decoding markers back to bytes)
         parsed = json.loads(serialized)
@@ -330,7 +330,7 @@ class TestRoundTripProperties:
         """
 
         # Serialize the payload
-        serialized = json.dumps(payload, cls=LLMeterEncoder)
+        serialized = json.dumps(payload, default=llmeter_default_serializer)
 
         # Deserialize the payload
         deserialized = json.loads(serialized, object_hook=llmeter_bytes_decoder)
@@ -400,7 +400,7 @@ class TestRoundTripProperties:
         """
 
         # Serialize the payload
-        serialized = json.dumps(payload, cls=LLMeterEncoder)
+        serialized = json.dumps(payload, default=llmeter_default_serializer)
 
         # Deserialize the payload
         deserialized = json.loads(serialized, object_hook=llmeter_bytes_decoder)
@@ -467,14 +467,14 @@ class TestBackwardCompatibilityProperties:
         # Feature: json-serialization-optimization, Property 7: Non-binary payloads are backward compatible
         """
         # Serialize with the new encoder
-        serialized_with_encoder = json.dumps(payload, cls=LLMeterEncoder)
+        serialized_with_encoder = json.dumps(payload, default=llmeter_default_serializer)
 
         # Serialize with standard json.dumps
         serialized_standard = json.dumps(payload)
 
         # Verify they produce identical output
         assert serialized_with_encoder == serialized_standard, (
-            "Serialization with LLMeterEncoder should produce identical output "
+            "Serialization with llmeter_default_serializer should produce identical output "
             "to standard json.dumps for payloads without bytes objects"
         )
 
@@ -554,7 +554,7 @@ class TestErrorHandlingProperties:
         payload = payload_creator(unserializable_obj)
         
         # The unified encoder falls back to str() for unknown types
-        result = json.dumps(payload, cls=LLMeterEncoder)
+        result = json.dumps(payload, default=llmeter_default_serializer)
         # Result should be valid JSON
         parsed = json.loads(result)
         assert isinstance(parsed, dict)
@@ -798,7 +798,7 @@ class TestDatetimeSerializationProperties:
         Naive datetimes are serialized as-is with no timezone indicator.
         Microseconds are truncated (the encoder uses timespec="seconds").
         """
-        result = json.loads(json.dumps({"v": dt}, cls=LLMeterEncoder))
+        result = json.loads(json.dumps({"v": dt}, default=llmeter_default_serializer))
         assert isinstance(result["v"], str)
         if dt.tzinfo is not None:
             assert result["v"].endswith("Z")
@@ -813,7 +813,7 @@ class TestDatetimeSerializationProperties:
     @settings(max_examples=100)
     def test_date_produces_iso_string(self, d):
         """Date values are serialized via isoformat()."""
-        result = json.loads(json.dumps({"v": d}, cls=LLMeterEncoder))
+        result = json.loads(json.dumps({"v": d}, default=llmeter_default_serializer))
         assert result["v"] == d.isoformat()
         assert date.fromisoformat(result["v"]) == d
 
@@ -821,7 +821,7 @@ class TestDatetimeSerializationProperties:
     @settings(max_examples=100)
     def test_time_produces_iso_string(self, t):
         """Time values are serialized via isoformat()."""
-        result = json.loads(json.dumps({"v": t}, cls=LLMeterEncoder))
+        result = json.loads(json.dumps({"v": t}, default=llmeter_default_serializer))
         assert result["v"] == t.isoformat()
         assert time.fromisoformat(result["v"]) == t
 
@@ -833,7 +833,7 @@ class TestPathSerializationProperties:
     @settings(max_examples=100)
     def test_pathlike_produces_posix_string(self, p):
         """PathLike objects are serialized to POSIX path strings."""
-        result = json.loads(json.dumps({"v": p}, cls=LLMeterEncoder))
+        result = json.loads(json.dumps({"v": p}, default=llmeter_default_serializer))
         assert isinstance(result["v"], str)
         assert result["v"] == p.as_posix()
 
@@ -846,7 +846,7 @@ class TestToDictSerializationProperties:
     def test_to_dict_delegation_produces_expected_dict(self, obj_and_expected):
         """Objects with to_dict() are serialized by calling that method."""
         obj, expected = obj_and_expected
-        result = json.loads(json.dumps({"v": obj}, cls=LLMeterEncoder))
+        result = json.loads(json.dumps({"v": obj}, default=llmeter_default_serializer))
         assert result["v"] == expected
 
     @given(to_dict_object_strategy(), st.binary(min_size=1, max_size=100))
@@ -855,7 +855,7 @@ class TestToDictSerializationProperties:
         """Payloads mixing to_dict() objects and bytes round-trip correctly."""
         obj, expected = obj_and_expected
         payload = {"obj": obj, "data": raw_bytes}
-        serialized = json.dumps(payload, cls=LLMeterEncoder)
+        serialized = json.dumps(payload, default=llmeter_default_serializer)
         restored = json.loads(serialized, object_hook=llmeter_bytes_decoder)
         assert restored["obj"] == expected
         assert restored["data"] == raw_bytes

@@ -17,15 +17,15 @@ from llmeter.prompt_utils import (
     load_prompts,
     save_payloads,
 )
-from llmeter.json_utils import LLMeterEncoder, llmeter_bytes_decoder
+from llmeter.json_utils import llmeter_default_serializer, llmeter_bytes_decoder
 from llmeter.tokenizers import DummyTokenizer
 
 
-class TestLLMeterEncoder:
-    """Unit tests for LLMeterEncoder class.
+class TestLLMeterDefaultSerializer:
+    """Unit tests for llmeter_default_serializer function.
 
-    These tests verify specific examples and edge cases for the LLMeterEncoder
-    class, complementing the property-based tests.
+    These tests verify specific examples and edge cases for the llmeter_default_serializer
+    function, complementing the property-based tests.
 
     Requirements: 1.1, 1.2, 1.3, 1.6
     """
@@ -38,7 +38,7 @@ class TestLLMeterEncoder:
         payload = {"data": b"hello world"}
 
         # Serialize using the encoder
-        serialized = json.dumps(payload, cls=LLMeterEncoder)
+        serialized = json.dumps(payload, default=llmeter_default_serializer)
 
         # Verify it's valid JSON
         parsed = json.loads(serialized)
@@ -78,7 +78,7 @@ class TestLLMeterEncoder:
         }
 
         # Serialize
-        serialized = json.dumps(payload, cls=LLMeterEncoder)
+        serialized = json.dumps(payload, default=llmeter_default_serializer)
 
         # Verify it's valid JSON
         parsed = json.loads(serialized)
@@ -107,7 +107,7 @@ class TestLLMeterEncoder:
         payload = {"empty": b""}
 
         # Serialize
-        serialized = json.dumps(payload, cls=LLMeterEncoder)
+        serialized = json.dumps(payload, default=llmeter_default_serializer)
 
         # Verify it's valid JSON
         parsed = json.loads(serialized)
@@ -134,7 +134,7 @@ class TestLLMeterEncoder:
         payload = {"large_image": large_data}
 
         # Serialize
-        serialized = json.dumps(payload, cls=LLMeterEncoder)
+        serialized = json.dumps(payload, default=llmeter_default_serializer)
 
         # Verify it's valid JSON
         parsed = json.loads(serialized)
@@ -161,7 +161,7 @@ class TestLLMeterEncoder:
         }
 
         # Serialize
-        serialized = json.dumps(payload, cls=LLMeterEncoder)
+        serialized = json.dumps(payload, default=llmeter_default_serializer)
 
         # Verify it's valid JSON
         parsed = json.loads(serialized)
@@ -195,7 +195,7 @@ class TestLLMeterEncoder:
         payload = {"images": [b"image1", b"image2", b"image3"]}
 
         # Serialize
-        serialized = json.dumps(payload, cls=LLMeterEncoder)
+        serialized = json.dumps(payload, default=llmeter_default_serializer)
 
         # Verify it's valid JSON
         parsed = json.loads(serialized)
@@ -223,7 +223,7 @@ class TestLLMeterEncoder:
         }
 
         # Serialize
-        serialized = json.dumps(payload, cls=LLMeterEncoder)
+        serialized = json.dumps(payload, default=llmeter_default_serializer)
 
         # Verify it's valid JSON
         parsed = json.loads(serialized)
@@ -1182,7 +1182,7 @@ class TestSavePayloads:
     def test_save_payloads_handles_to_dict_objects(self):
         """Test that payloads with to_dict() objects are serialized correctly.
 
-        Objects implementing to_dict() are handled by LLMeterEncoder automatically.
+        Objects implementing to_dict() are handled by llmeter_default_serializer automatically.
 
         Validates: Requirements 5.1, 5.3
         """
@@ -1367,7 +1367,7 @@ class TestErrorHandling:
         }
 
         # The unified encoder falls back to str() for unknown types
-        result = json.dumps(payload, cls=LLMeterEncoder)
+        result = json.dumps(payload, default=llmeter_default_serializer)
         assert "test-model" in result
 
     def test_invalid_json_error_handling(self):
@@ -1440,14 +1440,14 @@ class TestErrorHandling:
                 list(load_payloads(jsonl_file))
 
     def test_save_payloads_encoder_error_propagation(self):
-        """Test that encoder errors from LLMeterEncoder are propagated correctly.
+        """Test that encoder errors from llmeter_default_serializer are propagated correctly.
 
         Validates: Requirements 6.4
         """
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir)
 
-            # An object whose str() raises — LLMeterEncoder returns None for these,
+            # An object whose str() raises — llmeter_default_serializer returns None for these,
             # which is valid JSON, so no error is raised.
             class FailingStr:
                 def __str__(self):
@@ -1502,7 +1502,7 @@ class TestErrorHandling:
         }
 
         # The unified encoder falls back to str() for unknown types
-        result = json.dumps(payload, cls=LLMeterEncoder)
+        result = json.dumps(payload, default=llmeter_default_serializer)
         assert "test-model" in result
 
     def test_bytes_serialization_with_encoding_error(self):
@@ -1518,7 +1518,7 @@ class TestErrorHandling:
         payload = {"data": all_bytes}
 
         # Should serialize without errors
-        serialized = json.dumps(payload, cls=LLMeterEncoder)
+        serialized = json.dumps(payload, default=llmeter_default_serializer)
 
         # Should be valid JSON
         parsed = json.loads(serialized)
@@ -1540,7 +1540,7 @@ class TestErrorHandling:
         empty_payload = {}
 
         # Should serialize without errors
-        serialized = json.dumps(empty_payload, cls=LLMeterEncoder)
+        serialized = json.dumps(empty_payload, default=llmeter_default_serializer)
         assert serialized == "{}"
 
         # Empty list
@@ -1568,7 +1568,7 @@ class TestErrorHandling:
         }
 
         # Should serialize without errors
-        serialized = json.dumps(payload, cls=LLMeterEncoder)
+        serialized = json.dumps(payload, default=llmeter_default_serializer)
 
         # Should be valid JSON
         parsed = json.loads(serialized)
@@ -1589,7 +1589,7 @@ class TestErrorHandling:
         }
 
         # Should serialize without errors
-        serialized = json.dumps(payload, cls=LLMeterEncoder)
+        serialized = json.dumps(payload, default=llmeter_default_serializer)
 
         # Should be valid JSON
         parsed = json.loads(serialized)
@@ -1641,7 +1641,7 @@ class TestPerformance:
 
         # Measure serialization time
         start_time = time.perf_counter()
-        serialized = json.dumps(payload, cls=LLMeterEncoder)
+        serialized = json.dumps(payload, default=llmeter_default_serializer)
         end_time = time.perf_counter()
 
         # Calculate elapsed time in milliseconds
@@ -1675,7 +1675,7 @@ class TestPerformance:
         }
 
         # First serialize the payload
-        serialized = json.dumps(payload, cls=LLMeterEncoder)
+        serialized = json.dumps(payload, default=llmeter_default_serializer)
 
         # Measure deserialization time
 
@@ -1715,7 +1715,7 @@ class TestPerformance:
         initial_size = sys.getsizeof(binary_data)
 
         # Serialize the payload
-        serialized = json.dumps(payload, cls=LLMeterEncoder)
+        serialized = json.dumps(payload, default=llmeter_default_serializer)
 
         # Parse to verify structure
         parsed = json.loads(serialized)
@@ -1751,7 +1751,7 @@ class TestPerformance:
         payload = {"data": binary_data}
 
         # Serialize first
-        serialized = json.dumps(payload, cls=LLMeterEncoder)
+        serialized = json.dumps(payload, default=llmeter_default_serializer)
 
         # Deserialize
 
@@ -1794,7 +1794,7 @@ class TestPerformance:
 
         # Measure serialization time
         start_time = time.perf_counter()
-        serialized = json.dumps(payload, cls=LLMeterEncoder)
+        serialized = json.dumps(payload, default=llmeter_default_serializer)
         serialize_time = (time.perf_counter() - start_time) * 1000
 
         # Measure deserialization time
@@ -1833,7 +1833,7 @@ class TestPerformance:
         small_payload = {"data": small_data}
 
         start_time = time.perf_counter()
-        json.dumps(small_payload, cls=LLMeterEncoder)
+        json.dumps(small_payload, default=llmeter_default_serializer)
         small_time = time.perf_counter() - start_time
 
         # Test with 512KB (2x size)
@@ -1841,7 +1841,7 @@ class TestPerformance:
         large_payload = {"data": large_data}
 
         start_time = time.perf_counter()
-        json.dumps(large_payload, cls=LLMeterEncoder)
+        json.dumps(large_payload, default=llmeter_default_serializer)
         large_time = time.perf_counter() - start_time
 
         # Large should take roughly 2x the time (allow 3x for variance)
@@ -1865,7 +1865,7 @@ class TestPerformance:
         # Test with 256KB
         small_data = os.urandom(256 * 1024)
         small_payload = {"data": small_data}
-        small_serialized = json.dumps(small_payload, cls=LLMeterEncoder)
+        small_serialized = json.dumps(small_payload, default=llmeter_default_serializer)
 
         start_time = time.perf_counter()
         json.loads(small_serialized, object_hook=llmeter_bytes_decoder)
@@ -1874,7 +1874,7 @@ class TestPerformance:
         # Test with 512KB (2x size)
         large_data = os.urandom(512 * 1024)
         large_payload = {"data": large_data}
-        large_serialized = json.dumps(large_payload, cls=LLMeterEncoder)
+        large_serialized = json.dumps(large_payload, default=llmeter_default_serializer)
 
         start_time = time.perf_counter()
         json.loads(large_serialized, object_hook=llmeter_bytes_decoder)

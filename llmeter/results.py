@@ -13,7 +13,7 @@ import jmespath
 from upath.types import ReadablePathLike, WritablePathLike
 
 from .endpoints import InvocationResponse
-from .json_utils import LLMeterEncoder
+from .json_utils import llmeter_default_serializer
 from .utils import ensure_path, summary_stats_from_list
 
 logger = logging.getLogger(__name__)
@@ -38,7 +38,7 @@ class Result:
     end_time: datetime | None = None
 
     def __str__(self):
-        return json.dumps(self.stats, indent=4, cls=LLMeterEncoder)
+        return json.dumps(self.stats, indent=4, default=llmeter_default_serializer)
 
     def __post_init__(self):
         """Initialize the Result instance."""
@@ -99,26 +99,26 @@ class Result:
         stats_path = output_path / "stats.json"
         with summary_path.open("w") as f, stats_path.open("w") as s:
             f.write(self.to_json(indent=4))
-            s.write(json.dumps(self.stats, indent=4, cls=LLMeterEncoder))
+            s.write(json.dumps(self.stats, indent=4, default=llmeter_default_serializer))
 
         responses_path = output_path / "responses.jsonl"
         if not responses_path.exists():
             with responses_path.open("w") as f:
                 for response in self.responses:
-                    f.write(json.dumps(asdict(response), cls=LLMeterEncoder) + "\n")
+                    f.write(json.dumps(asdict(response), default=llmeter_default_serializer) + "\n")
 
-    def to_json(self, cls: type[json.JSONEncoder] = LLMeterEncoder, **kwargs):
+    def to_json(self, default=llmeter_default_serializer, **kwargs):
         """Return the results as a JSON string.
 
         Args:
-            cls: JSON encoder class. Defaults to
-                :class:`~llmeter.json_utils.LLMeterEncoder`.
+            default: Fallback serializer. Defaults to
+                :func:`~llmeter.json_utils.llmeter_default_serializer`.
             **kwargs: Extra keyword arguments passed to :func:`json.dumps`.
         """
         summary = {
             k: o for k, o in asdict(self).items() if k not in ["responses", "stats"]
         }
-        return json.dumps(summary, cls=cls, **kwargs)
+        return json.dumps(summary, default=default, **kwargs)
 
     def to_dict(self, include_responses: bool = False):
         """Return the results as a dictionary with JSON-serializable values."""
@@ -126,7 +126,7 @@ class Result:
         # Serialize datetime objects so stats dict is always JSON-safe
         for key in ("start_time", "end_time"):
             if key in data and isinstance(data[key], datetime):
-                data[key] = LLMeterEncoder().default(data[key])
+                data[key] = llmeter_default_serializer(data[key])
         if include_responses:
             return data
         return {k: v for k, v in data.items() if k not in ["responses", "stats"]}

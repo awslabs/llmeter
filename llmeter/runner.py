@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from .callbacks.base import Callback
 
 from .endpoints.base import Endpoint, InvocationResponse
-from .json_utils import LLMeterEncoder
+from .json_utils import llmeter_default_serializer
 from .prompt_utils import load_payloads, save_payloads
 from .results import Result
 from .tokenizers import DummyTokenizer, Tokenizer
@@ -124,7 +124,7 @@ class _RunConfig:
             config_copy.tokenizer = Tokenizer.to_dict(self.tokenizer)
 
         with run_config_path.open("w") as f:
-            f.write(json.dumps(asdict(config_copy), cls=LLMeterEncoder, indent=4))
+            f.write(json.dumps(asdict(config_copy), default=llmeter_default_serializer, indent=4))
 
     @classmethod
     def load(cls, load_path: Path | str, file_name: str = "run_config.json"):

@@ -217,9 +217,10 @@ class TestMultiModalSerialization:
                 # Verify exact equality
                 assert payload == loaded_payload
 
-                # Verify OpenAI-specific format
+                # Verify OpenAI-specific format (image_url content part)
                 content = loaded_payload["messages"][0]["content"]
-                assert content[1]["image"]["format"] == "image/jpeg"
+                assert content[1]["type"] == "image_url"
+                assert content[1]["image_url"]["url"].startswith("data:image/jpeg;base64,")
 
         finally:
             Path(temp_path).unlink()

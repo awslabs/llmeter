@@ -12,7 +12,7 @@ from typing import Any, Protocol, TypeVar
 from upath import UPath as Path
 from upath.types import ReadablePathLike, WritablePathLike
 
-from ...json_utils import LLMeterEncoder
+from ...json_utils import llmeter_default_serializer
 from ...utils import ensure_path
 
 logger = logging.getLogger(__name__)
@@ -205,12 +205,12 @@ class JSONableBase:
             f.write(self.to_json(indent=indent, **kwargs))
         return output_path
 
-    def to_json(self, cls: type[json.JSONEncoder] = LLMeterEncoder, **kwargs) -> str:
+    def to_json(self, default=llmeter_default_serializer, **kwargs) -> str:
         """Serialize this object to JSON.
 
         Args:
-            cls: JSON encoder class. Defaults to
-                :class:`~llmeter.json_utils.LLMeterEncoder`.
+            default: Fallback serializer. Defaults to
+                :func:`~llmeter.json_utils.llmeter_default_serializer`.
             **kwargs: Extra keyword arguments passed to :func:`json.dumps`.
         """
-        return json.dumps(self.to_dict(), cls=cls, **kwargs)
+        return json.dumps(self.to_dict(), default=default, **kwargs)
