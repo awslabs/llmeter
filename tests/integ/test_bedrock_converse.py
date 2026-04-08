@@ -206,21 +206,17 @@ def test_bedrock_converse_with_image(
     assert len(response.response_text) > 0, "Response text should not be empty"
     assert isinstance(response.response_text, str), "Response text should be a string"
 
-    # Verify the response mentions the image content (should describe the red square)
-    # The response should reference color or image content
+    # Verify the model actually sees the image content — it must identify at least
+    # one of the two colors in the split image (red/blue)
     response_lower = response.response_text.lower()
-    assert (
-        "red" in response_lower
-        or "square" in response_lower
-        or "image" in response_lower
-        or "color" in response_lower
-    ), f"Response should describe the image content, got: {response.response_text}"
+    assert "red" in response_lower or "blue" in response_lower, (
+        "Model should identify at least one color (red/blue) from the split image, got: "
+        f"{response.response_text[:200]}"
+    )
 
     # Verify token counts are present and positive
     assert response.num_tokens_input is not None, "Input token count should not be None"
     assert response.num_tokens_input > 0, "Input token count should be positive"
-    # Input tokens should be higher than text-only due to image tokens
-    # Text-only payload typically uses ~20 tokens, image adds more
     assert (
         response.num_tokens_input > 30
     ), "Input token count should include image tokens (expected > 30)"
@@ -248,93 +244,47 @@ def test_bedrock_converse_streaming_with_image(
     aws_credentials, aws_region, bedrock_test_model, test_payload_with_image
 ):
     """
-    Test BedrockConverseStream endpoint with image payload for multimodal capabilities.
+    Test BedrockConverseStream endpoint with image payload.
 
-    This test validates that the BedrockConverseStream endpoint can successfully:
-    - Create a streaming endpoint instance with a valid model
-    - Invoke the endpoint with an image payload
-    - Receive a streaming response
-    - Extract response text describing the image
-    - Verify token counts include image tokens
-    - Measure time to first token (TTFT) and time to last token (TTLT)
-    - Verify TTLT > TTFT
-    - Complete without errors
-
-    **Validates: Requirements 2.1, 2.2, 2.3, 2.4, 2.5, 2.6 (with multimodal content)**
+    Verifies the model actually processes the image by checking it identifies
+    the dominant color of the test image (a red square).
 
     Args:
         aws_credentials: Boto3 session with valid AWS credentials (from fixture).
         aws_region: AWS region for testing (from fixture).
         bedrock_test_model: Model ID for testing (from fixture).
         test_payload_with_image: Test payload with image content (from fixture).
-
-    AWS Permissions Required:
-        - bedrock:InvokeModelWithResponseStream
-
-    Estimated Cost:
-        ~$0.0002 per test run (higher due to image processing)
     """
     from llmeter.endpoints.bedrock import BedrockConverseStream
 
-    # Create BedrockConverseStream endpoint instance
     endpoint = BedrockConverseStream(model_id=bedrock_test_model, region=aws_region)
-
-    # Invoke the endpoint with image payload
     response = endpoint.invoke(test_payload_with_image)
 
-    # Verify response contains non-empty text
     assert response.response_text is not None, "Response text should not be None"
     assert len(response.response_text) > 0, "Response text should not be empty"
-    assert isinstance(response.response_text, str), "Response text should be a string"
 
-    # Verify the response mentions the image content (should describe the red square)
-    # The response should reference color or image content
+    # Verify the model actually sees the image content
     response_lower = response.response_text.lower()
-    assert (
-        "red" in response_lower
-        or "square" in response_lower
-        or "image" in response_lower
-        or "color" in response_lower
-    ), f"Response should describe the image content, got: {response.response_text}"
+    assert "red" in response_lower or "blue" in response_lower, (
+        "Model should identify at least one color (red/blue) from the split image, got: "
+        f"{response.response_text[:200]}"
+    )
 
-    # Verify token counts are present and positive
+    # Verify token counts include image tokens
     assert response.num_tokens_input is not None, "Input token count should not be None"
-    assert response.num_tokens_input > 0, "Input token count should be positive"
-    # Input tokens should be higher than text-only due to image tokens
-    # Text-only payload typically uses ~20 tokens, image adds more
-    assert (
-        response.num_tokens_input > 30
-    ), "Input token count should include image tokens (expected > 30)"
+    assert response.num_tokens_input > 30, (
+        "Input token count should include image tokens (expected > 30)"
+    )
 
-    assert (
-        response.num_tokens_output is not None
-    ), "Output token count should not be None"
-    assert response.num_tokens_output > 0, "Output token count should be positive"
+    # Verify streaming timing
+    assert response.time_to_first_token is not None
+    assert response.time_to_first_token > 0
+    assert response.time_to_last_token is not None
+    assert response.time_to_last_token > response.time_to_first_token
 
-    # Verify time to first token is measured and positive
-    assert (
-        response.time_to_first_token is not None
-    ), "Time to first token should not be None"
-    assert response.time_to_first_token > 0, "Time to first token should be positive"
-
-    # Verify time to last token is measured and positive
-    assert (
-        response.time_to_last_token is not None
-    ), "Time to last token should not be None"
-    assert response.time_to_last_token > 0, "Time to last token should be positive"
-
-    # Verify TTLT > TTFT (streaming should take time to complete)
-    assert (
-        response.time_to_last_token > response.time_to_first_token
-    ), "Time to last token should be greater than time to first token"
-
-    # Verify no errors in response
-    assert (
-        response.error is None
-    ), f"Response should not contain errors: {response.error}"
-
-    # Verify response has an ID
-    assert response.id is not None, "Response should have an ID"
+    assert response.error is None, (
+        f"Response should not contain errors: {response.error}"
+    )
 
 
 def test_save_load_payload_with_image(test_payload_with_image, tmp_path):

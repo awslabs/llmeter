@@ -137,8 +137,11 @@ def test_bedrock_invoke_with_image(aws_credentials, aws_region, bedrock_test_mod
 
     from PIL import Image
 
-    # Create a simple 100x100 red square PNG image
-    img = Image.new("RGB", (100, 100), color="red")
+    # Create a 200x200 image: left half red, right half blue
+    img = Image.new("RGB", (200, 200), color="red")
+    for x in range(100, 200):
+        for y in range(200):
+            img.putpixel((x, y), (0, 0, 255))
     img_buffer = io.BytesIO()
     img.save(img_buffer, format="PNG")
     img_bytes = img_buffer.getvalue()
@@ -168,12 +171,15 @@ def test_bedrock_invoke_with_image(aws_credentials, aws_region, bedrock_test_mod
                         },
                     },
                     {
-                        "text": "What color is the square in this image? Answer with just the color name.",
+                        "text": (
+                            "This image is split into two halves of different colors. "
+                            "What are the two colors? Answer with just the color names."
+                        ),
                     },
                 ],
             }
         ],
-        "inferenceConfig": {"maxTokens": 50},
+        "inferenceConfig": {"maxTokens": 100},
     }
 
     response = endpoint.invoke(invoke_payload)
@@ -182,12 +188,12 @@ def test_bedrock_invoke_with_image(aws_credentials, aws_region, bedrock_test_mod
     assert response.response_text is not None, "Response text should not be None"
     assert len(response.response_text) > 0, "Response text should not be empty"
 
-    # Verify the model actually processes the image (responds with a color name)
+    # Verify the model actually processes the image (must identify the colors)
     response_lower = response.response_text.lower()
-    assert any(
-        color in response_lower
-        for color in ("red", "white", "pink", "orange", "color", "square", "image")
-    ), f"Model should describe the image content, got: {response.response_text}"
+    assert "red" in response_lower or "blue" in response_lower, (
+        "Model should identify at least one color (red/blue) from the split image, got: "
+        f"{response.response_text[:200]}"
+    )
 
 
 @pytest.mark.integ

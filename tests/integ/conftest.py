@@ -227,9 +227,10 @@ def test_payload_with_image():
     """
     Create a test payload with image for multimodal testing.
 
-    This payload includes a small 100x100 PNG test image (a simple red square)
-    encoded as base64, along with a text prompt asking the model to describe
-    the image.
+    This payload includes a 200x200 PNG test image with a distinctive two-color
+    split (red left half, blue right half) and a constrained prompt asking the
+    model to identify the colors.  This design makes it easy to verify the model
+    actually processed the image pixels rather than giving a generic answer.
 
     The image is generated programmatically to keep the test deterministic
     and avoid external dependencies.
@@ -241,8 +242,11 @@ def test_payload_with_image():
 
     from PIL import Image
 
-    # Create a simple 100x100 red square PNG image
-    img = Image.new("RGB", (100, 100), color="red")
+    # Create a 200x200 image: left half red, right half blue
+    img = Image.new("RGB", (200, 200), color="red")
+    for x in range(100, 200):
+        for y in range(200):
+            img.putpixel((x, y), (0, 0, 255))
     img_buffer = io.BytesIO()
     img.save(img_buffer, format="PNG")
     img_bytes = img_buffer.getvalue()
@@ -259,10 +263,13 @@ def test_payload_with_image():
                         }
                     },
                     {
-                        "text": "What do you see in this image? Please provide a brief description."
+                        "text": (
+                            "This image is split into two halves of different colors. "
+                            "What are the two colors? Answer with just the color names."
+                        ),
                     },
                 ],
             }
         ],
-        "inferenceConfig": {"maxTokens": 150},
+        "inferenceConfig": {"maxTokens": 100},
     }
