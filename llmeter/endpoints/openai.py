@@ -14,7 +14,7 @@ from openai import APIConnectionError, OpenAI
 from openai.types.chat import ChatCompletion
 
 from .base import Endpoint, InvocationResponse
-from ..prompt_utils import read_file, detect_format_from_bytes, detect_format_from_file
+from ..prompt_utils import read_file, detect_format
 
 logger = logging.getLogger(__name__)
 
@@ -157,18 +157,20 @@ def _build_content_blocks_openai(
         for item in media_list:
             if isinstance(item, bytes):
                 data = item
-                mime_type = detect_format_from_bytes(data)
-                if mime_type is None:
+                file_hint = None
+            else:
+                data = read_file(item)
+                file_hint = item
+
+            mime_type = detect_format(content=data, file_path=file_hint)
+            if mime_type is None:
+                if file_hint is None:
                     raise ValueError(
                         f"Cannot detect format from bytes for {media_label}. "
                         "Either install puremagic for content-based detection "
                         "or provide a file path for extension-based detection."
                     )
-            else:
-                data = read_file(item)
-                mime_type = detect_format_from_file(item)
-                if mime_type is None:
-                    raise ValueError(f"Cannot detect format from file: {item}")
+                raise ValueError(f"Cannot detect format from file: {item}")
 
             filename = os.path.basename(item) if isinstance(item, str) else None
             content.append(

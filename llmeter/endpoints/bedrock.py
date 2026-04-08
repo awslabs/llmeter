@@ -20,8 +20,7 @@ from botocore.config import Config
 from botocore.exceptions import ClientError
 
 from ..prompt_utils import (
-    detect_format_from_bytes,
-    detect_format_from_file,
+    detect_format,
     read_file,
 )
 from .base import Endpoint, InvocationResponse
@@ -99,31 +98,27 @@ def _build_content_blocks(
         if media_list:
             for item in media_list:
                 if isinstance(item, bytes):
-                    # Bytes provided directly - detect MIME type from content
                     data = item
-                    mime_type = detect_format_from_bytes(data)
-                    if mime_type is None:
+                    file_hint = None
+                else:
+                    data = read_file(item)
+                    file_hint = item
+
+                mime_type = detect_format(content=data, file_path=file_hint)
+                if mime_type is None:
+                    if file_hint is None:
                         raise ValueError(
                             f"Cannot detect format from bytes for {media_type}. "
                             "Either install puremagic for content-based detection "
                             "or provide file path for extension-based detection."
                         )
-                    fmt = _mime_to_format(mime_type)
-                    if fmt is None:
-                        raise ValueError(
-                            f"Unsupported MIME type '{mime_type}' for {media_type}"
-                        )
-                else:
-                    # File path - read and detect MIME type from file
-                    data = read_file(item)
-                    mime_type = detect_format_from_file(item)
-                    if mime_type is None:
-                        raise ValueError(f"Cannot detect format from file: {item}")
-                    fmt = _mime_to_format(mime_type)
-                    if fmt is None:
-                        raise ValueError(
-                            f"Unsupported MIME type '{mime_type}' for file: {item}"
-                        )
+                    raise ValueError(f"Cannot detect format from file: {item}")
+
+                fmt = _mime_to_format(mime_type)
+                if fmt is None:
+                    raise ValueError(
+                        f"Unsupported MIME type '{mime_type}' for {media_type}"
+                    )
 
                 content.append({media_type: {"format": fmt, "source": {"bytes": data}}})
 

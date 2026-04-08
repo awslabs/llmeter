@@ -144,6 +144,50 @@ def detect_format_from_file(file_path: ReadablePathLike) -> str | None:
     return detect_format_from_extension(file_path)
 
 
+def detect_format(
+    content: bytes | None = None,
+    file_path: ReadablePathLike | None = None,
+) -> str | None:
+    """Detect MIME type from binary content and/or a file path.
+
+    Tries content-based detection first (via ``puremagic``, if installed),
+    then falls back to file-extension detection when a *file_path* is given.
+
+    At least one of *content* or *file_path* must be provided.
+
+    Args:
+        content: Raw bytes to inspect (optional).
+        file_path: A file path whose extension (and, if ``puremagic`` is
+            available, magic bytes) will be used for detection (optional).
+
+    Returns:
+        The detected MIME type string, or ``None`` if detection fails.
+
+    Raises:
+        ValueError: If neither *content* nor *file_path* is provided.
+
+    Examples:
+        >>> detect_format(content=b"\\xff\\xd8\\xff\\xe0")
+        'image/jpeg'
+        >>> detect_format(file_path="report.pdf")
+        'application/pdf'
+    """
+    if content is None and file_path is None:
+        raise ValueError("At least one of content or file_path must be provided")
+
+    # 1. Try content-based detection (most reliable when puremagic is available)
+    if content is not None:
+        result = detect_format_from_bytes(content)
+        if result is not None:
+            return result
+
+    # 2. Try file-based detection (puremagic magic_file + extension fallback)
+    if file_path is not None:
+        return detect_format_from_file(file_path)
+
+    return None
+
+
 @dataclass
 class CreatePromptCollection:
     input_lengths: list[int]
