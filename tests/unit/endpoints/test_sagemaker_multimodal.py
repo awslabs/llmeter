@@ -134,7 +134,7 @@ class TestSageMakerMultiModal:
 
     def test_create_payload_missing_file(self):
         """Test that missing file raises FileNotFoundError."""
-        with pytest.raises(FileNotFoundError, match="File not found"):
+        with pytest.raises(FileNotFoundError, match="No such file or directory"):
             SageMakerBase.create_payload(
                 input_text="Test", images=["/nonexistent/file.jpg"], max_tokens=256
             )

@@ -100,11 +100,11 @@ def ensure_path(path: ReadablePathLike | WritablePathLike) -> UPath: ...
 
 
 @overload
-def ensure_path(path: ReadablePathLike | WritablePathLike | None) -> UPath | None: ...
+def ensure_path(path: None) -> None: ...
 
 
 def ensure_path(
-    path: ReadablePathLike | WritablePathLike | None = None,
+    path: ReadablePathLike | WritablePathLike | None,
 ) -> UPath | None:
     """Normalize a path-like argument to a UPath instance.
 

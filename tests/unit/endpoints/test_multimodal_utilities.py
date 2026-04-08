@@ -32,7 +32,7 @@ class TestReadFile:
 
     def test_read_file_nonexistent(self):
         """Test reading a non-existent file raises FileNotFoundError."""
-        with pytest.raises(FileNotFoundError, match="File not found"):
+        with pytest.raises(FileNotFoundError, match="No such file or directory"):
             read_file("/nonexistent/file.txt")
 
     def test_read_file_binary_content(self):
