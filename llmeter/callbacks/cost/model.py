@@ -4,7 +4,9 @@
 import importlib
 from dataclasses import dataclass, field
 
-from llmeter.utils import ensure_path
+from ...utils import ensure_path
+
+from upath.types import ReadablePathLike, WritablePathLike
 
 # Local Dependencies:
 from ...endpoints.base import InvocationResponse
@@ -201,7 +203,7 @@ class CostModel(JSONableBase, Callback):
             result, recalculate_request_costs=False, save=True
         )
 
-    def save_to_file(self, path: str) -> None:
+    def save_to_file(self, path: WritablePathLike) -> None:
         """Save the cost model (including all dimensions) to a JSON file"""
         path = ensure_path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
@@ -224,7 +226,7 @@ class CostModel(JSONableBase, Callback):
         return super().from_dict(raw_args, alt_classes=alt_classes, **kwargs)
 
     @classmethod
-    def _load_from_file(cls, path: str):
+    def _load_from_file(cls, path: ReadablePathLike):
         """Load the cost model (including all dimensions) from a JSON file"""
         path = ensure_path(path)
         with path.open("r") as f:
