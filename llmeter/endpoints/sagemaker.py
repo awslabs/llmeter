@@ -13,23 +13,20 @@ import jmespath
 from botocore.exceptions import ClientError
 
 from .base import Endpoint, InvocationResponse
-from ..prompt_utils import read_file, detect_format
+from ..prompt_utils import (
+    AudioContent,
+    ContentItem,
+    DocumentContent,
+    ImageContent,
+    MediaContent,
+    VideoContent,
+)
 
 logger = logging.getLogger(__name__)
 
 
 def _mime_to_sagemaker_format(mime_type: str) -> str | None:
-    """Convert MIME type to SageMaker format string.
-
-    SageMaker format depends on the deployed model, using Bedrock format as default.
-
-    Args:
-        mime_type: MIME type (e.g., "image/jpeg", "application/pdf")
-
-    Returns:
-        str | None: Format string (e.g., "jpeg", "png", "pdf") or None if not recognized
-    """
-    # SageMaker uses Bedrock-style short format strings as default
+    """Convert MIME type to SageMaker format string."""
     mime_map = {
         "image/jpeg": "jpeg",
         "image/png": "png",
@@ -47,76 +44,34 @@ def _mime_to_sagemaker_format(mime_type: str) -> str | None:
     return mime_map.get(mime_type)
 
 
-def _build_content_blocks_sagemaker(
-    user_message: str | list[str] | None,
-    images: list[bytes] | list[str] | None,
-    documents: list[bytes] | list[str] | None,
-    videos: list[bytes] | list[str] | None,
-    audio: list[bytes] | list[str] | None,
-) -> list[dict]:
-    """Build content blocks from parameters for SageMaker API.
-
-    Returns list of content block dictionaries in SageMaker format.
-
-    Args:
-        user_message: Text message(s)
-        images: List of image bytes or file paths
-        documents: List of document bytes or file paths
-        videos: List of video bytes or file paths
-        audio: List of audio bytes or file paths
-
-    Returns:
-        list[dict]: Content blocks
-
-    Raises:
-        ValueError: If format cannot be auto-detected from bytes
-    """
-    content = []
-
-    # Add text blocks first
-    if user_message:
-        messages = [user_message] if isinstance(user_message, str) else user_message
-        for msg in messages:
-            content.append({"text": msg})
-
-    # Add media blocks in order: images, videos, audio, documents
-    for media_list, media_type in [
-        (images, "image"),
-        (videos, "video"),
-        (audio, "audio"),
-        (documents, "document"),
-    ]:
-        if media_list:
-            for item in media_list:
-                if isinstance(item, bytes):
-                    data = item
-                    file_hint = None
-                else:
-                    data = read_file(item)
-                    file_hint = item
-
-                mime_type = detect_format(content=data, file_path=file_hint)
-                if mime_type is None:
-                    if file_hint is None:
-                        raise ValueError(
-                            f"Cannot detect format from bytes for {media_type}. "
-                            "Either install puremagic for content-based detection "
-                            "or provide file path for extension-based detection."
-                        )
-                    raise ValueError(f"Cannot detect format from file: {item}")
-
-                fmt = _mime_to_sagemaker_format(mime_type)
-                if fmt is None:
-                    raise ValueError(
-                        f"Unsupported MIME type '{mime_type}' for {media_type}"
-                    )
-
-                content.append({media_type: {"format": fmt, "source": {"bytes": data}}})
-
-    return content
+# Mapping from MediaContent subclass to SageMaker content-block key
+_SM_MEDIA_TYPE_KEY: dict[type, str] = {
+    ImageContent: "image",
+    AudioContent: "audio",
+    VideoContent: "video",
+    DocumentContent: "document",
+}
 
 
-logger = logging.getLogger(__name__)
+def _build_content_blocks_sagemaker(items: list[ContentItem]) -> list[dict]:
+    """Convert an ordered list of content items to SageMaker content blocks."""
+    blocks: list[dict] = []
+    for item in items:
+        if isinstance(item, str):
+            blocks.append({"text": item})
+        elif isinstance(item, MediaContent):
+            key = _SM_MEDIA_TYPE_KEY.get(type(item))
+            if key is None:
+                raise TypeError(f"Unsupported content type: {type(item).__name__}")
+            fmt = _mime_to_sagemaker_format(item.mime_type)
+            if fmt is None:
+                raise ValueError(f"Unsupported MIME type '{item.mime_type}' for {key}")
+            blocks.append({key: {"format": fmt, "source": {"bytes": item.data}}})
+        else:
+            raise TypeError(
+                f"Content items must be str or MediaContent, got {type(item).__name__}"
+            )
+    return blocks
 
 
 class SageMakerBase(Endpoint):
@@ -156,139 +111,59 @@ class SageMakerBase(Endpoint):
 
     @staticmethod
     def create_payload(
-        input_text: str | list[str] | None = None,
+        input_text: str | list[ContentItem],
         max_tokens: int = 256,
         inference_parameters: dict = {},
-        *,
-        images: list[bytes] | list[str] | None = None,
-        documents: list[bytes] | list[str] | None = None,
-        videos: list[bytes] | list[str] | None = None,
-        audio: list[bytes] | list[str] | None = None,
         **kwargs,
     ):
-        """Create a payload for the SageMaker API request with optional multi-modal content.
-
-        ⚠️ SECURITY WARNING: Format detection is for testing/development convenience ONLY.
-        This method does NOT validate file safety, integrity, or protect against malicious
-        content. DO NOT use with untrusted files (user uploads, external sources) without
-        proper validation, sanitization, and security measures.
+        """Create a payload for the SageMaker API request.
 
         Args:
-            input_text (str | list[str] | None): The input text or a sequence of texts.
-            max_tokens (int): Maximum tokens to generate. Defaults to 256.
-            inference_parameters (dict): Additional inference parameters. Defaults to {}.
-            images (list[bytes] | list[str] | None): List of image bytes or file paths (keyword-only).
-            documents (list[bytes] | list[str] | None): List of document bytes or file paths (keyword-only).
-            videos (list[bytes] | list[str] | None): List of video bytes or file paths (keyword-only).
-            audio (list[bytes] | list[str] | None): List of audio bytes or file paths (keyword-only).
+            input_text: A single text string, or an ordered list mixing strings
+                and :class:`~llmeter.prompt_utils.MediaContent` objects.
+            max_tokens: Maximum tokens to generate. Defaults to 256.
+            inference_parameters: Additional inference parameters.
             **kwargs: Additional keyword arguments to include in the payload.
 
         Returns:
             dict: The formatted payload for the SageMaker API request.
-
-        Raises:
-            TypeError: If parameters have invalid types
-            ValueError: If parameters have invalid values
-            FileNotFoundError: If a file path doesn't exist
-            IOError: If a file cannot be read
-
-        Security:
-            - Format detection (puremagic/extension) is NOT security validation
-            - Malicious files can have misleading extensions or forged magic bytes
-            - This method does NOT scan for malware or sanitize content
-            - Users MUST validate and sanitize untrusted files before calling this method
-            - Intended for testing/development with trusted files only
-            - NOT intended for production user uploads without proper security measures
-
-        Examples:
-            # Text only (backward compatible)
-            create_payload(input_text="Hello")
-
-            # Single image from file path (trusted source)
-            create_payload(
-                input_text="What's in this image?",
-                images=["photo.jpg"]
-            )
-
-            # Multiple images from bytes (trusted source)
-            create_payload(
-                input_text="Compare these images",
-                images=[image_bytes1, image_bytes2]
-            )
-
-            # Mixed content (trusted source)
-            create_payload(
-                input_text="Analyze this",
-                images=["chart.png"],
-                documents=["report.pdf"]
-            )
         """
-        # Check if any multi-modal content is provided
-        has_multimodal = any([images, documents, videos, audio])
-
-        # Backward compatibility: if only input_text provided, use old logic
-        if not has_multimodal:
-            payload = {
-                "inputs": input_text,
-                "parameters": {
-                    "max_new_tokens": max_tokens,
-                    "details": True,
-                },
-            }
-            if inference_parameters:
-                payload["parameters"].update(inference_parameters)
-            payload.update(kwargs)
-            return payload
-
-        # Multi-modal path: validate types
-        if images is not None and not isinstance(images, list):
-            raise TypeError("images must be a list")
-        if documents is not None and not isinstance(documents, list):
-            raise TypeError("documents must be a list")
-        if videos is not None and not isinstance(videos, list):
-            raise TypeError("videos must be a list")
-        if audio is not None and not isinstance(audio, list):
-            raise TypeError("audio must be a list")
-
-        # Validate list items are bytes or str
-        for media_list, media_name in [
-            (images, "images"),
-            (documents, "documents"),
-            (videos, "videos"),
-            (audio, "audio"),
-        ]:
-            if media_list:
-                for item in media_list:
-                    if not isinstance(item, (bytes, str)):
-                        raise TypeError(
-                            f"Items in {media_name} list must be bytes or str (file path), "
-                            f"got {type(item).__name__}"
-                        )
-
         if not isinstance(max_tokens, int) or max_tokens <= 0:
             raise ValueError("max_tokens must be a positive integer")
 
-        try:
-            # Build content blocks
-            content_blocks = _build_content_blocks_sagemaker(
-                input_text, images, documents, videos, audio
+        if isinstance(input_text, str):
+            items: list[ContentItem] = [input_text]
+        elif isinstance(input_text, list):
+            items = input_text
+        else:
+            raise TypeError(
+                "input_text must be a str or list of str/MediaContent, "
+                f"got {type(input_text).__name__}"
             )
 
+        if not items:
+            raise ValueError("input_text must not be empty")
+
+        # Text-only shortcut
+        if len(items) == 1 and isinstance(items[0], str):
             payload = {
-                "inputs": content_blocks,
-                "parameters": {
-                    "max_new_tokens": max_tokens,
-                    "details": True,
-                },
+                "inputs": items[0],
+                "parameters": {"max_new_tokens": max_tokens, "details": True},
             }
             if inference_parameters:
                 payload["parameters"].update(inference_parameters)
             payload.update(kwargs)
             return payload
 
-        except Exception as e:
-            logger.error(f"Error creating payload: {e}")
-            raise
+        content_blocks = _build_content_blocks_sagemaker(items)
+        payload = {
+            "inputs": content_blocks,
+            "parameters": {"max_new_tokens": max_tokens, "details": True},
+        }
+        if inference_parameters:
+            payload["parameters"].update(inference_parameters)
+        payload.update(kwargs)
+        return payload
 
 
 class SageMakerEndpoint(SageMakerBase):
@@ -470,131 +345,44 @@ class SageMakerStreamEndpoint(SageMakerBase):
 
     @staticmethod
     def create_payload(
-        input_text: str | list[str] | None = None,
+        input_text: str | list[ContentItem],
         max_tokens: int = 256,
         inference_parameters: dict = {},
-        *,
-        images: list[bytes] | list[str] | None = None,
-        documents: list[bytes] | list[str] | None = None,
-        videos: list[bytes] | list[str] | None = None,
-        audio: list[bytes] | list[str] | None = None,
         **kwargs,
     ):
-        """Create a payload for the SageMaker streaming API request with optional multi-modal content.
-
-        ⚠️ SECURITY WARNING: Format detection is for testing/development convenience ONLY.
-        This method does NOT validate file safety, integrity, or protect against malicious
-        content. DO NOT use with untrusted files (user uploads, external sources) without
-        proper validation, sanitization, and security measures.
+        """Create a payload for the SageMaker streaming API request.
 
         Args:
-            input_text (str | list[str] | None): The input text or a sequence of texts.
-            max_tokens (int): Maximum tokens to generate. Defaults to 256.
-            inference_parameters (dict): Additional inference parameters. Defaults to {}.
-            images (list[bytes] | list[str] | None): List of image bytes or file paths (keyword-only).
-            documents (list[bytes] | list[str] | None): List of document bytes or file paths (keyword-only).
-            videos (list[bytes] | list[str] | None): List of video bytes or file paths (keyword-only).
-            audio (list[bytes] | list[str] | None): List of audio bytes or file paths (keyword-only).
+            input_text: A single text string, or an ordered list mixing strings
+                and :class:`~llmeter.prompt_utils.MediaContent` objects.
+            max_tokens: Maximum tokens to generate. Defaults to 256.
+            inference_parameters: Additional inference parameters.
             **kwargs: Additional keyword arguments to include in the payload.
 
         Returns:
             dict: The formatted payload for the SageMaker streaming API request.
-
-        Raises:
-            TypeError: If parameters have invalid types
-            ValueError: If parameters have invalid values
-            FileNotFoundError: If a file path doesn't exist
-            IOError: If a file cannot be read
-
-        Security:
-            - Format detection (puremagic/extension) is NOT security validation
-            - Malicious files can have misleading extensions or forged magic bytes
-            - This method does NOT scan for malware or sanitize content
-            - Users MUST validate and sanitize untrusted files before calling this method
-            - Intended for testing/development with trusted files only
-            - NOT intended for production user uploads without proper security measures
-
-        Examples:
-            # Text only (backward compatible)
-            create_payload(input_text="Hello")
-
-            # Single image from file path (trusted source)
-            create_payload(
-                input_text="What's in this image?",
-                images=["photo.jpg"]
-            )
-
-            # Multiple images from bytes (trusted source)
-            create_payload(
-                input_text="Compare these images",
-                images=[image_bytes1, image_bytes2]
-            )
-
-            # Mixed content (trusted source)
-            create_payload(
-                input_text="Analyze this",
-                images=["chart.png"],
-                documents=["report.pdf"]
-            )
         """
-        # Check if any multi-modal content is provided
-        has_multimodal = any([images, documents, videos, audio])
-
-        # Backward compatibility: if only input_text provided, use old logic
-        if not has_multimodal:
-            payload = {
-                "inputs": input_text,
-                "parameters": {
-                    "max_new_tokens": max_tokens,
-                    "details": True,
-                },
-                "stream": True,
-            }
-            if inference_parameters:
-                payload["parameters"].update(inference_parameters)
-            payload.update(kwargs)
-            return payload
-
-        # Multi-modal path: validate types
-        if images is not None and not isinstance(images, list):
-            raise TypeError("images must be a list")
-        if documents is not None and not isinstance(documents, list):
-            raise TypeError("documents must be a list")
-        if videos is not None and not isinstance(videos, list):
-            raise TypeError("videos must be a list")
-        if audio is not None and not isinstance(audio, list):
-            raise TypeError("audio must be a list")
-
-        # Validate list items are bytes or str
-        for media_list, media_name in [
-            (images, "images"),
-            (documents, "documents"),
-            (videos, "videos"),
-            (audio, "audio"),
-        ]:
-            if media_list:
-                for item in media_list:
-                    if not isinstance(item, (bytes, str)):
-                        raise TypeError(
-                            f"Items in {media_name} list must be bytes or str (file path), "
-                            f"got {type(item).__name__}"
-                        )
-
         if not isinstance(max_tokens, int) or max_tokens <= 0:
             raise ValueError("max_tokens must be a positive integer")
 
-        try:
-            # Build content blocks
-            content_blocks = _build_content_blocks_sagemaker(
-                input_text, images, documents, videos, audio
+        if isinstance(input_text, str):
+            items: list[ContentItem] = [input_text]
+        elif isinstance(input_text, list):
+            items = input_text
+        else:
+            raise TypeError(
+                "input_text must be a str or list of str/MediaContent, "
+                f"got {type(input_text).__name__}"
             )
 
+        if not items:
+            raise ValueError("input_text must not be empty")
+
+        # Text-only shortcut
+        if len(items) == 1 and isinstance(items[0], str):
             payload = {
-                "inputs": content_blocks,
-                "parameters": {
-                    "max_new_tokens": max_tokens,
-                    "details": True,
-                },
+                "inputs": items[0],
+                "parameters": {"max_new_tokens": max_tokens, "details": True},
                 "stream": True,
             }
             if inference_parameters:
@@ -602,9 +390,16 @@ class SageMakerStreamEndpoint(SageMakerBase):
             payload.update(kwargs)
             return payload
 
-        except Exception as e:
-            logger.error(f"Error creating payload: {e}")
-            raise
+        content_blocks = _build_content_blocks_sagemaker(items)
+        payload = {
+            "inputs": content_blocks,
+            "parameters": {"max_new_tokens": max_tokens, "details": True},
+            "stream": True,
+        }
+        if inference_parameters:
+            payload["parameters"].update(inference_parameters)
+        payload.update(kwargs)
+        return payload
 
 
 class TokenIterator:

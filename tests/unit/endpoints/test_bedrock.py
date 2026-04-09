@@ -523,9 +523,9 @@ class TestBedrock:
 
         payload = BedrockBase.create_payload(user_message, max_tokens)
 
-        assert len(payload["messages"]) == 2
+        assert len(payload["messages"]) == 1
         assert payload["messages"][0]["content"][0]["text"] == "Hello"
-        assert payload["messages"][1]["content"][0]["text"] == "How are you?"
+        assert payload["messages"][0]["content"][1]["text"] == "How are you?"
         assert "inferenceConfig" in payload
         assert payload["inferenceConfig"]["maxTokens"] == max_tokens
 

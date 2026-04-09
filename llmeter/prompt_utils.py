@@ -188,6 +188,138 @@ def detect_format(
     return None
 
 
+# ---------------------------------------------------------------------------
+# Multi-modal content types
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class MediaContent:
+    """Base for typed multi-modal content blocks.
+
+    Subclasses represent specific media types (image, audio, video, document).
+    Each carries the raw ``bytes`` and a detected MIME type so that endpoint
+    ``create_payload`` methods can convert them to the provider-specific format
+    without re-detecting.
+    """
+
+    data: bytes
+    """Raw binary content."""
+
+    mime_type: str
+    """Detected MIME type (e.g. ``"image/jpeg"``)."""
+
+    source_path: str | None = None
+    """Original file path, if the content was loaded from a file."""
+
+    @classmethod
+    def _from_path(cls, file_path: str | ReadablePathLike) -> "MediaContent":
+        data = read_file(file_path)
+        mime = detect_format(content=data, file_path=file_path)
+        if mime is None:
+            raise ValueError(f"Cannot detect format from file: {file_path}")
+        return cls(data=data, mime_type=mime, source_path=str(file_path))
+
+    @classmethod
+    def _from_bytes(cls, data: bytes) -> "MediaContent":
+        mime = detect_format(content=data)
+        if mime is None:
+            raise ValueError(
+                f"Cannot detect format from bytes for {cls.__name__}. "
+                "Either install puremagic for content-based detection "
+                "or provide a file path via from_path()."
+            )
+        return cls(data=data, mime_type=mime)
+
+
+@dataclass(frozen=True)
+class ImageContent(MediaContent):
+    """An image content block for multi-modal payloads.
+
+    Examples::
+
+        ImageContent.from_path("photo.jpg")
+        ImageContent.from_bytes(jpeg_bytes)
+    """
+
+    @classmethod
+    def from_path(cls, file_path: str | ReadablePathLike) -> "ImageContent":
+        """Load an image from a file path."""
+        return cls._from_path(file_path)  # type: ignore[return-value]
+
+    @classmethod
+    def from_bytes(cls, data: bytes) -> "ImageContent":
+        """Create an image from raw bytes."""
+        return cls._from_bytes(data)  # type: ignore[return-value]
+
+
+@dataclass(frozen=True)
+class AudioContent(MediaContent):
+    """An audio content block for multi-modal payloads.
+
+    Examples::
+
+        AudioContent.from_path("recording.wav")
+        AudioContent.from_bytes(wav_bytes)
+    """
+
+    @classmethod
+    def from_path(cls, file_path: str | ReadablePathLike) -> "AudioContent":
+        """Load audio from a file path."""
+        return cls._from_path(file_path)  # type: ignore[return-value]
+
+    @classmethod
+    def from_bytes(cls, data: bytes) -> "AudioContent":
+        """Create audio from raw bytes."""
+        return cls._from_bytes(data)  # type: ignore[return-value]
+
+
+@dataclass(frozen=True)
+class VideoContent(MediaContent):
+    """A video content block for multi-modal payloads.
+
+    Examples::
+
+        VideoContent.from_path("clip.mp4")
+        VideoContent.from_bytes(mp4_bytes)
+    """
+
+    @classmethod
+    def from_path(cls, file_path: str | ReadablePathLike) -> "VideoContent":
+        """Load video from a file path."""
+        return cls._from_path(file_path)  # type: ignore[return-value]
+
+    @classmethod
+    def from_bytes(cls, data: bytes) -> "VideoContent":
+        """Create video from raw bytes."""
+        return cls._from_bytes(data)  # type: ignore[return-value]
+
+
+@dataclass(frozen=True)
+class DocumentContent(MediaContent):
+    """A document content block for multi-modal payloads.
+
+    Examples::
+
+        DocumentContent.from_path("report.pdf")
+        DocumentContent.from_bytes(pdf_bytes)
+    """
+
+    @classmethod
+    def from_path(cls, file_path: str | ReadablePathLike) -> "DocumentContent":
+        """Load a document from a file path."""
+        return cls._from_path(file_path)  # type: ignore[return-value]
+
+    @classmethod
+    def from_bytes(cls, data: bytes) -> "DocumentContent":
+        """Create a document from raw bytes."""
+        return cls._from_bytes(data)  # type: ignore[return-value]
+
+
+# Type alias for items accepted in the user_message list
+ContentItem = str | ImageContent | AudioContent | VideoContent | DocumentContent
+
+
 @dataclass
 class CreatePromptCollection:
     input_lengths: list[int]

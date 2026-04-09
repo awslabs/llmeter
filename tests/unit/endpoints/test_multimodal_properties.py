@@ -19,6 +19,10 @@ from hypothesis import strategies as st
 from llmeter.endpoints.bedrock import BedrockBase
 from llmeter.json_utils import llmeter_default_serializer, llmeter_bytes_decoder
 from llmeter.prompt_utils import (
+    ImageContent,
+    DocumentContent,
+    AudioContent,
+    VideoContent,
     load_payloads,
     save_payloads,
 )
@@ -128,7 +132,7 @@ def test_property_1_file_path_content_inclusion(file_content, extension):
 
         # Create payload with the file
         payload = BedrockBase.create_payload(
-            user_message="Test message", images=[file_path], max_tokens=256
+            [ImageContent.from_path(file_path), "Test message"], max_tokens=256
         )
 
         # Verify payload structure
@@ -177,9 +181,10 @@ def test_property_2_multiple_items_preservation(num_images, file_content):
             file_paths.append(file_path)
 
         # Create payload with multiple images
-        payload = BedrockBase.create_payload(
-            user_message="Test message", images=file_paths, max_tokens=256
-        )
+        content_items = [ImageContent.from_path(fp) for fp in file_paths] + [
+            "Test message"
+        ]
+        payload = BedrockBase.create_payload(content_items, max_tokens=256)
 
         # Verify payload structure
         content_blocks = payload["messages"][0]["content"]
@@ -207,8 +212,7 @@ def test_property_3_content_ordering_preservation(
     **Validates: Requirements 1.4**
 
     For any combination of text messages and media items, when creating a payload,
-    the resulting content array SHALL preserve the order: text blocks first (in order),
-    then media blocks (in the order: images, videos, audio, documents).
+    the resulting content array SHALL preserve the exact order given in the list.
     """
     # Create text messages
     text_messages = [f"Text {i}" for i in range(num_texts)]
@@ -233,13 +237,22 @@ def test_property_3_content_ordering_preservation(
             for _ in range(num_documents)
         ]
 
+        # Build ordered content items list: texts first, then images, videos, audio, documents
+        content_items: list = []
+        for t in text_messages:
+            content_items.append(t)
+        for img in images:
+            content_items.append(ImageContent.from_path(img))
+        for vid in videos:
+            content_items.append(VideoContent.from_path(vid))
+        for aud in audio:
+            content_items.append(AudioContent.from_path(aud))
+        for doc in documents:
+            content_items.append(DocumentContent.from_path(doc))
+
         # Create payload
         payload = BedrockBase.create_payload(
-            user_message=text_messages if len(text_messages) > 1 else text_messages[0],
-            images=images if images else None,
-            videos=videos if videos else None,
-            audio=audio if audio else None,
-            documents=documents if documents else None,
+            content_items,
             max_tokens=256,
         )
 
@@ -305,7 +318,7 @@ def test_property_4_missing_file_error_handling(non_existent_path):
     """
     with pytest.raises(FileNotFoundError) as exc_info:
         BedrockBase.create_payload(
-            user_message="Test message", images=[non_existent_path], max_tokens=256
+            [ImageContent.from_path(non_existent_path), "Test message"], max_tokens=256
         )
 
     # Verify error message contains the file path
@@ -326,18 +339,11 @@ def test_property_5_invalid_type_rejection(invalid_item):
 
     **Validates: Requirements 5.4**
 
-    For any media parameter list containing items that are neither bytes nor strings,
+    For any content list containing items that are neither str nor MediaContent,
     attempting to create a payload SHALL raise a TypeError with a descriptive message.
     """
-    with pytest.raises(TypeError) as exc_info:
-        BedrockBase.create_payload(
-            user_message="Test message", images=[invalid_item], max_tokens=256
-        )
-
-    # Verify error message is descriptive
-    error_msg = str(exc_info.value)
-    assert "images" in error_msg
-    assert "bytes" in error_msg or "str" in error_msg
+    with pytest.raises(TypeError):
+        BedrockBase.create_payload([invalid_item, "Test message"], max_tokens=256)
 
 
 @given(
@@ -367,19 +373,17 @@ def test_property_6_backward_compatibility(user_message, max_tokens):
     assert "inferenceConfig" in payload
     assert payload["inferenceConfig"]["maxTokens"] == max_tokens
 
-    # Verify messages structure
+    # Verify messages structure — all items go into a single message
     messages = payload["messages"]
+    assert len(messages) == 1
+    assert messages[0]["role"] == "user"
     if isinstance(user_message, str):
-        assert len(messages) == 1
-        assert messages[0]["role"] == "user"
         assert len(messages[0]["content"]) == 1
         assert messages[0]["content"][0]["text"] == user_message
     else:
-        assert len(messages) == len(user_message)
-        for i, msg in enumerate(messages):
-            assert msg["role"] == "user"
-            assert len(msg["content"]) == 1
-            assert msg["content"][0]["text"] == user_message[i]
+        assert len(messages[0]["content"]) == len(user_message)
+        for i, block in enumerate(messages[0]["content"]):
+            assert block["text"] == user_message[i]
 
 
 @given(
@@ -422,8 +426,7 @@ def test_property_7_existing_parameters_preservation(max_tokens, extra_kwargs):
 
         # Create payload with extra kwargs
         payload = BedrockBase.create_payload(
-            user_message="Test message",
-            images=[image_path],
+            [ImageContent.from_path(image_path), "Test message"],
             max_tokens=max_tokens,
             **extra_kwargs,
         )
@@ -458,7 +461,7 @@ def test_property_8_serialization_round_trip(image_content):
 
         # Create payload with binary content
         original_payload = BedrockBase.create_payload(
-            user_message="Test message", images=[image_path], max_tokens=256
+            [ImageContent.from_path(image_path), "Test message"], max_tokens=256
         )
 
         # Save and load the payload
@@ -473,10 +476,10 @@ def test_property_8_serialization_round_trip(image_content):
         assert loaded_payload == original_payload
 
         # Verify binary content is preserved byte-for-byte
-        original_bytes = original_payload["messages"][0]["content"][1]["image"][
+        original_bytes = original_payload["messages"][0]["content"][0]["image"][
             "source"
         ]["bytes"]
-        loaded_bytes = loaded_payload["messages"][0]["content"][1]["image"]["source"][
+        loaded_bytes = loaded_payload["messages"][0]["content"][0]["image"]["source"][
             "bytes"
         ]
         assert original_bytes == loaded_bytes
@@ -500,23 +503,23 @@ def test_property_9_format_detection(extension):
     # Generate appropriate content for the extension
     if extension in [".jpg", ".jpeg"]:
         file_content = b"\xff\xd8\xff\xe0test\xff\xd9"
-        media_param = "images"
+        content_cls = ImageContent
         media_key = "image"
     elif extension == ".png":
         file_content = b"\x89PNG\r\n\x1a\ntest"
-        media_param = "images"
+        content_cls = ImageContent
         media_key = "image"
     elif extension == ".pdf":
         file_content = b"%PDF-1.4\ntest\n%%EOF"
-        media_param = "documents"
+        content_cls = DocumentContent
         media_key = "document"
     elif extension == ".mp4":
         file_content = b"\x00\x00\x00\x20ftypisomtest"
-        media_param = "videos"
+        content_cls = VideoContent
         media_key = "video"
     elif extension == ".mp3":
         file_content = b"ID3\x03\x00\x00test"
-        media_param = "audio"
+        content_cls = AudioContent
         media_key = "audio"
 
     # Create temporary file and use it within the same context
@@ -525,9 +528,8 @@ def test_property_9_format_detection(extension):
         file_path = create_temp_file(tmp_path, file_content, extension)
 
         # Create payload
-        kwargs = {media_param: [file_path]}
         payload = BedrockBase.create_payload(
-            user_message="Test message", max_tokens=256, **kwargs
+            [content_cls.from_path(file_path), "Test message"], max_tokens=256
         )
 
         # Find the media content block
@@ -568,7 +570,9 @@ def test_property_10_load_prompts_integration(num_prompts):
         # Define create_payload function that produces multi-modal payloads
         def create_multimodal_payload(input_text, **kwargs):
             return BedrockBase.create_payload(
-                user_message=input_text, images=[image_path], max_tokens=256, **kwargs
+                [ImageContent.from_path(image_path), input_text],
+                max_tokens=256,
+                **kwargs,
             )
 
         # Use load_prompts with the multi-modal create_payload function
@@ -590,7 +594,7 @@ def test_property_10_load_prompts_integration(num_prompts):
             assert "messages" in payload
             content_blocks = payload["messages"][0]["content"]
 
-            # Should have text and image blocks
+            # Should have image and text blocks
             text_blocks = [block for block in content_blocks if "text" in block]
             image_blocks = [block for block in content_blocks if "image" in block]
 
@@ -645,8 +649,7 @@ def test_property_11_create_payload_kwargs_compatibility(extra_kwargs):
 
         # Create payload with extra kwargs
         payload = BedrockBase.create_payload(
-            user_message="Test message",
-            images=[image_path],
+            [ImageContent.from_path(image_path), "Test message"],
             max_tokens=256,
             **extra_kwargs,
         )
@@ -662,7 +665,9 @@ def test_property_11_create_payload_kwargs_compatibility(extra_kwargs):
 
         def create_multimodal_payload(input_text, **kwargs):
             return BedrockBase.create_payload(
-                user_message=input_text, images=[image_path], max_tokens=256, **kwargs
+                [ImageContent.from_path(image_path), input_text],
+                max_tokens=256,
+                **kwargs,
             )
 
         from llmeter.prompt_utils import load_prompts

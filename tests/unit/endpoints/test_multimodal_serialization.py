@@ -8,6 +8,7 @@ from pathlib import Path
 from llmeter.endpoints.bedrock import BedrockBase
 from llmeter.endpoints.openai import OpenAIEndpoint
 from llmeter.endpoints.sagemaker import SageMakerBase
+from llmeter.prompt_utils import ImageContent, DocumentContent
 from llmeter.prompt_utils import save_payloads, load_payloads, load_prompts
 
 
@@ -26,8 +27,7 @@ class TestMultiModalSerialization:
 
         try:
             payload = BedrockBase.create_payload(
-                user_message="What's in this image?",
-                images=[temp_image_path],
+                [ImageContent.from_path(temp_image_path), "What's in this image?"],
                 max_tokens=256,
             )
 
@@ -45,10 +45,10 @@ class TestMultiModalSerialization:
                 # Verify structure
                 assert "messages" in loaded_payload
                 content = loaded_payload["messages"][0]["content"]
-                assert len(content) == 2  # text + image
+                assert len(content) == 2  # image + text
 
                 # Verify binary content is preserved
-                loaded_image_bytes = content[1]["image"]["source"]["bytes"]
+                loaded_image_bytes = content[0]["image"]["source"]["bytes"]
                 assert isinstance(loaded_image_bytes, bytes)
                 assert loaded_image_bytes == image_bytes
 
@@ -71,9 +71,11 @@ class TestMultiModalSerialization:
 
         try:
             payload = BedrockBase.create_payload(
-                user_message="Analyze this",
-                images=[img_path],
-                documents=[doc_path],
+                [
+                    ImageContent.from_path(img_path),
+                    "Analyze this",
+                    DocumentContent.from_path(doc_path),
+                ],
                 max_tokens=1024,
             )
 
@@ -87,10 +89,10 @@ class TestMultiModalSerialization:
 
                 # Verify all content is preserved
                 content = loaded_payload["messages"][0]["content"]
-                assert len(content) == 3  # text + image + document
+                assert len(content) == 3  # image + text + document
 
                 # Verify binary content
-                loaded_image = content[1]["image"]["source"]["bytes"]
+                loaded_image = content[0]["image"]["source"]["bytes"]
                 loaded_doc = content[2]["document"]["source"]["bytes"]
 
                 assert isinstance(loaded_image, bytes)
@@ -113,7 +115,7 @@ class TestMultiModalSerialization:
 
         try:
             original_payload = BedrockBase.create_payload(
-                user_message="Test", images=[temp_path], max_tokens=256
+                [ImageContent.from_path(temp_path), "Test"], max_tokens=256
             )
 
             # Save and load
@@ -138,7 +140,7 @@ class TestMultiModalSerialization:
         try:
             payloads = [
                 BedrockBase.create_payload(
-                    user_message=f"Image {i}", images=[temp_path], max_tokens=256
+                    [ImageContent.from_path(temp_path), f"Image {i}"], max_tokens=256
                 )
                 for i in range(3)
             ]
@@ -153,8 +155,8 @@ class TestMultiModalSerialization:
                 # Verify each payload
                 for i, loaded in enumerate(loaded_payloads):
                     content = loaded["messages"][0]["content"]
-                    assert content[0]["text"] == f"Image {i}"
-                    assert isinstance(content[1]["image"]["source"]["bytes"], bytes)
+                    assert content[1]["text"] == f"Image {i}"
+                    assert isinstance(content[0]["image"]["source"]["bytes"], bytes)
 
         finally:
             Path(temp_path).unlink()
@@ -177,7 +179,9 @@ class TestMultiModalSerialization:
             # Define a create_payload function that includes an image
             def create_multimodal_payload(input_text, **kwargs):
                 return BedrockBase.create_payload(
-                    user_message=input_text, images=[img_path], max_tokens=256, **kwargs
+                    [ImageContent.from_path(img_path), input_text],
+                    max_tokens=256,
+                    **kwargs,
                 )
 
             # Load prompts with multi-modal payload creation
@@ -188,9 +192,9 @@ class TestMultiModalSerialization:
             # Verify each payload has the image
             for payload in payloads:
                 content = payload["messages"][0]["content"]
-                assert len(content) == 2  # text + image
-                assert "image" in content[1]
-                assert isinstance(content[1]["image"]["source"]["bytes"], bytes)
+                assert len(content) == 2  # image + text
+                assert "image" in content[0]
+                assert isinstance(content[0]["image"]["source"]["bytes"], bytes)
 
         finally:
             Path(prompts_path).unlink()
@@ -206,7 +210,7 @@ class TestMultiModalSerialization:
 
         try:
             payload = OpenAIEndpoint.create_payload(
-                user_message="Test", images=[temp_path], max_tokens=256
+                [ImageContent.from_path(temp_path), "Test"], max_tokens=256
             )
 
             # Save and load
@@ -219,8 +223,8 @@ class TestMultiModalSerialization:
 
                 # Verify OpenAI-specific format (image_url content part)
                 content = loaded_payload["messages"][0]["content"]
-                assert content[1]["type"] == "image_url"
-                assert content[1]["image_url"]["url"].startswith(
+                assert content[0]["type"] == "image_url"
+                assert content[0]["image_url"]["url"].startswith(
                     "data:image/jpeg;base64,"
                 )
 
@@ -237,7 +241,7 @@ class TestMultiModalSerialization:
 
         try:
             payload = SageMakerBase.create_payload(
-                input_text="Test", images=[temp_path], max_tokens=256
+                [ImageContent.from_path(temp_path), "Test"], max_tokens=256
             )
 
             # Save and load
@@ -250,7 +254,7 @@ class TestMultiModalSerialization:
 
                 # Verify SageMaker-specific format
                 content = loaded_payload["inputs"]
-                assert content[1]["image"]["format"] == "jpeg"
+                assert content[0]["image"]["format"] == "jpeg"
 
         finally:
             Path(temp_path).unlink()
