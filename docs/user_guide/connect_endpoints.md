@@ -18,8 +18,8 @@ Note that [Amazon Bedrock](https://aws.amazon.com/bedrock/) supports several dif
 
 - [`bedrock`](../reference/endpoints/bedrock.md) endpoints for connecting to Bedrock's [Converse](https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_Converse.html) or [ConverseStream](https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ConverseStream.html) APIs
 - [`bedrock_invoke`](../reference/endpoints/bedrock_invoke.md) endpoints for connecting to Bedrock's [InvokeModel](https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_InvokeModel.html) or [InvokeModelWithResponseStream](https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_InvokeModelWithResponseStream.html) APIs
-- [`openai`](../reference/endpoints/openai.md) endpoints for connecting to Bedrock's OpenAI-compatible [Mantle APIs](https://docs.aws.amazon.com/bedrock/latest/userguide/bedrock-mantle.html) using the Chat Completions API
-- [`openai_response`](../reference/endpoints/openai_response.md) endpoints for connecting via the newer OpenAI [Responses API](https://platform.openai.com/docs/api-reference/responses), which supports structured outputs, instructions-based system prompts, and improved multi-turn conversation handling
+- [`openai`](../reference/endpoints/openai.md) endpoints for connecting to [OpenAI Chat Completions](https://developers.openai.com/api/reference/resources/chat)-compatible APIs, including Chat Completions API endpoints on [Amazon Bedrock Mantle](https://docs.aws.amazon.com/bedrock/latest/userguide/bedrock-mantle.html)
+- [`openai_response`](../reference/endpoints/openai_response.md) endpoints for connecting to [OpenAI Responses](https://platform.openai.com/docs/api-reference/responses)-compatible APIs, including Responses API endpoints on [Amazon Bedrock Mantle](https://docs.aws.amazon.com/bedrock/latest/userguide/bedrock-mantle.html). Responses is a newer OpenAI API, with additional features including structured outputs, instructions-based system prompts, and improved multi-turn conversation handling
 
 ## Multi-modal content
 
