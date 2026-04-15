@@ -64,10 +64,10 @@ nav:
     - json_utils: reference/json_utils.md
     - plotting:
       - reference/plotting/index.md
+    - prompt_utils: reference/prompt_utils.md
     - results: reference/results.md
     - runner: reference/runner.md
     - tokenizers: reference/tokenizers.md
-    - prompt_utils: reference/prompt_utils.md
     - utils: reference/utils.md
 repo_url: https://github.com/awslabs/llmeter
 repo_name: awslabs/llmeter
