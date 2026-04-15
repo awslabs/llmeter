@@ -3,7 +3,10 @@
 
 """Unit tests for OpenAIResponseEndpoint._parse_payload method."""
 
-from llmeter.endpoints.openai_response import OpenAIResponseEndpoint, OpenAIResponseStreamEndpoint
+from llmeter.endpoints.openai_response import (
+    OpenAIResponseEndpoint,
+    OpenAIResponseStreamEndpoint,
+)
 
 
 class TestOpenAIResponseEndpointParsePayload:

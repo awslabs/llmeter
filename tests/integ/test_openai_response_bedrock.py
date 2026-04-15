@@ -86,7 +86,9 @@ def test_response_bedrock_non_streaming(
     response = endpoint.invoke(payload)
 
     # Verify no errors
-    assert response.error is None, f"Response should not contain errors: {response.error}"
+    assert response.error is None, (
+        f"Response should not contain errors: {response.error}"
+    )
 
     # Verify response text
     assert response.response_text is not None, "Response text should not be None"
@@ -141,7 +143,9 @@ def test_response_bedrock_streaming(
     response = endpoint.invoke(payload)
 
     # Verify no errors
-    assert response.error is None, f"Response should not contain errors: {response.error}"
+    assert response.error is None, (
+        f"Response should not contain errors: {response.error}"
+    )
 
     # Verify response text
     assert response.response_text is not None, "Response text should not be None"
@@ -155,17 +159,21 @@ def test_response_bedrock_streaming(
         assert response.num_tokens_output > 0, "Output token count should be positive"
 
     # Verify TTFT
-    assert response.time_to_first_token is not None, "Time to first token should not be None"
+    assert response.time_to_first_token is not None, (
+        "Time to first token should not be None"
+    )
     assert response.time_to_first_token > 0, "Time to first token should be positive"
 
     # Verify TTLT
-    assert response.time_to_last_token is not None, "Time to last token should not be None"
+    assert response.time_to_last_token is not None, (
+        "Time to last token should not be None"
+    )
     assert response.time_to_last_token > 0, "Time to last token should be positive"
 
     # Verify TTLT > TTFT
-    assert (
-        response.time_to_last_token > response.time_to_first_token
-    ), "Time to last token should be greater than time to first token"
+    assert response.time_to_last_token > response.time_to_first_token, (
+        "Time to last token should be greater than time to first token"
+    )
 
     # Verify response ID
     assert response.id is not None, "Response should have an ID"

@@ -106,7 +106,7 @@ def bedrock_openai_test_model():
     Note: Bedrock OpenAI-compatible endpoint has inconsistent model ID requirements:
     - Chat Completions API requires full version: openai.gpt-oss-120b-1:0
     - Response API works with: openai.gpt-oss-120b (without version suffix)
-    
+
     For Response API tests, the model ID will be automatically adjusted by removing
     the version suffix if present.
 
