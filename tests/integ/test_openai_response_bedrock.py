@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Integration tests for OpenAI Response API with Bedrock endpoints.
+Integration tests for OpenAI Endpoints via through Amazon Bedrock APIs.
 
 This module contains integration tests that verify the llmeter OpenAIResponseEndpoint
 and OpenAIResponseStreamEndpoint wrappers work correctly with Bedrock's Response API
