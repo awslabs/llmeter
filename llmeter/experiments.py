@@ -75,7 +75,7 @@ class LoadTestResult:
     @classmethod
     def load(
         cls,
-        load_path: Path | str | None,
+        load_path: ReadablePathLike | None,
         test_name: str | None = None,
         load_responses: bool = True,
     ) -> "LoadTestResult":
@@ -97,7 +97,7 @@ class LoadTestResult:
         if not load_path:
             raise FileNotFoundError("Load path cannot be None or empty")
 
-        if isinstance(load_path, str):
+        if not isinstance(load_path, Path):
             load_path = ensure_path(load_path)
 
         if not load_path.exists():
@@ -146,12 +146,22 @@ class LoadTest:
         return int(self.min_requests_per_client)
 
     async def run(self, output_path: WritablePathLike | None = None):
-        try:
-            output_path = ensure_path(output_path or self.output_path) / self._test_name
-        except Exception:
-            output_path = None
+        """Run the load test.
+
+        Args:
+            load_path: Optional (local or remote) folder to save results. If provided, individual
+            Run results will be written to `{output_path}/{test_name}/{NNNNN-clients}` subfolders.
+            Default: `self.output_path` if set, else no files will be saved.
+        """
+        output_path = ensure_path(output_path or self.output_path)
+        if output_path:
+            test_output_path = output_path / self._test_name
+        else:
+            test_output_path = None
         _runner = Runner(
-            endpoint=self.endpoint, tokenizer=self.tokenizer, output_path=output_path
+            endpoint=self.endpoint,
+            tokenizer=self.tokenizer,
+            output_path=test_output_path,
         )
 
         self._results = [
@@ -161,17 +171,16 @@ class LoadTest:
                 n_requests=self._get_n_requests(c),
                 run_name=f"{c:05.0f}-clients",
                 callbacks=self.callbacks,
-                output_path=output_path,
+                output_path=test_output_path,
             )
             for c in tqdm(
                 self.sequence_of_clients, desc="Configurations", disable=_disable_tqdm
             )
         ]
-        # return self._results
         return LoadTestResult(
             results={r.clients: r for r in self._results},
             test_name=self._test_name,
-            output_path=output_path,
+            output_path=test_output_path,
         )
 
 

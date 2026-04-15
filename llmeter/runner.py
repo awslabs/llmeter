@@ -131,12 +131,12 @@ class _RunConfig:
             )
 
     @classmethod
-    def load(cls, load_path: Path | str, file_name: str = "run_config.json"):
+    def load(cls, load_path: ReadablePathLike, file_name: str = "run_config.json"):
         """Load a configuration from a (local or cloud-stored) JSON file.
 
         Args:
-            output_path: Folder under which the configuration is stored
-            file_name: File name within `output_path` for the run configuration JSON.
+            load_path: Folder under which the configuration is stored
+            file_name: File name within `load_path` for the run configuration JSON.
         """
         load_path = ensure_path(load_path)
         with (load_path / file_name).open() as f:
@@ -599,7 +599,7 @@ class Runner(_RunConfig):
         *,  # Prevent mistakes with this long arg list by allowing only keyword-arg based passing
         # Explicitly name and re-document the args for ease of use of this important public method
         endpoint: Endpoint | dict | None = None,
-        output_path: Path | None = None,
+        output_path: WritablePathLike | None = None,
         tokenizer: Tokenizer | Any | None = None,
         clients: int | None = None,
         n_requests: int | None = None,
@@ -623,7 +623,7 @@ class Runner(_RunConfig):
         Args:
             endpoint (Endpoint | dict | None): The LLM endpoint to be tested. **Must be set** at
                 either the Runner or specific Run level.
-            output_path (os.PathLike | str | None): The (cloud or local) base folder under which
+            output_path (WritablePathLike | None): The (cloud or local) base folder under which
                 run outputs and configurations should be stored. By default, a new `run_name`
                 sub-folder will be created under the Runner's `output_path` if set - otherwise
                 outputs will not be saved to file.
@@ -631,7 +631,7 @@ class Runner(_RunConfig):
                 output token counts for endpoints that don't report exact information.
             clients (int): The number of concurrent clients to use for sending requests.
             n_requests (int | None): The number of LLM invocations to generate *per client*.
-            payload (dict | list[dict] | os.PathLike | str | None): The request data to send to the
+            payload (dict | list[dict] | ReadablePathLike | None): The request data to send to the
                 endpoint under test. You can provide a single JSON payload (dict), a list of
                 payloads (list[dict]), or a path to one or more JSON/JSON-Lines files to be loaded
                 by `llmeter.prompt_utils.load_payloads()`. **Must be set** at either the Runner or

@@ -6,6 +6,7 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 from upath import UPath
+from upath.types import ReadablePathLike, WritablePathLike
 import json
 
 from .utils import ensure_path
@@ -44,12 +45,12 @@ class Tokenizer(ABC):
         return True
 
     @staticmethod
-    def load_from_file(tokenizer_path: UPath | None) -> Tokenizer:
+    def load_from_file(tokenizer_path: ReadablePathLike | None) -> Tokenizer:
         """
         Loads a tokenizer from a file.
 
         Args:
-            tokenizer_path (UPath): The path to the serialized tokenizer file.
+            tokenizer_path (ReadablePathLike): The path to the serialized tokenizer file.
 
         Returns:
             Tokenizer: The loaded tokenizer.
@@ -111,13 +112,13 @@ def _to_dict(tokenizer: Any) -> dict:
     raise ValueError(f"Unknown tokenizer module: {tokenizer.__module__}")
 
 
-def save_tokenizer(tokenizer: Any, output_path: UPath | str) -> UPath:
+def save_tokenizer(tokenizer: Any, output_path: WritablePathLike) -> UPath:
     """
     Save a tokenizer information to a file.
 
     Args:
         tokenizer (Tokenizer): The tokenizer to serialize.
-        output_path (UPath): The path to save the serialized tokenizer to.
+        output_path (WritablePathLike): The path to save the serialized tokenizer to.
 
     Returns:
         UPath: The path to the serialized tokenizer file.

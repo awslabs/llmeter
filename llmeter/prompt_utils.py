@@ -213,7 +213,7 @@ class MediaContent:
     """Original file path, if the content was loaded from a file."""
 
     @classmethod
-    def _from_path(cls, file_path: str | ReadablePathLike) -> "MediaContent":
+    def _from_path(cls, file_path: ReadablePathLike) -> "MediaContent":
         data = read_file(file_path)
         mime = detect_format(content=data, file_path=file_path)
         if mime is None:
@@ -243,7 +243,7 @@ class ImageContent(MediaContent):
     """
 
     @classmethod
-    def from_path(cls, file_path: str | ReadablePathLike) -> "ImageContent":
+    def from_path(cls, file_path: ReadablePathLike) -> "ImageContent":
         """Load an image from a file path."""
         return cls._from_path(file_path)  # type: ignore[return-value]
 
@@ -264,7 +264,7 @@ class AudioContent(MediaContent):
     """
 
     @classmethod
-    def from_path(cls, file_path: str | ReadablePathLike) -> "AudioContent":
+    def from_path(cls, file_path: ReadablePathLike) -> "AudioContent":
         """Load audio from a file path."""
         return cls._from_path(file_path)  # type: ignore[return-value]
 
@@ -285,7 +285,7 @@ class VideoContent(MediaContent):
     """
 
     @classmethod
-    def from_path(cls, file_path: str | ReadablePathLike) -> "VideoContent":
+    def from_path(cls, file_path: ReadablePathLike) -> "VideoContent":
         """Load video from a file path."""
         return cls._from_path(file_path)  # type: ignore[return-value]
 
@@ -306,7 +306,7 @@ class DocumentContent(MediaContent):
     """
 
     @classmethod
-    def from_path(cls, file_path: str | ReadablePathLike) -> "DocumentContent":
+    def from_path(cls, file_path: ReadablePathLike) -> "DocumentContent":
         """Load a document from a file path."""
         return cls._from_path(file_path)  # type: ignore[return-value]
 
