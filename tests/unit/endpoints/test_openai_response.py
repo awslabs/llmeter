@@ -19,7 +19,7 @@ class TestOpenAIResponseEndpointInitialization:
     **Validates: Requirements 1.1, 1.2, 1.3, 1.4, 1.5**
     """
 
-    @patch("llmeter.endpoints.openai.OpenAI")
+    @patch("llmeter.endpoints.openai_response.OpenAI")
     def test_init_with_model_id(self, mock_openai_class):
         """Test endpoint initialization with model_id parameter."""
         endpoint = OpenAIResponseEndpoint(model_id="gpt-4")
@@ -29,7 +29,7 @@ class TestOpenAIResponseEndpointInitialization:
         assert endpoint.provider == "openai"
         mock_openai_class.assert_called_once()
 
-    @patch("llmeter.endpoints.openai.OpenAI")
+    @patch("llmeter.endpoints.openai_response.OpenAI")
     def test_init_with_api_key(self, mock_openai_class):
         """Test endpoint initialization with optional api_key parameter."""
         endpoint = OpenAIResponseEndpoint(model_id="gpt-4", api_key="test-key-123")
@@ -39,7 +39,7 @@ class TestOpenAIResponseEndpointInitialization:
         call_kwargs = mock_openai_class.call_args[1]
         assert call_kwargs["api_key"] == "test-key-123"
 
-    @patch("llmeter.endpoints.openai.OpenAI")
+    @patch("llmeter.endpoints.openai_response.OpenAI")
     def test_init_with_custom_endpoint_name(self, mock_openai_class):
         """Test endpoint initialization with custom endpoint_name."""
         endpoint = OpenAIResponseEndpoint(
@@ -49,14 +49,14 @@ class TestOpenAIResponseEndpointInitialization:
         assert endpoint.endpoint_name == "custom-response-endpoint"
         assert endpoint.model_id == "gpt-4"
 
-    @patch("llmeter.endpoints.openai.OpenAI")
+    @patch("llmeter.endpoints.openai_response.OpenAI")
     def test_init_default_provider_value(self, mock_openai_class):
         """Test that provider defaults to 'openai'."""
         endpoint = OpenAIResponseEndpoint(model_id="gpt-4")
 
         assert endpoint.provider == "openai"
 
-    @patch("llmeter.endpoints.openai.OpenAI")
+    @patch("llmeter.endpoints.openai_response.OpenAI")
     def test_init_with_custom_provider(self, mock_openai_class):
         """Test endpoint initialization with custom provider."""
         endpoint = OpenAIResponseEndpoint(model_id="gpt-4", provider="custom-provider")
@@ -83,7 +83,9 @@ class TestOpenAIResponseEndpointPayloadCreation:
     def test_create_payload_with_sequence_of_strings(self):
         """Test create_payload with sequence of messages."""
         messages = ["First message", "Second message", "Third message"]
-        payload = OpenAIResponseEndpoint.create_payload(user_message=messages, max_output_tokens=512)
+        payload = OpenAIResponseEndpoint.create_payload(
+            user_message=messages, max_output_tokens=512
+        )
 
         assert isinstance(payload, dict)
         assert "input" in payload
@@ -167,7 +169,7 @@ class TestOpenAIResponseEndpointResponseParsing:
     **Validates: Requirements 3.1, 3.2, 3.3, 3.4, 3.5**
     """
 
-    @patch("llmeter.endpoints.openai.OpenAI")
+    @patch("llmeter.endpoints.openai_response.OpenAI")
     def test_parse_complete_response(self, mock_openai_class):
         """Test parsing complete response with all fields."""
         mock_client = Mock()
@@ -196,7 +198,7 @@ class TestOpenAIResponseEndpointResponseParsing:
         assert response.time_to_last_token > 0
         assert response.error is None
 
-    @patch("llmeter.endpoints.openai.OpenAI")
+    @patch("llmeter.endpoints.openai_response.OpenAI")
     def test_parse_response_missing_usage(self, mock_openai_class):
         """Test parsing response with missing usage data."""
         mock_client = Mock()
@@ -222,7 +224,7 @@ class TestOpenAIResponseEndpointResponseParsing:
         assert response.time_to_last_token is not None
         assert response.error is None
 
-    @patch("llmeter.endpoints.openai.OpenAI")
+    @patch("llmeter.endpoints.openai_response.OpenAI")
     def test_parse_response_empty_content(self, mock_openai_class):
         """Test parsing response with empty content."""
         mock_client = Mock()
@@ -249,7 +251,7 @@ class TestOpenAIResponseEndpointResponseParsing:
         assert response.num_tokens_output == 0
         assert response.error is None
 
-    @patch("llmeter.endpoints.openai.OpenAI")
+    @patch("llmeter.endpoints.openai_response.OpenAI")
     def test_extract_response_id(self, mock_openai_class):
         """Test extracting response ID."""
         mock_client = Mock()
@@ -271,7 +273,7 @@ class TestOpenAIResponseEndpointResponseParsing:
         # Verify response ID is extracted correctly
         assert response.id == "resp_test_id_12345"
 
-    @patch("llmeter.endpoints.openai.OpenAI")
+    @patch("llmeter.endpoints.openai_response.OpenAI")
     def test_extract_token_counts(self, mock_openai_class):
         """Test extracting token counts."""
         mock_client = Mock()
@@ -301,7 +303,7 @@ class TestOpenAIResponseEndpointErrorHandling:
     **Validates: Requirements 4.1, 4.2, 4.3, 4.4, 4.5**
     """
 
-    @patch("llmeter.endpoints.openai.OpenAI")
+    @patch("llmeter.endpoints.openai_response.OpenAI")
     def test_api_connection_error(self, mock_openai_class):
         """Test handling of APIConnectionError."""
         from openai import APIConnectionError
@@ -325,7 +327,7 @@ class TestOpenAIResponseEndpointErrorHandling:
         assert response.input_payload is not None
         assert response.id is not None
 
-    @patch("llmeter.endpoints.openai.OpenAI")
+    @patch("llmeter.endpoints.openai_response.OpenAI")
     def test_authentication_error(self, mock_openai_class):
         """Test handling of AuthenticationError."""
         from openai import AuthenticationError
@@ -348,7 +350,7 @@ class TestOpenAIResponseEndpointErrorHandling:
         assert response.input_payload is not None
         assert response.id is not None
 
-    @patch("llmeter.endpoints.openai.OpenAI")
+    @patch("llmeter.endpoints.openai_response.OpenAI")
     def test_rate_limit_error(self, mock_openai_class):
         """Test handling of RateLimitError."""
         from openai import RateLimitError
@@ -371,7 +373,7 @@ class TestOpenAIResponseEndpointErrorHandling:
         assert response.input_payload is not None
         assert response.id is not None
 
-    @patch("llmeter.endpoints.openai.OpenAI")
+    @patch("llmeter.endpoints.openai_response.OpenAI")
     def test_bad_request_error(self, mock_openai_class):
         """Test handling of BadRequestError."""
         from openai import BadRequestError
@@ -394,7 +396,7 @@ class TestOpenAIResponseEndpointErrorHandling:
         assert response.input_payload is not None
         assert response.id is not None
 
-    @patch("llmeter.endpoints.openai.OpenAI")
+    @patch("llmeter.endpoints.openai_response.OpenAI")
     def test_generic_exception(self, mock_openai_class):
         """Test handling of generic Exception."""
         mock_client = Mock()
@@ -420,7 +422,7 @@ class TestOpenAIResponseEndpointTimingMeasurements:
     **Validates: Requirements 2.3, 3.4**
     """
 
-    @patch("llmeter.endpoints.openai.OpenAI")
+    @patch("llmeter.endpoints.openai_response.OpenAI")
     def test_time_to_last_token_positive(self, mock_openai_class):
         """Test that time_to_last_token is positive."""
         mock_client = Mock()
@@ -443,7 +445,7 @@ class TestOpenAIResponseEndpointTimingMeasurements:
         assert response.time_to_last_token is not None
         assert response.time_to_last_token > 0
 
-    @patch("llmeter.endpoints.openai.OpenAI")
+    @patch("llmeter.endpoints.openai_response.OpenAI")
     @patch("time.perf_counter")
     def test_timing_accuracy(self, mock_perf_counter, mock_openai_class):
         """Test timing calculation accuracy."""

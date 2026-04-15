@@ -12,13 +12,16 @@ from openai import (
     RateLimitError,
 )
 
-from llmeter.endpoints.openai_response import OpenAIResponseEndpoint, OpenAIResponseStreamEndpoint
+from llmeter.endpoints.openai_response import (
+    OpenAIResponseEndpoint,
+    OpenAIResponseStreamEndpoint,
+)
 
 
 class TestOpenAIResponseEndpointErrorHandling:
     """Test error handling for OpenAIResponseEndpoint."""
 
-    @patch("llmeter.endpoints.openai.OpenAI")
+    @patch("llmeter.endpoints.openai_response.OpenAI")
     def test_invoke_api_connection_error(self, mock_openai_class):
         """Test handling of APIConnectionError."""
         mock_client = Mock()
@@ -40,7 +43,7 @@ class TestOpenAIResponseEndpointErrorHandling:
         assert response.input_payload is not None
         assert response.id is not None
 
-    @patch("llmeter.endpoints.openai.OpenAI")
+    @patch("llmeter.endpoints.openai_response.OpenAI")
     def test_invoke_authentication_error(self, mock_openai_class):
         """Test handling of AuthenticationError."""
         mock_client = Mock()
@@ -59,7 +62,7 @@ class TestOpenAIResponseEndpointErrorHandling:
         assert response.input_payload is not None
         assert response.id is not None
 
-    @patch("llmeter.endpoints.openai.OpenAI")
+    @patch("llmeter.endpoints.openai_response.OpenAI")
     def test_invoke_rate_limit_error(self, mock_openai_class):
         """Test handling of RateLimitError."""
         mock_client = Mock()
@@ -78,7 +81,7 @@ class TestOpenAIResponseEndpointErrorHandling:
         assert response.input_payload is not None
         assert response.id is not None
 
-    @patch("llmeter.endpoints.openai.OpenAI")
+    @patch("llmeter.endpoints.openai_response.OpenAI")
     def test_invoke_bad_request_error(self, mock_openai_class):
         """Test handling of BadRequestError."""
         mock_client = Mock()
@@ -97,7 +100,7 @@ class TestOpenAIResponseEndpointErrorHandling:
         assert response.input_payload is not None
         assert response.id is not None
 
-    @patch("llmeter.endpoints.openai.OpenAI")
+    @patch("llmeter.endpoints.openai_response.OpenAI")
     def test_invoke_generic_exception(self, mock_openai_class):
         """Test handling of generic Exception."""
         mock_client = Mock()
@@ -118,7 +121,7 @@ class TestOpenAIResponseEndpointErrorHandling:
 class TestResponseStreamEndpointErrorHandling:
     """Test error handling for ResponseStreamEndpoint."""
 
-    @patch("llmeter.endpoints.openai.OpenAI")
+    @patch("llmeter.endpoints.openai_response.OpenAI")
     def test_invoke_api_connection_error(self, mock_openai_class):
         """Test handling of APIConnectionError."""
         mock_client = Mock()
@@ -140,7 +143,7 @@ class TestResponseStreamEndpointErrorHandling:
         assert response.input_payload is not None
         assert response.id is not None
 
-    @patch("llmeter.endpoints.openai.OpenAI")
+    @patch("llmeter.endpoints.openai_response.OpenAI")
     def test_invoke_authentication_error(self, mock_openai_class):
         """Test handling of AuthenticationError."""
         mock_client = Mock()
@@ -159,7 +162,7 @@ class TestResponseStreamEndpointErrorHandling:
         assert response.input_payload is not None
         assert response.id is not None
 
-    @patch("llmeter.endpoints.openai.OpenAI")
+    @patch("llmeter.endpoints.openai_response.OpenAI")
     def test_invoke_rate_limit_error(self, mock_openai_class):
         """Test handling of RateLimitError."""
         mock_client = Mock()
@@ -178,7 +181,7 @@ class TestResponseStreamEndpointErrorHandling:
         assert response.input_payload is not None
         assert response.id is not None
 
-    @patch("llmeter.endpoints.openai.OpenAI")
+    @patch("llmeter.endpoints.openai_response.OpenAI")
     def test_invoke_bad_request_error(self, mock_openai_class):
         """Test handling of BadRequestError."""
         mock_client = Mock()
@@ -197,7 +200,7 @@ class TestResponseStreamEndpointErrorHandling:
         assert response.input_payload is not None
         assert response.id is not None
 
-    @patch("llmeter.endpoints.openai.OpenAI")
+    @patch("llmeter.endpoints.openai_response.OpenAI")
     def test_invoke_generic_exception(self, mock_openai_class):
         """Test handling of generic Exception."""
         mock_client = Mock()

@@ -4,24 +4,28 @@
 import logging
 import time
 from collections.abc import Sequence
-from typing import cast
+from typing import cast, Any
 from uuid import uuid4
 
 from openai import (
     APIConnectionError,
     AuthenticationError,
     BadRequestError,
+    OpenAI,
     RateLimitError,
 )
-from openai.types.responses import ResponseCreateParams
+from openai.types.responses import Response, ResponseCreateParams
+from openai.types.responses.response_create_params import (
+    ResponseCreateParamsNonStreaming,
+    ResponseCreateParamsStreaming,
+)
 
-from .base import InvocationResponse
-from .openai import OpenAIEndpoint
+from .base import Endpoint, InvocationResponse
 
 logger = logging.getLogger(__name__)
 
 
-class OpenAIResponseEndpoint(OpenAIEndpoint):
+class OpenAIResponseEndpoint(Endpoint):
     """Endpoint for OpenAI Responses API (non-streaming).
 
     This endpoint provides access to OpenAI's newer Responses API which offers
@@ -35,7 +39,7 @@ class OpenAIResponseEndpoint(OpenAIEndpoint):
         endpoint_name: str = "openai-response",
         api_key: str | None = None,
         provider: str = "openai",
-        **kwargs,
+        **kwargs: Any,
     ):
         """Initialize Response API endpoint.
 
@@ -46,15 +50,12 @@ class OpenAIResponseEndpoint(OpenAIEndpoint):
             provider: Provider name (default: "openai")
             **kwargs: Additional arguments passed to OpenAI client
         """
-        super().__init__(
-            model_id=model_id,
-            endpoint_name=endpoint_name,
-            api_key=api_key,
-            provider=provider,
-            **kwargs,
-        )
+        super().__init__(endpoint_name, model_id, provider=provider)
+        self._client = OpenAI(api_key=api_key, **kwargs)
 
-    def invoke(self, payload: ResponseCreateParams, **kwargs) -> InvocationResponse:
+    def invoke(
+        self, payload: ResponseCreateParamsNonStreaming, **kwargs
+    ) -> InvocationResponse:
         """Invoke the Responses API.
 
         Args:
@@ -68,7 +69,7 @@ class OpenAIResponseEndpoint(OpenAIEndpoint):
             InvocationResponse with response text, timing, and token counts
         """
         # Merge kwargs with payload and add model_id
-        payload = {**kwargs, **payload}
+        payload = {**kwargs, **payload}  # type: ignore
         payload["model"] = self.model_id
 
         start_t = time.perf_counter()
@@ -105,7 +106,9 @@ class OpenAIResponseEndpoint(OpenAIEndpoint):
         response.input_prompt = self._parse_payload(payload)
         return response
 
-    def _parse_response(self, client_response, start_t: float) -> InvocationResponse:
+    def _parse_response(
+        self, client_response: Response, start_t: float
+    ) -> InvocationResponse:
         """Parse Response API output into InvocationResponse.
 
         Args:
@@ -168,7 +171,7 @@ class OpenAIResponseEndpoint(OpenAIEndpoint):
         payload.update(kwargs)
         return cast(ResponseCreateParams, payload)
 
-    def _parse_payload(self, payload):
+    def _parse_payload(self, payload: ResponseCreateParams | dict):
         """Extract the user message text from a Response API payload.
 
         Handles both string input and message-array input formats.
@@ -185,10 +188,19 @@ class OpenAIResponseEndpoint(OpenAIEndpoint):
         if isinstance(input_value, str):
             return input_value
         if isinstance(input_value, list):
-            return "\n".join(
-                msg["content"] for msg in input_value
-                if isinstance(msg, dict) and "content" in msg
-            )
+            contents: list[str] = []
+            for msg in input_value:
+                content = msg.get("content")
+                if not content:
+                    continue
+                if isinstance(content, str):
+                    contents.append(content)
+                else:
+                    for part in content:
+                        if "text" in part:
+                            contents.append(part["text"])
+                        # For now ignore file, image_url, input_audio, refusal, etc.
+            return "\n".join(contents)
         return ""
 
 

@@ -16,7 +16,10 @@ from unittest.mock import Mock, patch
 from hypothesis import given, settings, strategies as st
 
 from llmeter.endpoints.base import InvocationResponse
-from llmeter.endpoints.openai_response import OpenAIResponseEndpoint, OpenAIResponseStreamEndpoint
+from llmeter.endpoints.openai_response import (
+    OpenAIResponseEndpoint,
+    OpenAIResponseStreamEndpoint,
+)
 
 
 # Feature: openai-response-api, Property 7: Payload Creation Format
@@ -95,7 +98,7 @@ def test_property_payload_creation_format(user_message, max_tokens, temperature,
     prompt_tokens=st.one_of(st.none(), st.integers(min_value=1, max_value=10000)),
     completion_tokens=st.one_of(st.none(), st.integers(min_value=0, max_value=10000)),
 )
-@patch("llmeter.endpoints.openai.OpenAI")
+@patch("llmeter.endpoints.openai_response.OpenAI")
 def test_property_non_streaming_response_parsing_completeness(
     mock_openai_class, response_id, response_text, prompt_tokens, completion_tokens
 ):
@@ -164,7 +167,7 @@ def test_property_non_streaming_response_parsing_completeness(
     prompt_tokens=st.one_of(st.none(), st.integers(min_value=1, max_value=10000)),
     completion_tokens=st.one_of(st.none(), st.integers(min_value=0, max_value=10000)),
 )
-@patch("llmeter.endpoints.openai.OpenAI")
+@patch("llmeter.endpoints.openai_response.OpenAI")
 def test_property_streaming_response_assembly(
     mock_openai_class, response_id, text_chunks, prompt_tokens, completion_tokens
 ):
@@ -260,7 +263,7 @@ def test_property_streaming_response_assembly(
     max_tokens=st.integers(min_value=1, max_value=4096),
     is_error=st.booleans(),
 )
-@patch("llmeter.endpoints.openai.OpenAI")
+@patch("llmeter.endpoints.openai_response.OpenAI")
 def test_property_payload_preservation(
     mock_openai_class, input_text, max_tokens, is_error
 ):
@@ -321,7 +324,7 @@ def test_property_payload_preservation(
         ),
     ),
 )
-@patch("llmeter.endpoints.openai.OpenAI")
+@patch("llmeter.endpoints.openai_response.OpenAI")
 def test_property_input_prompt_extraction(mock_openai_class, input_value):
     """
     Property 4: Input Prompt Extraction
@@ -377,7 +380,7 @@ def test_property_input_prompt_extraction(mock_openai_class, input_value):
     error_message=st.text(min_size=1, max_size=100),
     endpoint_type=st.sampled_from(["non_streaming", "streaming"]),
 )
-@patch("llmeter.endpoints.openai.OpenAI")
+@patch("llmeter.endpoints.openai_response.OpenAI")
 def test_property_error_handling_without_exceptions(
     mock_openai_class, error_type, error_message, endpoint_type
 ):
@@ -446,7 +449,7 @@ def test_property_error_handling_without_exceptions(
     frequency_penalty=st.one_of(st.none(), st.floats(min_value=-2.0, max_value=2.0)),
     presence_penalty=st.one_of(st.none(), st.floats(min_value=-2.0, max_value=2.0)),
 )
-@patch("llmeter.endpoints.openai.OpenAI")
+@patch("llmeter.endpoints.openai_response.OpenAI")
 def test_property_parameter_forwarding(
     mock_openai_class, temperature, top_p, frequency_penalty, presence_penalty
 ):

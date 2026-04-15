@@ -6,12 +6,19 @@ import base64
 import logging
 import os
 import time
-from collections.abc import Sequence
-from typing import Any, cast
+from typing import Any, cast, Literal
 from uuid import uuid4
 
 from openai import APIConnectionError, OpenAI
-from openai.types.chat import ChatCompletion, ChatCompletionChunk, CompletionCreateParams
+from openai.types.chat import (
+    ChatCompletion,
+    ChatCompletionChunk,
+    ChatCompletionContentPartParam,
+    CompletionCreateParams,
+)
+from openai.types.chat.chat_completion_content_part_param import (
+    File as ChatCompletionFile,
+)
 
 from ..prompt_utils import (
     ContentItem,
@@ -28,13 +35,13 @@ _OPENAI_AUDIO_MIMES = {"audio/mpeg", "audio/wav"}
 _OPENAI_FILE_MIMES = {"application/pdf"}
 
 # Map MIME → OpenAI audio "format" field value
-_MIME_TO_OPENAI_AUDIO_FMT: dict[str, str] = {
+_MIME_TO_OPENAI_AUDIO_FMT: dict[str, Literal["mp3", "wav"]] = {
     "audio/mpeg": "mp3",
     "audio/wav": "wav",
 }
 
 
-def _make_openai_content_block(item: MediaContent) -> dict:
+def _make_openai_content_block(item: MediaContent) -> ChatCompletionContentPartParam:
     """Build a single OpenAI content-part dict from a MediaContent object.
 
     Raises:
@@ -61,7 +68,7 @@ def _make_openai_content_block(item: MediaContent) -> dict:
             "input_audio": {"data": b64, "format": _MIME_TO_OPENAI_AUDIO_FMT[mime]},
         }
     if mime in _OPENAI_FILE_MIMES:
-        block: dict = {
+        block: ChatCompletionFile = {
             "type": "file",
             "file": {"file_data": f"data:{mime};base64,{b64}"},
         }
@@ -72,7 +79,9 @@ def _make_openai_content_block(item: MediaContent) -> dict:
     raise ValueError(f"Unsupported MIME type for OpenAI: '{mime}'")
 
 
-def _build_content_blocks_openai(items: list[ContentItem]) -> list[dict]:
+def _build_content_blocks_openai(
+    items: list[ContentItem],
+) -> list[ChatCompletionContentPartParam]:
     """Convert an ordered list of content items to OpenAI content blocks.
 
     Args:
@@ -85,7 +94,7 @@ def _build_content_blocks_openai(items: list[ContentItem]) -> list[dict]:
         ValueError: If a MIME type is unsupported or video is provided.
         TypeError: If an item has an unexpected type.
     """
-    blocks: list[dict] = []
+    blocks: list[ChatCompletionContentPartParam] = []
     for item in items:
         if isinstance(item, str):
             blocks.append({"type": "text", "text": item})
@@ -121,8 +130,8 @@ class OpenAIEndpoint(Endpoint):
         super().__init__(endpoint_name, model_id, provider=provider)
         self._client = OpenAI(api_key=api_key, **kwargs)
 
-    def _parse_payload(self, payload) -> str:
-        """Extract the user message text from a Chat Completions payload.
+    def _parse_payload(self, payload: CompletionCreateParams | dict) -> str:
+        """Extract the user message text from a ChatCompletions request payload
 
         Args:
             payload: Request payload containing ``messages``
@@ -133,8 +142,21 @@ class OpenAIEndpoint(Endpoint):
         messages = payload.get("messages")
         if not messages:
             return ""
-        contents = [msg["content"] for msg in messages if "content" in msg]
-        return "\n".join(contents)
+        if isinstance(messages, list):
+            contents: list[str] = []
+            for msg in messages:
+                content = msg.get("content")
+                if not content:
+                    continue
+                if isinstance(content, str):
+                    contents.append(content)
+                else:
+                    for part in content:
+                        if "text" in part:
+                            contents.append(part["text"])
+                        # For now ignore file, image_url, input_audio, refusal, etc.
+            return "\n".join(contents)
+        return ""
 
     @staticmethod
     def create_payload(
@@ -143,7 +165,8 @@ class OpenAIEndpoint(Endpoint):
         """Create a payload for the OpenAI Chat Completions API request.
 
         This is a convenience helper. You can also build the payload directly
-        using ``openai.types.chat.CompletionCreateParams``.
+        using ``openai.types.chat.CompletionCreateParams`` (though the `model`
+        field is optional).
 
         Args:
             user_message: A single text string, or an ordered list mixing strings
@@ -165,7 +188,7 @@ class OpenAIEndpoint(Endpoint):
                     ImageContent.from_path("photo.jpg"),
                     "What's in this image?",
                 ])
-            
+
         """
         if not isinstance(max_tokens, int) or max_tokens <= 0:
             raise ValueError("max_tokens must be a positive integer")
@@ -202,7 +225,9 @@ class OpenAIEndpoint(Endpoint):
 class OpenAICompletionEndpoint(OpenAIEndpoint):
     """Endpoint for OpenAI-compatible Chat Completion APIs (non-streaming mode)"""
 
-    def invoke(self, payload: CompletionCreateParams, **kwargs: Any) -> InvocationResponse:
+    def invoke(
+        self, payload: CompletionCreateParams, **kwargs: Any
+    ) -> InvocationResponse:
         """Invoke the OpenAI chat completion API.
 
         Args:
@@ -245,7 +270,9 @@ class OpenAICompletionEndpoint(OpenAIEndpoint):
 class OpenAICompletionStreamEndpoint(OpenAIEndpoint):
     """Endpoint for OpenAI-compatible Chat Completion APIs (streaming mode)"""
 
-    def invoke(self, payload: CompletionCreateParams, **kwargs: Any) -> InvocationResponse:
+    def invoke(
+        self, payload: CompletionCreateParams, **kwargs: Any
+    ) -> InvocationResponse:
         """Invoke the OpenAI streaming chat completion API.
 
         Args:
@@ -264,9 +291,7 @@ class OpenAICompletionStreamEndpoint(OpenAIEndpoint):
 
         try:
             start_t = time.perf_counter()
-            client_response = self._client.chat.completions.create(
-                **payload
-            )
+            client_response = self._client.chat.completions.create(**payload)
         except (APIConnectionError, Exception) as e:
             logger.error(e)
             return InvocationResponse.error_output(

@@ -17,7 +17,10 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from llmeter.endpoints.base import Endpoint
-from llmeter.endpoints.openai_response import OpenAIResponseEndpoint, OpenAIResponseStreamEndpoint
+from llmeter.endpoints.openai_response import (
+    OpenAIResponseEndpoint,
+    OpenAIResponseStreamEndpoint,
+)
 
 
 class TestEndpointSerialization:
@@ -26,7 +29,7 @@ class TestEndpointSerialization:
     **Validates: Requirements 10.4, 10.5**
     """
 
-    @patch("llmeter.endpoints.openai.OpenAI")
+    @patch("llmeter.endpoints.openai_response.OpenAI")
     def test_to_dict_produces_valid_dictionary(self, mock_openai_class):
         """Test to_dict produces valid dictionary."""
         endpoint = OpenAIResponseEndpoint(
@@ -55,7 +58,7 @@ class TestEndpointSerialization:
         # Verify private attributes are excluded
         assert not any(key.startswith("_") for key in result.keys())
 
-    @patch("llmeter.endpoints.openai.OpenAI")
+    @patch("llmeter.endpoints.openai_response.OpenAI")
     def test_save_creates_file_with_correct_content(self, mock_openai_class):
         """Test save creates file with correct content."""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -82,7 +85,7 @@ class TestEndpointSerialization:
             assert data["provider"] == "openai"
             assert data["endpoint_type"] == "OpenAIResponseEndpoint"
 
-    @patch("llmeter.endpoints.openai.OpenAI")
+    @patch("llmeter.endpoints.openai_response.OpenAI")
     def test_load_from_file_reconstructs_endpoint(self, mock_openai_class):
         """Test load_from_file reconstructs endpoint."""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -107,7 +110,7 @@ class TestEndpointSerialization:
             assert loaded.endpoint_name == "original-endpoint"
             assert loaded.provider == "openai"
 
-    @patch("llmeter.endpoints.openai.OpenAI")
+    @patch("llmeter.endpoints.openai_response.OpenAI")
     def test_round_trip_save_then_load(self, mock_openai_class):
         """Test round trip (save then load)."""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -144,7 +147,7 @@ class TestStreamEndpointSerialization:
     **Validates: Requirements 10.4, 10.5**
     """
 
-    @patch("llmeter.endpoints.openai.OpenAI")
+    @patch("llmeter.endpoints.openai_response.OpenAI")
     def test_stream_endpoint_to_dict(self, mock_openai_class):
         """Test streaming endpoint to_dict produces valid dictionary."""
         endpoint = OpenAIResponseStreamEndpoint(
@@ -170,7 +173,7 @@ class TestStreamEndpointSerialization:
         assert result["provider"] == "openai"
         assert result["endpoint_type"] == "OpenAIResponseStreamEndpoint"
 
-    @patch("llmeter.endpoints.openai.OpenAI")
+    @patch("llmeter.endpoints.openai_response.OpenAI")
     def test_stream_endpoint_save_and_load(self, mock_openai_class):
         """Test streaming endpoint save and load."""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -195,7 +198,7 @@ class TestStreamEndpointSerialization:
             assert loaded.endpoint_name == "stream-endpoint"
             assert loaded.provider == "openai"
 
-    @patch("llmeter.endpoints.openai.OpenAI")
+    @patch("llmeter.endpoints.openai_response.OpenAI")
     def test_stream_endpoint_round_trip(self, mock_openai_class):
         """Test streaming endpoint round trip."""
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -241,7 +244,7 @@ class TestSerializationPropertyTests:
         provider=st.text(min_size=1, max_size=30),
     )
     @settings(deadline=None, max_examples=100)
-    @patch("llmeter.endpoints.openai.OpenAI")
+    @patch("llmeter.endpoints.openai_response.OpenAI")
     def test_property_response_endpoint_serialization_round_trip(
         self, mock_openai_class, model_id, endpoint_name, provider
     ):
@@ -294,7 +297,7 @@ class TestSerializationPropertyTests:
         provider=st.text(min_size=1, max_size=30),
     )
     @settings(deadline=None, max_examples=100)
-    @patch("llmeter.endpoints.openai.OpenAI")
+    @patch("llmeter.endpoints.openai_response.OpenAI")
     def test_property_stream_endpoint_serialization_round_trip(
         self, mock_openai_class, model_id, endpoint_name, provider
     ):
@@ -341,7 +344,7 @@ class TestInvocationResponseTypeConsistency:
     **Validates: Requirements 10.1**
     """
 
-    @patch("llmeter.endpoints.openai.OpenAI")
+    @patch("llmeter.endpoints.openai_response.OpenAI")
     def test_response_endpoint_returns_invocation_response(self, mock_openai_class):
         """
         Verify invoke always returns InvocationResponse for ResponseEndpoint.
@@ -371,7 +374,7 @@ class TestInvocationResponseTypeConsistency:
         # Verify return type
         assert isinstance(response, InvocationResponse)
 
-    @patch("llmeter.endpoints.openai.OpenAI")
+    @patch("llmeter.endpoints.openai_response.OpenAI")
     def test_stream_endpoint_returns_invocation_response(self, mock_openai_class):
         """
         Verify invoke always returns InvocationResponse for ResponseStreamEndpoint.
@@ -417,7 +420,7 @@ class TestInvocationResponseTypeConsistency:
         # Verify return type
         assert isinstance(response, InvocationResponse)
 
-    @patch("llmeter.endpoints.openai.OpenAI")
+    @patch("llmeter.endpoints.openai_response.OpenAI")
     def test_response_endpoint_error_returns_invocation_response(
         self, mock_openai_class
     ):
@@ -447,7 +450,7 @@ class TestInvocationResponseTypeConsistency:
         assert isinstance(response, InvocationResponse)
         assert response.error is not None
 
-    @patch("llmeter.endpoints.openai.OpenAI")
+    @patch("llmeter.endpoints.openai_response.OpenAI")
     def test_stream_endpoint_error_returns_invocation_response(self, mock_openai_class):
         """
         Verify invoke returns InvocationResponse even on error for ResponseStreamEndpoint.
@@ -484,7 +487,7 @@ class TestInvocationResponseTypeConsistency:
         )
     )
     @settings(deadline=None, max_examples=100)
-    @patch("llmeter.endpoints.openai.OpenAI")
+    @patch("llmeter.endpoints.openai_response.OpenAI")
     def test_property_response_endpoint_always_returns_invocation_response(
         self, mock_openai_class, payload
     ):
@@ -527,7 +530,7 @@ class TestInvocationResponseTypeConsistency:
         )
     )
     @settings(deadline=None, max_examples=100)
-    @patch("llmeter.endpoints.openai.OpenAI")
+    @patch("llmeter.endpoints.openai_response.OpenAI")
     def test_property_stream_endpoint_always_returns_invocation_response(
         self, mock_openai_class, payload
     ):

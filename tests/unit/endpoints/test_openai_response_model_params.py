@@ -11,7 +11,10 @@ additional parameters are correctly passed through to the API.
 
 from unittest.mock import Mock, patch
 
-from llmeter.endpoints.openai_response import OpenAIResponseEndpoint, OpenAIResponseStreamEndpoint
+from llmeter.endpoints.openai_response import (
+    OpenAIResponseEndpoint,
+    OpenAIResponseStreamEndpoint,
+)
 
 
 class TestModelSpecificParameters:
@@ -71,7 +74,7 @@ class TestModelSpecificParameters:
         assert payload["presence_penalty"] == 0.3
         assert payload["max_tokens"] == 512
 
-    @patch("llmeter.endpoints.openai.OpenAI")
+    @patch("llmeter.endpoints.openai_response.OpenAI")
     def test_invoke_with_temperature_parameter(self, mock_openai_class):
         """
         Test that invoke passes temperature parameter to the API.
@@ -112,7 +115,7 @@ class TestModelSpecificParameters:
         assert response.error is None
         assert response.response_text == "This is a creative response."
 
-    @patch("llmeter.endpoints.openai.OpenAI")
+    @patch("llmeter.endpoints.openai_response.OpenAI")
     def test_invoke_with_top_p_parameter(self, mock_openai_class):
         """
         Test that invoke passes top_p parameter to the API.
@@ -153,7 +156,7 @@ class TestModelSpecificParameters:
         assert response.error is None
         assert response.response_text == "Generated text with top_p."
 
-    @patch("llmeter.endpoints.openai.OpenAI")
+    @patch("llmeter.endpoints.openai_response.OpenAI")
     def test_invoke_with_multiple_parameters(self, mock_openai_class):
         """
         Test that invoke passes multiple model-specific parameters to the API.
@@ -203,7 +206,7 @@ class TestModelSpecificParameters:
         assert response.error is None
         assert response.response_text == "Response with multiple parameters."
 
-    @patch("llmeter.endpoints.openai.OpenAI")
+    @patch("llmeter.endpoints.openai_response.OpenAI")
     def test_invoke_parameters_merge_with_payload(self, mock_openai_class):
         """
         Test that invoke kwargs merge correctly with payload.
@@ -257,7 +260,7 @@ class TestModelSpecificParameters:
         # Verify response is successful
         assert response.error is None
 
-    @patch("llmeter.endpoints.openai.OpenAI")
+    @patch("llmeter.endpoints.openai_response.OpenAI")
     def test_streaming_invoke_with_temperature(self, mock_openai_class):
         """
         Test that streaming endpoint passes temperature parameter to the API.
@@ -315,7 +318,7 @@ class TestModelSpecificParameters:
         assert response.error is None
         assert response.response_text == "Streaming response."
 
-    @patch("llmeter.endpoints.openai.OpenAI")
+    @patch("llmeter.endpoints.openai_response.OpenAI")
     def test_streaming_invoke_with_multiple_parameters(self, mock_openai_class):
         """
         Test that streaming endpoint passes multiple parameters to the API.
@@ -381,7 +384,7 @@ class TestModelSpecificParameters:
         assert response.time_to_first_token is not None
         assert response.time_to_last_token is not None
 
-    @patch("llmeter.endpoints.openai.OpenAI")
+    @patch("llmeter.endpoints.openai_response.OpenAI")
     def test_model_id_included_in_request(self, mock_openai_class):
         """
         Test that model_id is included in the request payload.

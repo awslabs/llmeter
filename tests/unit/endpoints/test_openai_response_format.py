@@ -11,7 +11,10 @@ correctly and that structured outputs are parsed properly.
 from unittest.mock import Mock, patch
 
 
-from llmeter.endpoints.openai_response import OpenAIResponseEndpoint, OpenAIResponseStreamEndpoint
+from llmeter.endpoints.openai_response import (
+    OpenAIResponseEndpoint,
+    OpenAIResponseStreamEndpoint,
+)
 
 
 class TestResponseFormatConfiguration:
@@ -67,7 +70,7 @@ class TestResponseFormatConfiguration:
         assert "format" in payload["text"]
         assert payload["text"]["format"]["type"] == "json_object"
 
-    @patch("llmeter.endpoints.openai.OpenAI")
+    @patch("llmeter.endpoints.openai_response.OpenAI")
     def test_invoke_passes_text_format_to_api(self, mock_openai_class):
         """
         Test that invoke passes text.format parameter to the API.
@@ -123,7 +126,7 @@ class TestResponseFormatConfiguration:
         assert response.error is None
         assert response.response_text == '{"name": "John", "age": 30}'
 
-    @patch("llmeter.endpoints.openai.OpenAI")
+    @patch("llmeter.endpoints.openai_response.OpenAI")
     def test_parse_structured_output_response(self, mock_openai_class):
         """
         Test that structured output responses parse correctly using output_text helper.
@@ -163,7 +166,7 @@ class TestResponseFormatConfiguration:
         assert response.time_to_last_token is not None
         assert response.time_to_last_token > 0
 
-    @patch("llmeter.endpoints.openai.OpenAI")
+    @patch("llmeter.endpoints.openai_response.OpenAI")
     def test_streaming_with_text_format(self, mock_openai_class):
         """
         Test that streaming endpoint passes text.format parameter correctly.
@@ -232,7 +235,7 @@ class TestResponseFormatConfiguration:
         assert response.time_to_last_token is not None
         assert response.time_to_last_token > response.time_to_first_token
 
-    @patch("llmeter.endpoints.openai.OpenAI")
+    @patch("llmeter.endpoints.openai_response.OpenAI")
     def test_text_modality_response(self, mock_openai_class):
         """
         Test that text modality responses are handled correctly.
@@ -266,7 +269,7 @@ class TestResponseFormatConfiguration:
         assert response.response_text == "This is a plain text response."
         assert response.id == "resp_text123"
 
-    @patch("llmeter.endpoints.openai.OpenAI")
+    @patch("llmeter.endpoints.openai_response.OpenAI")
     def test_json_modality_response(self, mock_openai_class):
         """
         Test that JSON modality responses are handled correctly.
