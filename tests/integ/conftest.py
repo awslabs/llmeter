@@ -34,7 +34,7 @@ Environment Variables:
     - BEDROCK_TEST_MODEL: Model ID for Converse/Invoke tests
       (default: us.anthropic.claude-3-5-sonnet-20241022-v2:0)
     - BEDROCK_OPENAI_TEST_MODEL: Model ID for OpenAI SDK tests
-      (default: openai.gpt-oss-20b-1:0)
+      (default: openai.gpt-oss-120b-1:0)
 """
 
 import os
@@ -101,10 +101,14 @@ def bedrock_openai_test_model():
     Get test model ID for OpenAI SDK tests.
 
     The model ID can be overridden via the BEDROCK_OPENAI_TEST_MODEL environment variable.
-    Defaults to openai.gpt-oss-20b-1:0 which is supported by Bedrock's OpenAI-compatible endpoint.
+    Defaults to openai.gpt-oss-120b-1:0 for Chat Completions API compatibility.
 
-    Note: Bedrock OpenAI-compatible endpoint only supports OpenAI models available in Bedrock.
-    Use the full Bedrock model ID format (e.g., openai.gpt-oss-20b-1:0).
+    Note: Bedrock OpenAI-compatible endpoint has inconsistent model ID requirements:
+    - Chat Completions API requires full version: openai.gpt-oss-120b-1:0
+    - Response API works with: openai.gpt-oss-120b (without version suffix)
+
+    For Response API tests, the model ID will be automatically adjusted by removing
+    the version suffix if present.
 
     Returns:
         str: OpenAI model ID for Bedrock OpenAI SDK testing.
