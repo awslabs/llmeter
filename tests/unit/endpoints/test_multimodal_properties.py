@@ -321,8 +321,8 @@ def test_property_4_missing_file_error_handling(non_existent_path):
             [ImageContent.from_path(non_existent_path), "Test message"], max_tokens=256
         )
 
-    # Verify error message contains the file path
-    assert non_existent_path in str(exc_info.value)
+        # Verify error message contains the file path
+        assert non_existent_path in str(exc_info.value)
 
 
 @given(
