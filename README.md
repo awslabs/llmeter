@@ -134,18 +134,24 @@ This installs the `puremagic` library for content-based format detection using m
 
 ```python
 from llmeter.endpoints import BedrockConverse
+from llmeter.prompt_utils import DocumentContent, ImageContent, VideoContent
 
 # Single image from file
 payload = BedrockConverse.create_payload(
-    user_message="What is in this image?",
-    images=["photo.jpg"],
+    user_message=[
+        "What is in this image?",
+        ImageContent.from_path("photo.jpg"),
+    ],
     max_tokens=256
 )
 
 # Multiple images
 payload = BedrockConverse.create_payload(
-    user_message="Compare these images:",
-    images=["image1.jpg", "image2.png"],
+    user_message=[
+        "Compare these images:",
+        ImageContent.from_path("image1.jpg"),
+        ImageContent.from_path("image2.jpg"),
+    ],
     max_tokens=512
 )
 
@@ -154,23 +160,29 @@ with open("photo.jpg", "rb") as f:
     image_bytes = f.read()
 
 payload = BedrockConverse.create_payload(
-    user_message="What is in this image?",
-    images=[image_bytes],
+    user_message=[
+        "What is in this image?",
+        ImageContent.from_bytes(image_bytes),
+    ],
     max_tokens=256
 )
 
 # Mixed content types
 payload = BedrockConverse.create_payload(
-    user_message="Analyze this presentation and supporting materials",
-    documents=["slides.pdf"],
-    images=["chart.png"],
+    user_message=[
+        "Analyze this presentation and supporting materials",
+        DocumentContent.from_path("slides.pdf"),
+        ImageContent.from_path("chart.png"),
+    ],
     max_tokens=1024
 )
 
 # Video analysis
 payload = BedrockConverse.create_payload(
-    user_message="Describe what happens in this video",
-    videos=["clip.mp4"],
+    user_message=[
+        "Describe what happens in this video",
+        VideoContent.from_path("clip.mp4"),
+    ],
     max_tokens=1024
 )
 ```
