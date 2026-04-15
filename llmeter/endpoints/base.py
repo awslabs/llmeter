@@ -146,7 +146,10 @@ class Endpoint(ABC):
         Create a payload for the endpoint invocation.
 
         This static method should be implemented by subclasses to define
-        how the payload is created based on the given arguments.
+        how the payload is created based on the given arguments. Ideally,
+        subclasses should conform to the conventions of existing endpoint types
+        (for example taking a `user_message: str | list[ContentItem]` param),
+        but this is not strictly enforced at the typing level.
 
         Args:
             *args: Variable length argument list.
