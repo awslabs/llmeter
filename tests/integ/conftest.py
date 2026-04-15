@@ -87,7 +87,7 @@ def bedrock_test_model():
     Get test model ID for Converse/Invoke tests.
 
     The model ID can be overridden via the BEDROCK_TEST_MODEL environment variable.
-    Defaults to Claude 3.5 Sonnet v2, which is widely available and cost-effective.
+    Defaults to Nova 2 Lite, which is widely available and cost-effective.
 
     Returns:
         str: Bedrock model ID for testing.

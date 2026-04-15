@@ -391,6 +391,10 @@ def test_round_trip_invoke_structure(
     - Round-trip produces identical payload structure
     - Loaded payload can be used with the endpoint's invoke method
 
+    NOTE: This test depends on the input and output schema of the selected
+    `bedrock_test_model` because that's how the InvokeModel API works. It may
+    fail if you configure a different model.
+
     **Validates: Requirements 9.5**
 
     Args:
@@ -404,17 +408,26 @@ def test_round_trip_invoke_structure(
     # Create a complete Bedrock Invoke payload with provider-specific structure
     # This mimics the actual Anthropic Claude Messages API format used by InvokeModel
     complete_invoke_payload = {
-        "anthropic_version": "bedrock-2023-05-31",
-        "max_tokens": 200,
-        "temperature": 0.7,
-        "top_p": 0.9,
+        "inferenceConfig": {
+            "maxTokens": 200,
+            "temperature": 0.7,
+            "topP": 0.9,
+        },
         "messages": [
             {
                 "role": "user",
-                "content": "Please provide a brief response to this test message.",
+                "content": [
+                    {
+                        "text": "Please provide a brief response to this test message.",
+                    }
+                ],
             }
         ],
-        "system": "You are a helpful assistant.",
+        "system": [
+            {
+                "text": "You are a helpful assistant.",
+            }
+        ],
     }
 
     # Save and load the complete payload
@@ -427,10 +440,7 @@ def test_round_trip_invoke_structure(
     loaded = loaded_payloads[0]
 
     # Verify all top-level fields are preserved
-    assert loaded["anthropic_version"] == complete_invoke_payload["anthropic_version"]
-    assert loaded["max_tokens"] == complete_invoke_payload["max_tokens"]
-    assert loaded["temperature"] == complete_invoke_payload["temperature"]
-    assert loaded["top_p"] == complete_invoke_payload["top_p"]
+    assert loaded["inferenceConfig"] == complete_invoke_payload["inferenceConfig"]
     assert loaded["system"] == complete_invoke_payload["system"]
 
     # Verify messages structure is preserved
@@ -452,10 +462,10 @@ def test_round_trip_invoke_structure(
     endpoint = BedrockInvoke(
         model_id=bedrock_test_model,
         region=aws_region,
-        generated_text_jmespath="content[0].text",
-        generated_token_count_jmespath="usage.output_tokens",
-        input_token_count_jmespath="usage.input_tokens",
-        input_text_jmespath="messages[0].content",
+        generated_text_jmespath="output.message.content[0].text",
+        generated_token_count_jmespath="usage.outputTokens",
+        input_token_count_jmespath="usage.inputTokens",
+        input_text_jmespath="messages[0].content[0].text",
     )
     response = endpoint.invoke(loaded)
 
