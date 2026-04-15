@@ -4,6 +4,7 @@
 
 import base64
 import logging
+import os
 import time
 from typing import Any, Dict
 from uuid import uuid4
@@ -65,8 +66,6 @@ def _make_openai_content_block(item: MediaContent) -> dict:
             "file": {"file_data": f"data:{mime};base64,{b64}"},
         }
         if item.source_path:
-            import os
-
             block["file"]["filename"] = os.path.basename(item.source_path)
         return block
 

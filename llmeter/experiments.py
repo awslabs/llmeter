@@ -18,14 +18,13 @@ from upath import UPath as Path
 from upath.types import ReadablePathLike, WritablePathLike
 
 from .callbacks.base import Callback
-from .results import Result
-from .utils import ensure_path
-
 from .endpoints.base import Endpoint
 from .plotting import color_sequences, plot_heatmap, plot_load_test_results
 from .prompt_utils import CreatePromptCollection
+from .results import Result
 from .runner import Runner
 from .tokenizers import Tokenizer
+from .utils import ensure_path
 
 logger = logging.getLogger(__name__)
 
