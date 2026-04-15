@@ -19,9 +19,86 @@ import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError
 
+from ..prompt_utils import (
+    AudioContent,
+    ContentItem,
+    DocumentContent,
+    ImageContent,
+    MediaContent,
+    VideoContent,
+)
 from .base import Endpoint, InvocationResponse
 
 logger = logging.getLogger(__name__)
+
+
+def _mime_to_format(mime_type: str) -> str | None:
+    """Convert MIME type to Bedrock format string.
+
+    Maps MIME types to format names used by Bedrock Converse API.
+
+    Args:
+        mime_type: MIME type (e.g., "image/jpeg", "application/pdf")
+
+    Returns:
+        str | None: Format string (e.g., "jpeg", "png", "pdf") or None if not recognized
+    """
+    mime_map = {
+        "image/jpeg": "jpeg",
+        "image/png": "png",
+        "image/gif": "gif",
+        "image/webp": "webp",
+        "application/pdf": "pdf",
+        "video/mp4": "mp4",
+        "video/quicktime": "mov",
+        "video/x-msvideo": "avi",
+        "audio/mpeg": "mp3",
+        "audio/wav": "wav",
+        "audio/x-wav": "wav",
+        "audio/ogg": "ogg",
+    }
+    return mime_map.get(mime_type)
+
+
+# Mapping from MediaContent subclass to Bedrock content-block key
+_MEDIA_TYPE_KEY: dict[type, str] = {
+    ImageContent: "image",
+    AudioContent: "audio",
+    VideoContent: "video",
+    DocumentContent: "document",
+}
+
+
+def _build_content_blocks(items: list[ContentItem]) -> list[dict]:
+    """Convert an ordered list of content items to Bedrock Converse content blocks.
+
+    Args:
+        items: Ordered sequence of strings and/or ``MediaContent`` objects.
+
+    Returns:
+        list[dict]: Content blocks in Bedrock Converse API format.
+
+    Raises:
+        ValueError: If a MIME type is not supported by Bedrock.
+        TypeError: If an item has an unexpected type.
+    """
+    blocks: list[dict] = []
+    for item in items:
+        if isinstance(item, str):
+            blocks.append({"text": item})
+        elif isinstance(item, MediaContent):
+            key = _MEDIA_TYPE_KEY.get(type(item))
+            if key is None:
+                raise TypeError(f"Unsupported content type: {type(item).__name__}")
+            fmt = _mime_to_format(item.mime_type)
+            if fmt is None:
+                raise ValueError(f"Unsupported MIME type '{item.mime_type}' for {key}")
+            blocks.append({key: {"format": fmt, "source": {"bytes": item.data}}})
+        else:
+            raise TypeError(
+                f"Content items must be str or MediaContent, got {type(item).__name__}"
+            )
+    return blocks
 
 
 class BedrockBase(Endpoint):
@@ -114,57 +191,86 @@ class BedrockBase(Endpoint):
 
     @staticmethod
     def create_payload(
-        user_message: str | list[str], max_tokens: int = 256, **kwargs: Any
+        user_message: str | list[ContentItem],
+        max_tokens: int | None = None,
+        **kwargs: Any,
     ) -> dict:
         """
-        Create a payload for the Bedrock Converse API request.
+        Create a payload for the Bedrock Converse API request with optional multi-modal content.
+
+        ⚠️ SECURITY WARNING: Format detection is for testing/development convenience ONLY.
+        This method does NOT validate file safety, integrity, or protect against malicious
+        content. DO NOT use with untrusted files (user uploads, external sources) without
+        proper validation, sanitization, and security measures.
 
         Args:
-            user_message (str | Sequence[str]): The user's message or a sequence of messages.
-            max_tokens (int, optional): The maximum number of tokens to generate. Defaults to 256.
+            user_message: A single text string, or an ordered list mixing strings
+                and :class:`~llmeter.prompt_utils.MediaContent` objects
+                (``ImageContent``, ``AudioContent``, ``VideoContent``,
+                ``DocumentContent``).  The order of items in the list controls
+                the order of content blocks in the API request.
+            max_tokens: Maximum number of tokens to generate. Defaults to 256.
             **kwargs: Additional keyword arguments to include in the payload.
 
         Returns:
             dict: The formatted payload for the Bedrock API request.
 
         Raises:
-            TypeError: If user_message is not a string or list of strings
-            ValueError: If max_tokens is not a positive integer
+            TypeError: If parameters have invalid types.
+            ValueError: If parameters have invalid values.
+
+        Examples:
+            Text only::
+
+                create_payload("Hello")
+
+            Image with text (order preserved)::
+
+                create_payload([
+                    ImageContent.from_path("photo.jpg"),
+                    "What's in this image?",
+                ])
+
+            Mixed content::
+
+                create_payload([
+                    "Compare the chart with the report:",
+                    ImageContent.from_path("chart.png"),
+                    DocumentContent.from_path("report.pdf"),
+                ])
         """
-        if not isinstance(user_message, (str, list)):
-            raise TypeError("user_message must be a string or list of strings")
-
-        if isinstance(user_message, list):
-            if not all(isinstance(msg, str) for msg in user_message):
-                raise TypeError("All messages must be strings")
-            if not user_message:
-                raise ValueError("user_message list cannot be empty")
-
+        if max_tokens is None:
+            max_tokens = 256
         if not isinstance(max_tokens, int) or max_tokens <= 0:
             raise ValueError("max_tokens must be a positive integer")
 
+        # Normalise to a list of ContentItem
         if isinstance(user_message, str):
-            user_message = [user_message]
+            items: list[ContentItem] = [user_message]
+        elif isinstance(user_message, list):
+            items = user_message
+        else:
+            raise TypeError(
+                "user_message must be a str or list of str/MediaContent, "
+                f"got {type(user_message).__name__}"
+            )
 
-        try:
-            payload: dict = {
-                "messages": [
-                    {"role": "user", "content": [{"text": k}]} for k in user_message
-                ],
-            }
-            payload.update(kwargs)
-            if payload.get("inferenceConfig") is None:
-                payload["inferenceConfig"] = {}
+        if not items:
+            raise ValueError("user_message must not be empty")
 
-            payload["inferenceConfig"] = {
-                **payload["inferenceConfig"],
-                "maxTokens": max_tokens,
-            }
-            return payload
+        content_blocks = _build_content_blocks(items)
 
-        except Exception as e:
-            logger.error(f"Error creating payload: {e}")
-            raise RuntimeError(f"Failed to create payload: {str(e)}")
+        payload: dict = {
+            "messages": [{"role": "user", "content": content_blocks}],
+        }
+        payload.update(kwargs)
+        if payload.get("inferenceConfig") is None:
+            payload["inferenceConfig"] = {}
+        payload["inferenceConfig"] = {
+            **payload["inferenceConfig"],
+            "maxTokens": max_tokens,
+        }
+        return payload
 
 
 class BedrockConverse(BedrockBase):

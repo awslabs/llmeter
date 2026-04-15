@@ -104,13 +104,20 @@ class TestOpenAIEndpointProperties:
 
     @given(st.lists(st.text(min_size=1, max_size=500), min_size=1, max_size=10))
     def test_create_payload_preserves_all_messages(self, messages):
-        """create_payload should preserve all input messages."""
+        """create_payload should preserve all input messages in a single message."""
         payload = OpenAICompletionEndpoint.create_payload(messages)
 
         assert "messages" in payload
-        assert len(payload["messages"]) == len(messages)
-        for i, msg in enumerate(messages):
-            assert payload["messages"][i]["content"] == msg
+        assert len(payload["messages"]) == 1
+        content = payload["messages"][0]["content"]
+        if len(messages) == 1:
+            # Single string → simple content field
+            assert content == messages[0]
+        else:
+            # Multiple strings → list of text content blocks
+            assert len(content) == len(messages)
+            for i, msg in enumerate(messages):
+                assert content[i]["text"] == msg
 
     @given(st.text(min_size=1, max_size=500), st.integers(min_value=1, max_value=4096))
     def test_create_payload_respects_max_tokens(self, message, max_tokens):

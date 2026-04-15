@@ -7,13 +7,16 @@ You can also use these classes to implement your own custom `Endpoint` types.
 
 import importlib
 import json
-import os
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass
 from typing import Any
 from uuid import uuid4
 
 from upath import UPath as Path
+from upath.types import ReadablePathLike, WritablePathLike
+
+from ..json_utils import llmeter_default_serializer
+from ..utils import ensure_path
 
 
 # @dataclass(slots=True)
@@ -46,14 +49,23 @@ class InvocationResponse:
     error: str | None = None
     retries: int | None = None
 
-    def to_json(self, **kwargs) -> str:
-        def default_serializer(obj):
-            try:
-                return str(obj)
-            except Exception:
-                return None
+    def to_json(self, default=llmeter_default_serializer, **kwargs) -> str:
+        """Serialize this response to a JSON string.
 
-        return json.dumps(asdict(self), default=default_serializer, **kwargs)
+        Uses :func:`~llmeter.json_utils.llmeter_default_serializer` by default,
+        which handles ``bytes``, ``datetime``, ``PathLike``, and other common
+        non-serializable types.
+
+        Args:
+            default: Fallback serializer passed to :func:`json.dumps`.
+                Defaults to :func:`~llmeter.json_utils.llmeter_default_serializer`.
+            **kwargs: Additional arguments passed to :func:`json.dumps`
+                (e.g., ``indent``, ``sort_keys``).
+
+        Returns:
+            str: JSON representation of the response.
+        """
+        return json.dumps(asdict(self), default=default, **kwargs)
 
     @staticmethod
     def error_output(
@@ -134,7 +146,10 @@ class Endpoint(ABC):
         Create a payload for the endpoint invocation.
 
         This static method should be implemented by subclasses to define
-        how the payload is created based on the given arguments.
+        how the payload is created based on the given arguments. Ideally,
+        subclasses should conform to the conventions of existing endpoint types
+        (for example taking a `user_message: str | list[ContentItem]` param),
+        but this is not strictly enforced at the typing level.
 
         Args:
             *args: Variable length argument list.
@@ -165,7 +180,7 @@ class Endpoint(ABC):
                 return True
         return NotImplemented
 
-    def save(self, output_path: os.PathLike) -> os.PathLike:
+    def save(self, output_path: WritablePathLike) -> Path:
         """
         Save the endpoint configuration to a JSON file.
 
@@ -178,11 +193,10 @@ class Endpoint(ABC):
         Returns:
             None
         """
-        output_path = Path(output_path)
+        output_path = ensure_path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with output_path.open("w") as f:
-            endpoint_conf = self.to_dict()
-            json.dump(endpoint_conf, f, indent=4, default=str)
+            json.dump(self, f, indent=4, default=llmeter_default_serializer)
         return output_path
 
     def to_dict(self) -> dict:
@@ -197,7 +211,7 @@ class Endpoint(ABC):
         return endpoint_conf
 
     @classmethod
-    def load_from_file(cls, input_path: os.PathLike) -> "Endpoint":
+    def load_from_file(cls, input_path: ReadablePathLike) -> "Endpoint":
         """
         Load an endpoint configuration from a JSON file.
 
@@ -213,7 +227,7 @@ class Endpoint(ABC):
                       with the configuration from the file.
         """
 
-        input_path = Path(input_path)
+        input_path = ensure_path(input_path)
         with input_path.open("r") as f:
             data = json.load(f)
         endpoint_type = data.pop("endpoint_type")

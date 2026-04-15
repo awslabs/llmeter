@@ -4,7 +4,10 @@ from datetime import datetime, timezone
 from itertools import filterfalse
 from math import isnan
 from statistics import StatisticsError, mean, median, quantiles
-from typing import Any, Sequence
+from typing import Any, Sequence, overload
+
+from upath import UPath
+from upath.types import ReadablePathLike, WritablePathLike
 
 
 class DeferredError:
@@ -90,3 +93,30 @@ def now_utc() -> datetime:
         datetime: Current UTC datetime object
     """
     return datetime.now(timezone.utc)
+
+
+@overload
+def ensure_path(path: ReadablePathLike | WritablePathLike) -> UPath: ...
+
+
+@overload
+def ensure_path(path: None) -> None: ...
+
+
+def ensure_path(
+    path: ReadablePathLike | WritablePathLike | None,
+) -> UPath | None:
+    """Normalize a path-like argument to a UPath instance.
+
+    Converts strings, os.PathLike objects, and UPath instances into a
+    consistent UPath representation. Passes through None unchanged.
+
+    Args:
+        path: A string, path-like object, or None.
+
+    Returns:
+        A UPath instance, or None if the input was None.
+    """
+    if path is None:
+        return None
+    return UPath(path)

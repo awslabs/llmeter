@@ -6,8 +6,8 @@ from typing import Literal
 
 import jmespath
 
-from llmeter.endpoints.base import InvocationResponse
-from llmeter.results import Result, _get_stats_from_results
+from ..endpoints.base import InvocationResponse
+from ..results import Result, _get_stats_from_results
 
 
 @dataclass(eq=True, frozen=True, order=True)
@@ -47,12 +47,9 @@ class Interval:
         Returns:
             str: String in interval notation, e.g. "[1,2]" or "(1,2)"
         """
-        return f"{
-            "[" if self.closed
-            in ["left", "both"] else "("
-            }{self.left}, {self.right}{
-                "]" if self.closed in ["right", "both"] else ")"
-                }"
+        return f"{'[' if self.closed in ['left', 'both'] else '('}{self.left}, {
+            self.right
+        }{']' if self.closed in ['right', 'both'] else ')'}"
 
     @property
     def mid(self):

@@ -87,14 +87,12 @@ def bedrock_test_model():
     Get test model ID for Converse/Invoke tests.
 
     The model ID can be overridden via the BEDROCK_TEST_MODEL environment variable.
-    Defaults to Claude 3.5 Sonnet v2, which is widely available and cost-effective.
+    Defaults to Nova 2 Lite, which is widely available and cost-effective.
 
     Returns:
         str: Bedrock model ID for testing.
     """
-    return os.environ.get(
-        "BEDROCK_TEST_MODEL", "global.amazon.nova-2-lite-v1:0"
-    )
+    return os.environ.get("BEDROCK_TEST_MODEL", "global.amazon.nova-2-lite-v1:0")
 
 
 @pytest.fixture(scope="session")
@@ -111,15 +109,62 @@ def bedrock_openai_test_model():
     Returns:
         str: OpenAI model ID for Bedrock OpenAI SDK testing.
     """
+    return os.environ.get("BEDROCK_OPENAI_TEST_MODEL", "openai.gpt-oss-20b-1:0")
+
+
+@pytest.fixture(scope="session")
+def bedrock_openai_multimodal_test_model():
+    """
+    Get test model ID for OpenAI SDK multimodal tests.
+
+    The model ID can be overridden via the BEDROCK_OPENAI_MULTIMODAL_TEST_MODEL environment variable.
+    Defaults to qwen.qwen3-vl-235b-a22b-instruct which supports images and is available in Bedrock.
+
+    Note: This model is specifically for testing multimodal content (images, video, etc.)
+    via Bedrock's OpenAI-compatible endpoint.
+
+    Returns:
+        str: OpenAI multimodal model ID for Bedrock OpenAI SDK testing.
+    """
     return os.environ.get(
-        "BEDROCK_OPENAI_TEST_MODEL", "openai.gpt-oss-20b-1:0"
+        "BEDROCK_OPENAI_MULTIMODAL_TEST_MODEL", "qwen.qwen3-vl-235b-a22b-instruct"
     )
+
+
+@pytest.fixture
+def test_image_bytes():
+    """
+    Create test images as binary JPEG data for multimodal testing.
+
+    Returns two small JPEG images (32x32 pixels) as bytes objects.
+    These are used to test binary content serialization and API calls.
+    JPEG format is used for broad model compatibility.
+
+    Returns:
+        tuple: (image1_bytes, image2_bytes) - Two JPEG images as bytes
+    """
+    import io
+    from PIL import Image
+
+    # 32x32 red square JPEG - binary format
+    img1 = Image.new("RGB", (32, 32), color=(255, 0, 0))
+    buf1 = io.BytesIO()
+    img1.save(buf1, format="JPEG")
+    image1_bytes = buf1.getvalue()
+
+    # 32x32 blue square JPEG - binary format
+    img2 = Image.new("RGB", (32, 32), color=(0, 0, 255))
+    buf2 = io.BytesIO()
+    img2.save(buf2, format="JPEG")
+    image2_bytes = buf2.getvalue()
+
+    return image1_bytes, image2_bytes
 
 
 @pytest.fixture(scope="session")
 def bedrock_openai_endpoint_url(aws_region):
     """
-    Construct Bedrock OpenAI-compatible endpoint URL.
+    Construct Bedrock OpenAI-compatible endpoint URL for standard models.
 
     Args:
         aws_region: AWS region from the aws_region fixture.
@@ -128,6 +173,23 @@ def bedrock_openai_endpoint_url(aws_region):
         str: Bedrock OpenAI-compatible endpoint URL.
     """
     return f"https://bedrock-runtime.{aws_region}.amazonaws.com/openai/v1"
+
+
+@pytest.fixture(scope="session")
+def bedrock_openai_multimodal_endpoint_url(aws_region):
+    """
+    Construct Bedrock OpenAI-compatible endpoint URL for multimodal models (Bedrock Mantle).
+
+    This endpoint supports non-OpenAI models (e.g., Qwen, Kimi) via the OpenAI-compatible
+    interface and is required for multimodal content (images, video).
+
+    Args:
+        aws_region: AWS region from the aws_region fixture.
+
+    Returns:
+        str: Bedrock Mantle endpoint URL for multimodal testing.
+    """
+    return f"https://bedrock-mantle.{aws_region}.api.aws/v1"
 
 
 @pytest.fixture
@@ -161,9 +223,10 @@ def test_payload_with_image():
     """
     Create a test payload with image for multimodal testing.
 
-    This payload includes a small 100x100 PNG test image (a simple red square)
-    encoded as base64, along with a text prompt asking the model to describe
-    the image.
+    This payload includes a 200x200 PNG test image with a distinctive two-color
+    split (red left half, blue right half) and a constrained prompt asking the
+    model to identify the colors.  This design makes it easy to verify the model
+    actually processed the image pixels rather than giving a generic answer.
 
     The image is generated programmatically to keep the test deterministic
     and avoid external dependencies.
@@ -175,8 +238,11 @@ def test_payload_with_image():
 
     from PIL import Image
 
-    # Create a simple 100x100 red square PNG image
-    img = Image.new("RGB", (100, 100), color="red")
+    # Create a 200x200 image: left half red, right half blue
+    img = Image.new("RGB", (200, 200), color="red")
+    for x in range(100, 200):
+        for y in range(200):
+            img.putpixel((x, y), (0, 0, 255))
     img_buffer = io.BytesIO()
     img.save(img_buffer, format="PNG")
     img_bytes = img_buffer.getvalue()
@@ -193,10 +259,13 @@ def test_payload_with_image():
                         }
                     },
                     {
-                        "text": "What do you see in this image? Please provide a brief description."
+                        "text": (
+                            "This image is split into two halves of different colors. "
+                            "What are the two colors? Answer with just the color names."
+                        ),
                     },
                 ],
             }
         ],
-        "inferenceConfig": {"maxTokens": 150},
+        "inferenceConfig": {"maxTokens": 100},
     }

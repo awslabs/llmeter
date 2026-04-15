@@ -3,40 +3,20 @@
 
 import json
 import logging
-import os
 from dataclasses import asdict, dataclass
-from datetime import datetime, timezone
+from datetime import datetime
 from functools import cached_property
 from numbers import Number
 from typing import Any, Sequence
 
 import jmespath
-from upath import UPath as Path
+from upath.types import ReadablePathLike, WritablePathLike
 
 from .endpoints import InvocationResponse
-from .utils import summary_stats_from_list
+from .json_utils import llmeter_default_serializer
+from .utils import ensure_path, summary_stats_from_list
 
 logger = logging.getLogger(__name__)
-
-
-def utc_datetime_serializer(obj: Any) -> str:
-    """
-    Serialize datetime objects to UTC ISO format strings.
-
-    Args:
-        obj: Object to serialize. If datetime, converts to ISO format string with 'Z' timezone.
-             Otherwise returns string representation.
-
-    Returns:
-        str: ISO format string with 'Z' timezone for datetime objects, or string representation
-             for other objects.
-    """
-    if isinstance(obj, datetime):
-        # Convert to UTC if timezone is set
-        if obj.tzinfo is not None:
-            obj = obj.astimezone(timezone.utc)
-        return obj.isoformat(timespec="seconds").replace("+00:00", "Z")
-    return str(obj)
 
 
 @dataclass
@@ -49,7 +29,7 @@ class Result:
     n_requests: int
     total_test_time: float | None = None
     model_id: str | None = None
-    output_path: os.PathLike | None = None
+    output_path: WritablePathLike | None = None
     endpoint_name: str | None = None
     provider: str | None = None
     run_name: str | None = None
@@ -58,7 +38,7 @@ class Result:
     end_time: datetime | None = None
 
     def __str__(self):
-        return json.dumps(self.stats, indent=4, default=utc_datetime_serializer)
+        return json.dumps(self.stats, indent=4, default=llmeter_default_serializer)
 
     def __post_init__(self):
         """Initialize the Result instance."""
@@ -81,7 +61,7 @@ class Result:
                 )
         self._contributed_stats.update(stats)
 
-    def save(self, output_path: os.PathLike | str | None = None):
+    def save(self, output_path: WritablePathLike | None = None):
         """
         Save the results to disk or cloud storage.
 
@@ -109,9 +89,8 @@ class Result:
             which provides a unified interface for working with different file systems.
         """
 
-        try:
-            output_path = Path(self.output_path or output_path)
-        except TypeError:
+        output_path = ensure_path(self.output_path or output_path)
+        if output_path is None:
             raise ValueError("No output path provided")
 
         output_path.mkdir(parents=True, exist_ok=True)
@@ -120,28 +99,42 @@ class Result:
         stats_path = output_path / "stats.json"
         with summary_path.open("w") as f, stats_path.open("w") as s:
             f.write(self.to_json(indent=4))
-            s.write(json.dumps(self.stats, indent=4, default=utc_datetime_serializer))
+            s.write(
+                json.dumps(self.stats, indent=4, default=llmeter_default_serializer)
+            )
 
         responses_path = output_path / "responses.jsonl"
         if not responses_path.exists():
             with responses_path.open("w") as f:
                 for response in self.responses:
-                    f.write(json.dumps(asdict(response)) + "\n")
+                    f.write(
+                        json.dumps(asdict(response), default=llmeter_default_serializer)
+                        + "\n"
+                    )
 
-    def to_json(self, **kwargs):
-        """Return the results as a JSON string."""
+    def to_json(self, default=llmeter_default_serializer, **kwargs):
+        """Return the results as a JSON string.
+
+        Args:
+            default: Fallback serializer. Defaults to
+                :func:`~llmeter.json_utils.llmeter_default_serializer`.
+            **kwargs: Extra keyword arguments passed to :func:`json.dumps`.
+        """
         summary = {
             k: o for k, o in asdict(self).items() if k not in ["responses", "stats"]
         }
-        return json.dumps(summary, default=utc_datetime_serializer, **kwargs)
+        return json.dumps(summary, default=default, **kwargs)
 
     def to_dict(self, include_responses: bool = False):
-        """Return the results as a dictionary."""
+        """Return the results as a dictionary with JSON-serializable values."""
+        data = asdict(self)
+        # Serialize datetime objects so stats dict is always JSON-safe
+        for key in ("start_time", "end_time"):
+            if key in data and isinstance(data[key], datetime):
+                data[key] = llmeter_default_serializer(data[key])
         if include_responses:
-            return asdict(self)
-        return {
-            k: o for k, o in asdict(self).items() if k not in ["responses", "stats"]
-        }
+            return data
+        return {k: v for k, v in data.items() if k not in ["responses", "stats"]}
 
     def load_responses(self) -> list[InvocationResponse]:
         """
@@ -163,7 +156,7 @@ class Result:
             raise ValueError(
                 "No output_path set on this Result. Cannot locate responses file."
             )
-        responses_path = Path(self.output_path) / "responses.jsonl"
+        responses_path = ensure_path(self.output_path) / "responses.jsonl"
         with responses_path.open("r") as f:
             self.responses = [
                 InvocationResponse(**json.loads(line)) for line in f if line
@@ -175,7 +168,7 @@ class Result:
 
     @classmethod
     def load(
-        cls, result_path: os.PathLike | str, load_responses: bool = True
+        cls, result_path: ReadablePathLike, load_responses: bool = True
     ) -> "Result":
         """
         Load run results from disk or cloud storage.
@@ -205,7 +198,7 @@ class Result:
                 either file.
 
         """
-        result_path = Path(result_path)
+        result_path = ensure_path(result_path)
         summary_path = result_path / "summary.json"
 
         with summary_path.open("r") as g:

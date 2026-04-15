@@ -69,9 +69,9 @@ def test_invalid_model_error(aws_credentials, aws_region):
     response = endpoint.invoke(test_payload)
 
     # Verify error field is populated
-    assert (
-        response.error is not None
-    ), "Error field should be populated for invalid model"
+    assert response.error is not None, (
+        "Error field should be populated for invalid model"
+    )
     assert isinstance(response.error, str), "Error should be a string"
     assert len(response.error) > 0, "Error message should not be empty"
 
@@ -86,9 +86,9 @@ def test_invalid_model_error(aws_credentials, aws_region):
     ), f"Error message should be descriptive, got: {response.error}"
 
     # Verify response text is None or empty when error occurs
-    assert (
-        response.response_text is None or len(response.response_text) == 0
-    ), "Response text should be None or empty when error occurs"
+    assert response.response_text is None or len(response.response_text) == 0, (
+        "Response text should be None or empty when error occurs"
+    )
 
     # Verify token counts are None or zero when error occurs
     # (endpoints may set these to None or 0 on error)
@@ -137,9 +137,9 @@ def test_invalid_payload_error(aws_credentials, aws_region, bedrock_test_model):
     response = endpoint.invoke(invalid_payload)
 
     # Verify error field is populated
-    assert (
-        response.error is not None
-    ), "Error field should be populated for invalid payload"
+    assert response.error is not None, (
+        "Error field should be populated for invalid payload"
+    )
     assert isinstance(response.error, str), "Error should be a string"
     assert len(response.error) > 0, "Error message should not be empty"
 
@@ -152,12 +152,14 @@ def test_invalid_payload_error(aws_credentials, aws_region, bedrock_test_model):
         or "invalid" in error_lower
         or "missing" in error_lower
         or "parameter" in error_lower
-    ), f"Error message should be descriptive about the payload issue, got: {response.error}"
+    ), (
+        f"Error message should be descriptive about the payload issue, got: {response.error}"
+    )
 
     # Verify response text is None or empty when error occurs
-    assert (
-        response.response_text is None or len(response.response_text) == 0
-    ), "Response text should be None or empty when error occurs"
+    assert response.response_text is None or len(response.response_text) == 0, (
+        "Response text should be None or empty when error occurs"
+    )
 
     # Verify token counts are None or zero when error occurs
     # (endpoints may set these to None or 0 on error)
@@ -226,41 +228,41 @@ def test_error_response_structure(aws_credentials, aws_region, bedrock_test_mode
 
     for i, response in enumerate(error_responses, 1):
         # Verify error field is populated with a non-empty string
-        assert (
-            response.error is not None
-        ), f"Error response {i}: error field should be populated"
-        assert isinstance(
-            response.error, str
-        ), f"Error response {i}: error should be a string"
-        assert (
-            len(response.error) > 0
-        ), f"Error response {i}: error message should not be empty"
+        assert response.error is not None, (
+            f"Error response {i}: error field should be populated"
+        )
+        assert isinstance(response.error, str), (
+            f"Error response {i}: error should be a string"
+        )
+        assert len(response.error) > 0, (
+            f"Error response {i}: error message should not be empty"
+        )
 
         # Verify response_text is None or empty
-        assert (
-            response.response_text is None or len(response.response_text) == 0
-        ), f"Error response {i}: response_text should be None or empty on error"
+        assert response.response_text is None or len(response.response_text) == 0, (
+            f"Error response {i}: response_text should be None or empty on error"
+        )
 
         # Verify token counts are None or zero
         if response.num_tokens_input is not None:
-            assert (
-                response.num_tokens_input == 0
-            ), f"Error response {i}: input tokens should be 0 on error"
+            assert response.num_tokens_input == 0, (
+                f"Error response {i}: input tokens should be 0 on error"
+            )
         if response.num_tokens_output is not None:
-            assert (
-                response.num_tokens_output == 0
-            ), f"Error response {i}: output tokens should be 0 on error"
+            assert response.num_tokens_output == 0, (
+                f"Error response {i}: output tokens should be 0 on error"
+            )
 
         # Verify timing fields exist (may be 0 or None, but should be present)
-        assert hasattr(
-            response, "time_to_last_token"
-        ), f"Error response {i}: should have time_to_last_token field"
-        assert hasattr(
-            response, "time_to_first_token"
-        ), f"Error response {i}: should have time_to_first_token field"
+        assert hasattr(response, "time_to_last_token"), (
+            f"Error response {i}: should have time_to_last_token field"
+        )
+        assert hasattr(response, "time_to_first_token"), (
+            f"Error response {i}: should have time_to_first_token field"
+        )
 
     # Verify that different error types produce different error messages
     # (they should not be identical, as they represent different issues)
-    assert (
-        response1.error != response2.error
-    ), "Different error types should produce different error messages"
+    assert response1.error != response2.error, (
+        "Different error types should produce different error messages"
+    )

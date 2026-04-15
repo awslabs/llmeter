@@ -2,25 +2,104 @@
 # SPDX-License-Identifier: Apache-2.0
 """LLMeter targets for testing OpenAI ChatCompletions-compatible endpoints (wherever they're hosted)"""
 
+import base64
 import logging
+import os
 import time
-from typing import Any, Dict, Sequence
+from typing import Any, Dict
 from uuid import uuid4
 
 import jmespath
 from openai import APIConnectionError, OpenAI
 from openai.types.chat import ChatCompletion
 
+from ..prompt_utils import (
+    ContentItem,
+    MediaContent,
+    VideoContent,
+)
 from .base import Endpoint, InvocationResponse
 
 logger = logging.getLogger(__name__)
 
+# MIME types supported by OpenAI, grouped by content part type
+_OPENAI_IMAGE_MIMES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
+_OPENAI_AUDIO_MIMES = {"audio/mpeg", "audio/wav"}
+_OPENAI_FILE_MIMES = {"application/pdf"}
+
+# Map MIME → OpenAI audio "format" field value
+_MIME_TO_OPENAI_AUDIO_FMT: dict[str, str] = {
+    "audio/mpeg": "mp3",
+    "audio/wav": "wav",
+}
+
+
+def _make_openai_content_block(item: MediaContent) -> dict:
+    """Build a single OpenAI content-part dict from a MediaContent object.
+
+    Raises:
+        ValueError: If the MIME type is not supported by OpenAI, or if
+            ``VideoContent`` is provided (not supported inline).
+    """
+    if isinstance(item, VideoContent):
+        raise ValueError(
+            "OpenAI Chat Completions API does not support inline video content. "
+            "Consider extracting frames as images instead."
+        )
+
+    mime = item.mime_type
+    b64 = base64.b64encode(item.data).decode("utf-8")
+
+    if mime in _OPENAI_IMAGE_MIMES:
+        return {
+            "type": "image_url",
+            "image_url": {"url": f"data:{mime};base64,{b64}"},
+        }
+    if mime in _OPENAI_AUDIO_MIMES:
+        return {
+            "type": "input_audio",
+            "input_audio": {"data": b64, "format": _MIME_TO_OPENAI_AUDIO_FMT[mime]},
+        }
+    if mime in _OPENAI_FILE_MIMES:
+        block: dict = {
+            "type": "file",
+            "file": {"file_data": f"data:{mime};base64,{b64}"},
+        }
+        if item.source_path:
+            block["file"]["filename"] = os.path.basename(item.source_path)
+        return block
+
+    raise ValueError(f"Unsupported MIME type for OpenAI: '{mime}'")
+
+
+def _build_content_blocks_openai(items: list[ContentItem]) -> list[dict]:
+    """Convert an ordered list of content items to OpenAI content blocks.
+
+    Args:
+        items: Ordered sequence of strings and/or ``MediaContent`` objects.
+
+    Returns:
+        list[dict]: Content blocks conforming to OpenAI SDK types.
+
+    Raises:
+        ValueError: If a MIME type is unsupported or video is provided.
+        TypeError: If an item has an unexpected type.
+    """
+    blocks: list[dict] = []
+    for item in items:
+        if isinstance(item, str):
+            blocks.append({"type": "text", "text": item})
+        elif isinstance(item, MediaContent):
+            blocks.append(_make_openai_content_block(item))
+        else:
+            raise TypeError(
+                f"Content items must be str or MediaContent, got {type(item).__name__}"
+            )
+    return blocks
+
 
 class OpenAIEndpoint(Endpoint):
-    """Base class for OpenAI API endpoints.
-
-    Provides common functionality for interacting with OpenAI's API endpoints.
-    """
+    """Base class for OpenAI API endpoints."""
 
     def __init__(
         self,
@@ -33,29 +112,16 @@ class OpenAIEndpoint(Endpoint):
         """Initialize OpenAI endpoint.
 
         Args:
-            model_id (str): ID of the OpenAI model to use
-            endpoint_name (str, optional): Name of the endpoint. Defaults to "openai".
-            api_key (str | None, optional): OpenAI API key. Defaults to None.
-            provider (str, optional): Provider name. Defaults to "openai".
-            **kwargs (Any): Additional arguments passed to OpenAI client
+            model_id: ID of the OpenAI model to use
+            endpoint_name: Name of the endpoint. Defaults to "openai".
+            api_key: OpenAI API key. Defaults to None.
+            provider: Provider name. Defaults to "openai".
+            **kwargs: Additional arguments passed to OpenAI client
         """
-        super().__init__(
-            endpoint_name,
-            model_id,
-            provider=provider,
-        )
-
+        super().__init__(endpoint_name, model_id, provider=provider)
         self._client = OpenAI(api_key=api_key, **kwargs)
 
     def _parse_payload(self, payload):
-        """Parse the message content from the payload.
-
-        Args:
-            payload (dict): Request payload containing messages
-
-        Returns:
-            str: Concatenated message contents
-        """
         jmes_path = "[:].content"
         messages = payload.get("messages")
         result = jmespath.search(jmes_path, messages)
@@ -65,22 +131,61 @@ class OpenAIEndpoint(Endpoint):
 
     @staticmethod
     def create_payload(
-        user_message: str | Sequence[str], max_tokens: int = 256, **kwargs: Any
+        user_message: str | list[ContentItem],
+        max_tokens: int = 256,
+        **kwargs: Any,
     ) -> dict:
         """Create a payload for the OpenAI API request.
 
         Args:
-            user_message (str | Sequence[str]): User message(s) to send
-            max_tokens (int, optional): Maximum tokens in response. Defaults to 256.
-            **kwargs: Additional payload parameters
+            user_message: A single text string, or an ordered list mixing strings
+                and :class:`~llmeter.prompt_utils.MediaContent` objects.
+            max_tokens: Maximum tokens in response. Defaults to 256.
+            **kwargs: Additional payload parameters.
 
         Returns:
-            dict: Formatted payload for API request
+            dict: Formatted payload for API request.
+
+        Examples:
+            Text only::
+
+                create_payload("Hello")
+
+            Image with text::
+
+                create_payload([
+                    ImageContent.from_path("photo.jpg"),
+                    "What's in this image?",
+                ])
         """
+        if not isinstance(max_tokens, int) or max_tokens <= 0:
+            raise ValueError("max_tokens must be a positive integer")
+
         if isinstance(user_message, str):
-            user_message = [user_message]
+            items: list[ContentItem] = [user_message]
+        elif isinstance(user_message, list):
+            items = user_message
+        else:
+            raise TypeError(
+                "user_message must be a str or list of str/MediaContent, "
+                f"got {type(user_message).__name__}"
+            )
+
+        if not items:
+            raise ValueError("user_message must not be empty")
+
+        # Text-only shortcut: single string → simple content field
+        if len(items) == 1 and isinstance(items[0], str):
+            payload = {
+                "messages": [{"role": "user", "content": items[0]}],
+                "max_tokens": max_tokens,
+            }
+            payload.update(kwargs)
+            return payload
+
+        content_blocks = _build_content_blocks_openai(items)
         payload = {
-            "messages": [{"role": "user", "content": k} for k in user_message],
+            "messages": [{"role": "user", "content": content_blocks}],
             "max_tokens": max_tokens,
         }
         payload.update(kwargs)
@@ -91,15 +196,6 @@ class OpenAICompletionEndpoint(OpenAIEndpoint):
     """Endpoint for OpenAI-compatible Chat Completion APIs (non-streaming mode)"""
 
     def invoke(self, payload: Dict, **kwargs: Any) -> InvocationResponse:
-        """Invoke the OpenAI chat completion API.
-
-        Args:
-            payload (Dict): Request payload
-            **kwargs (Any): Additional parameters for the request
-
-        Returns:
-            InvocationResponse: Response from the API
-        """
         payload = {**kwargs, **payload}
         payload["model"] = self.model_id
 
@@ -108,7 +204,6 @@ class OpenAICompletionEndpoint(OpenAIEndpoint):
             client_response: ChatCompletion = self._client.chat.completions.create(
                 **payload
             )
-
         except (APIConnectionError, Exception) as e:
             logger.error(e)
             return InvocationResponse.error_output(
@@ -121,22 +216,7 @@ class OpenAICompletionEndpoint(OpenAIEndpoint):
         return response
 
     def _parse_converse_response(self, client_response: ChatCompletion, start_t: float):
-        """Parse the OpenAI chat completion API response into an InvocationResponse object.
-
-        Args:
-            client_response (ChatCompletion): Raw response from OpenAI chat completion API
-            start_t (float): Start time of the API call in seconds
-
-        Returns:
-            InvocationResponse: Parsed response object containing:
-                - Response ID
-                - Response text content
-                - Token counts for input/output
-                - Time to last token
-        """
-
         usage = client_response.usage
-
         return InvocationResponse(
             id=client_response.id,
             response_text=client_response.choices[0].message.content,
@@ -150,17 +230,7 @@ class OpenAICompletionStreamEndpoint(OpenAIEndpoint):
     """Endpoint for OpenAI-compatible Chat Completion APIs (streaming mode)"""
 
     def invoke(self, payload: Dict, **kwargs: Any) -> InvocationResponse:
-        """Invoke the OpenAI streaming chat completion API.
-
-        Args:
-            payload (Dict): Request payload
-            **kwargs (Any): Additional parameters for the request
-
-        Returns:
-            InvocationResponse: Response from the API
-        """
         payload = {**kwargs, **payload}
-
         payload["model"] = self.model_id
 
         if not payload.get("stream"):
@@ -185,20 +255,6 @@ class OpenAICompletionStreamEndpoint(OpenAIEndpoint):
     def _parse_converse_stream_response(
         self, client_response: ChatCompletion, start_t: float
     ) -> InvocationResponse:
-        """Parse the streaming API response from OpenAI chat completion API.
-
-        Args:
-            client_response (ChatCompletion): Raw API response stream containing chunks of completion text
-            start_t (float): Start time of the API call in seconds
-
-        Returns:
-            InvocationResponse: Parsed response object containing:
-                - Response ID
-                - Concatenated response text from all chunks
-                - Token counts for input/output
-                - Time to first token and last token
-        """
-
         prompt_tokens = None
         completion_tokens = None
 

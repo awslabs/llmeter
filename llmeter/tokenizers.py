@@ -6,7 +6,10 @@ from abc import ABC, abstractmethod
 from typing import Any
 
 from upath import UPath
+from upath.types import ReadablePathLike, WritablePathLike
 import json
+
+from .utils import ensure_path
 
 
 class Tokenizer(ABC):
@@ -42,19 +45,20 @@ class Tokenizer(ABC):
         return True
 
     @staticmethod
-    def load_from_file(tokenizer_path: UPath | None) -> Tokenizer:
+    def load_from_file(tokenizer_path: ReadablePathLike | None) -> Tokenizer:
         """
         Loads a tokenizer from a file.
 
         Args:
-            tokenizer_path (UPath): The path to the serialized tokenizer file.
+            tokenizer_path (ReadablePathLike): The path to the serialized tokenizer file.
 
         Returns:
             Tokenizer: The loaded tokenizer.
         """
         if tokenizer_path is None:
             return DummyTokenizer()
-        with open(tokenizer_path, "r") as f:
+        tokenizer_path = ensure_path(tokenizer_path)
+        with tokenizer_path.open("r") as f:
             tokenizer_info = json.load(f)
 
         return _load_tokenizer_from_info(tokenizer_info)
@@ -108,22 +112,22 @@ def _to_dict(tokenizer: Any) -> dict:
     raise ValueError(f"Unknown tokenizer module: {tokenizer.__module__}")
 
 
-def save_tokenizer(tokenizer: Any, output_path: UPath | str) -> UPath:
+def save_tokenizer(tokenizer: Any, output_path: WritablePathLike) -> UPath:
     """
     Save a tokenizer information to a file.
 
     Args:
         tokenizer (Tokenizer): The tokenizer to serialize.
-        output_path (UPath): The path to save the serialized tokenizer to.
+        output_path (WritablePathLike): The path to save the serialized tokenizer to.
 
     Returns:
         UPath: The path to the serialized tokenizer file.
     """
     tokenizer_info = _to_dict(tokenizer)
 
-    output_path = UPath(output_path)
+    output_path = ensure_path(output_path)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(output_path, "w") as f:
+    with output_path.open("w") as f:
         json.dump(tokenizer_info, f)
 
     return output_path

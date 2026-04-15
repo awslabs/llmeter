@@ -13,8 +13,65 @@ import jmespath
 from botocore.exceptions import ClientError
 
 from .base import Endpoint, InvocationResponse
+from ..prompt_utils import (
+    AudioContent,
+    ContentItem,
+    DocumentContent,
+    ImageContent,
+    MediaContent,
+    VideoContent,
+)
 
 logger = logging.getLogger(__name__)
+
+
+def _mime_to_sagemaker_format(mime_type: str) -> str | None:
+    """Convert MIME type to SageMaker format string."""
+    mime_map = {
+        "image/jpeg": "jpeg",
+        "image/png": "png",
+        "image/gif": "gif",
+        "image/webp": "webp",
+        "application/pdf": "pdf",
+        "video/mp4": "mp4",
+        "video/quicktime": "mov",
+        "video/x-msvideo": "avi",
+        "audio/mpeg": "mp3",
+        "audio/wav": "wav",
+        "audio/x-wav": "wav",
+        "audio/ogg": "ogg",
+    }
+    return mime_map.get(mime_type)
+
+
+# Mapping from MediaContent subclass to SageMaker content-block key
+_SM_MEDIA_TYPE_KEY: dict[type, str] = {
+    ImageContent: "image",
+    AudioContent: "audio",
+    VideoContent: "video",
+    DocumentContent: "document",
+}
+
+
+def _build_content_blocks_sagemaker(items: list[ContentItem]) -> list[dict]:
+    """Convert an ordered list of content items to SageMaker content blocks."""
+    blocks: list[dict] = []
+    for item in items:
+        if isinstance(item, str):
+            blocks.append({"text": item})
+        elif isinstance(item, MediaContent):
+            key = _SM_MEDIA_TYPE_KEY.get(type(item))
+            if key is None:
+                raise TypeError(f"Unsupported content type: {type(item).__name__}")
+            fmt = _mime_to_sagemaker_format(item.mime_type)
+            if fmt is None:
+                raise ValueError(f"Unsupported MIME type '{item.mime_type}' for {key}")
+            blocks.append({key: {"format": fmt, "source": {"bytes": item.data}}})
+        else:
+            raise TypeError(
+                f"Content items must be str or MediaContent, got {type(item).__name__}"
+            )
+    return blocks
 
 
 class SageMakerBase(Endpoint):
@@ -54,17 +111,54 @@ class SageMakerBase(Endpoint):
 
     @staticmethod
     def create_payload(
-        input_text: str | list[str],
+        input_text: str | list[ContentItem],
         max_tokens: int = 256,
         inference_parameters: dict = {},
         **kwargs,
     ):
+        """Create a payload for the SageMaker API request.
+
+        Args:
+            input_text: A single text string, or an ordered list mixing strings
+                and :class:`~llmeter.prompt_utils.MediaContent` objects.
+            max_tokens: Maximum tokens to generate. Defaults to 256.
+            inference_parameters: Additional inference parameters.
+            **kwargs: Additional keyword arguments to include in the payload.
+
+        Returns:
+            dict: The formatted payload for the SageMaker API request.
+        """
+        if not isinstance(max_tokens, int) or max_tokens <= 0:
+            raise ValueError("max_tokens must be a positive integer")
+
+        if isinstance(input_text, str):
+            items: list[ContentItem] = [input_text]
+        elif isinstance(input_text, list):
+            items = input_text
+        else:
+            raise TypeError(
+                "input_text must be a str or list of str/MediaContent, "
+                f"got {type(input_text).__name__}"
+            )
+
+        if not items:
+            raise ValueError("input_text must not be empty")
+
+        # Text-only shortcut
+        if len(items) == 1 and isinstance(items[0], str):
+            payload = {
+                "inputs": items[0],
+                "parameters": {"max_new_tokens": max_tokens, "details": True},
+            }
+            if inference_parameters:
+                payload["parameters"].update(inference_parameters)
+            payload.update(kwargs)
+            return payload
+
+        content_blocks = _build_content_blocks_sagemaker(items)
         payload = {
-            "inputs": input_text,
-            "parameters": {
-                "max_new_tokens": max_tokens,
-                "details": True,
-            },
+            "inputs": content_blocks,
+            "parameters": {"max_new_tokens": max_tokens, "details": True},
         }
         if inference_parameters:
             payload["parameters"].update(inference_parameters)
@@ -251,17 +345,55 @@ class SageMakerStreamEndpoint(SageMakerBase):
 
     @staticmethod
     def create_payload(
-        input_text: str | list[str],
+        input_text: str | list[ContentItem],
         max_tokens: int = 256,
         inference_parameters: dict = {},
         **kwargs,
     ):
+        """Create a payload for the SageMaker streaming API request.
+
+        Args:
+            input_text: A single text string, or an ordered list mixing strings
+                and :class:`~llmeter.prompt_utils.MediaContent` objects.
+            max_tokens: Maximum tokens to generate. Defaults to 256.
+            inference_parameters: Additional inference parameters.
+            **kwargs: Additional keyword arguments to include in the payload.
+
+        Returns:
+            dict: The formatted payload for the SageMaker streaming API request.
+        """
+        if not isinstance(max_tokens, int) or max_tokens <= 0:
+            raise ValueError("max_tokens must be a positive integer")
+
+        if isinstance(input_text, str):
+            items: list[ContentItem] = [input_text]
+        elif isinstance(input_text, list):
+            items = input_text
+        else:
+            raise TypeError(
+                "input_text must be a str or list of str/MediaContent, "
+                f"got {type(input_text).__name__}"
+            )
+
+        if not items:
+            raise ValueError("input_text must not be empty")
+
+        # Text-only shortcut
+        if len(items) == 1 and isinstance(items[0], str):
+            payload = {
+                "inputs": items[0],
+                "parameters": {"max_new_tokens": max_tokens, "details": True},
+                "stream": True,
+            }
+            if inference_parameters:
+                payload["parameters"].update(inference_parameters)
+            payload.update(kwargs)
+            return payload
+
+        content_blocks = _build_content_blocks_sagemaker(items)
         payload = {
-            "inputs": input_text,
-            "parameters": {
-                "max_new_tokens": max_tokens,
-                "details": True,
-            },
+            "inputs": content_blocks,
+            "parameters": {"max_new_tokens": max_tokens, "details": True},
             "stream": True,
         }
         if inference_parameters:

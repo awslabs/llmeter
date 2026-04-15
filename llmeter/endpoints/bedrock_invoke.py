@@ -8,9 +8,9 @@ from typing import Any
 from uuid import uuid4
 
 import boto3
+import jmespath
 from botocore.config import Config
 from botocore.exceptions import ClientError
-import jmespath
 
 from .base import Endpoint, InvocationResponse
 

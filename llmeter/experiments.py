@@ -15,15 +15,16 @@ from typing import Callable, Literal
 
 from tqdm.auto import tqdm
 from upath import UPath as Path
+from upath.types import ReadablePathLike, WritablePathLike
 
-from llmeter.callbacks.base import Callback
-from llmeter.results import Result
-
+from .callbacks.base import Callback
 from .endpoints.base import Endpoint
-from .plotting import plot_heatmap, plot_load_test_results, color_sequences
+from .plotting import color_sequences, plot_heatmap, plot_load_test_results
 from .prompt_utils import CreatePromptCollection
+from .results import Result
 from .runner import Runner
 from .tokenizers import Tokenizer
+from .utils import ensure_path
 
 logger = logging.getLogger(__name__)
 
@@ -38,7 +39,7 @@ if os.getenv("LLMETER_DISABLE_ALL_PROGRESS_BARS") == "1":
 class LoadTestResult:
     results: dict[int, Result]
     test_name: str
-    output_path: os.PathLike | str | None = None
+    output_path: WritablePathLike | None = None
 
     def plot_results(self, show: bool = True, format: Literal["html", "png"] = "html"):
         figs = plot_load_test_results(self)
@@ -57,7 +58,7 @@ class LoadTestResult:
             f.update_layout(colorway=c_seqs[i % len(c_seqs)])
 
         if self.output_path is not None:
-            output_path = Path(self.output_path)
+            output_path = ensure_path(self.output_path)
             # save figure to the output path
             output_path.parent.mkdir(parents=True, exist_ok=True)
             for k, f in figs.items():
@@ -73,7 +74,7 @@ class LoadTestResult:
     @classmethod
     def load(
         cls,
-        load_path: Path | str | None,
+        load_path: ReadablePathLike | None,
         test_name: str | None = None,
         load_responses: bool = True,
     ) -> "LoadTestResult":
@@ -95,8 +96,8 @@ class LoadTestResult:
         if not load_path:
             raise FileNotFoundError("Load path cannot be None or empty")
 
-        if isinstance(load_path, str):
-            load_path = Path(load_path)
+        if not isinstance(load_path, Path):
+            load_path = ensure_path(load_path)
 
         if not load_path.exists():
             raise FileNotFoundError(f"Load path {load_path} does not exist")
@@ -130,7 +131,7 @@ class LoadTest:
     sequence_of_clients: list[int]
     min_requests_per_client: int = 1
     min_requests_per_run: int = 10
-    output_path: os.PathLike | str | None = None
+    output_path: WritablePathLike | None = None
     tokenizer: Tokenizer | None = None
     test_name: str | None = None
     callbacks: list[Callback] | None = None
@@ -143,13 +144,23 @@ class LoadTest:
             return int(ceil(self.min_requests_per_run / clients))
         return int(self.min_requests_per_client)
 
-    async def run(self, output_path: os.PathLike | None = None):
-        try:
-            output_path = Path(output_path or self.output_path) / self._test_name
-        except Exception:
-            output_path = None
+    async def run(self, output_path: WritablePathLike | None = None):
+        """Run the load test.
+
+        Args:
+            load_path: Optional (local or remote) folder to save results. If provided, individual
+            Run results will be written to `{output_path}/{test_name}/{NNNNN-clients}` subfolders.
+            Default: `self.output_path` if set, else no files will be saved.
+        """
+        output_path = ensure_path(output_path or self.output_path)
+        if output_path:
+            test_output_path = output_path / self._test_name
+        else:
+            test_output_path = None
         _runner = Runner(
-            endpoint=self.endpoint, tokenizer=self.tokenizer, output_path=output_path
+            endpoint=self.endpoint,
+            tokenizer=self.tokenizer,
+            output_path=test_output_path,
         )
 
         self._results = [
@@ -159,17 +170,16 @@ class LoadTest:
                 n_requests=self._get_n_requests(c),
                 run_name=f"{c:05.0f}-clients",
                 callbacks=self.callbacks,
-                output_path=output_path,
+                output_path=test_output_path,
             )
             for c in tqdm(
                 self.sequence_of_clients, desc="Configurations", disable=_disable_tqdm
             )
         ]
-        # return self._results
         return LoadTestResult(
             results={r.clients: r for r in self._results},
             test_name=self._test_name,
-            output_path=output_path,
+            output_path=test_output_path,
         )
 
 
@@ -209,9 +219,9 @@ class LatencyHeatmap:
     """
 
     endpoint: Endpoint
-    source_file: os.PathLike | str
+    source_file: ReadablePathLike
     clients: int = 4
-    output_path: os.PathLike | str | None = None
+    output_path: WritablePathLike | None = None
     input_lengths: list[int] = field(default_factory=lambda: [10, 50, 200, 500])
     output_lengths: list[int] = field(default_factory=lambda: [128, 256, 512, 1024])
     requests_per_combination: int = 1
@@ -224,7 +234,7 @@ class LatencyHeatmap:
             requests_per_combination=self.requests_per_combination,
             input_lengths=self.input_lengths,
             output_lengths=self.output_lengths,
-            source_file=Path(self.source_file),
+            source_file=ensure_path(self.source_file),
             tokenizer=self.tokenizer,  # type: ignore
         )
 
@@ -239,7 +249,7 @@ class LatencyHeatmap:
 
         self._runner = Runner(
             endpoint=self.endpoint,
-            output_path=Path(self.output_path)
+            output_path=ensure_path(self.output_path)
             if self.output_path is not None
             else None,
             tokenizer=self.tokenizer,
@@ -249,7 +259,7 @@ class LatencyHeatmap:
         # Handle None output_path properly
         final_output_path = output_path or self.output_path
         if final_output_path is not None:
-            final_output_path = Path(final_output_path)
+            final_output_path = ensure_path(final_output_path)
 
         heatmap_results = await self._runner.run(
             payload=self.payload,

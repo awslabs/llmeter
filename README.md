@@ -86,7 +86,20 @@ load_test_results.plot_results()
 
 Where `payload` can be a single dictionary, a list of dictionary, or a path to a JSON Line file that contains a payload for every line.
 
-Alternatively, you can use the low-level `llmeter.runner.Runner` class to run and analyze request
+Each LLMeter Endpoint type offers a `create_payload()` function you can use to help build your inputs, in case you're not sure of the request JSON format for your target API. For example with Amazon Bedrock Converse:
+
+```python
+from llmeter.prompt_utils import ImageContent
+payload = BedrockConverse.create_payload(
+    user_messages=[
+        "Describe the following image:",
+        ImageContent.from_path("photo.jpg"),
+    ],
+    max_tokens=1024,
+)
+```
+
+As well as the high-level Experiments, you can use the low-level `llmeter.runner.Runner` class to run and analyze request
 batches - and build your own custom experiments.
 
 ```python
@@ -108,7 +121,7 @@ print(result.stats)
 
 Additional functionality like cost modelling and MLFlow experiment tracking is enabled through `llmeter.callbacks`, and you can write your own callbacks to hook other custom logic into LLMeter test runs.
 
-For more details, check out our selection of end-to-end code examples in the [examples](https://github.com/awslabs/llmeter/tree/main/examples) folder!
+For more details, check out the [LLMeter user guide](https://awslabs.github.io/llmeter/) and our selection of end-to-end code examples in the [examples](https://github.com/awslabs/llmeter/tree/main/examples) folder!
 
 ## Analyze and compare results
 

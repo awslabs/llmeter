@@ -118,8 +118,13 @@ class TestOpenAIEndpoint:
 
         expected = {
             "messages": [
-                {"role": "user", "content": "Hello"},
-                {"role": "user", "content": "How are you?"},
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "Hello"},
+                        {"type": "text", "text": "How are you?"},
+                    ],
+                },
             ],
             "max_tokens": 256,
         }
@@ -160,14 +165,9 @@ class TestOpenAIEndpoint:
         assert payload == expected
 
     def test_create_payload_empty_list(self):
-        """Test create_payload with empty list."""
-        payload = OpenAIEndpoint.create_payload([])
-
-        expected = {
-            "messages": [],
-            "max_tokens": 256,
-        }
-        assert payload == expected
+        """Test create_payload with empty list raises ValueError."""
+        with pytest.raises(ValueError, match="must not be empty"):
+            OpenAIEndpoint.create_payload([])
 
 
 class TestOpenAICompletionEndpoint:

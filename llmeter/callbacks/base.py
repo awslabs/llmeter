@@ -4,9 +4,10 @@
 
 from __future__ import annotations
 
-import os
 from abc import ABC
 from typing import final
+
+from upath.types import ReadablePathLike, WritablePathLike
 
 from ..endpoints.base import InvocationResponse
 from ..results import Result
@@ -70,7 +71,7 @@ class Callback(ABC):
         """
         pass
 
-    def save_to_file(self, path: os.PathLike | str) -> None:
+    def save_to_file(self, path: WritablePathLike) -> None:
         """Save this Callback to file
 
         Individual Callbacks implement this method to save their configuration to a file that will
@@ -83,7 +84,7 @@ class Callback(ABC):
 
     @staticmethod
     @final
-    def load_from_file(path: os.PathLike | str) -> Callback:
+    def load_from_file(path: ReadablePathLike) -> Callback:
         """Load (any type of) Callback from file
 
         `Callback.load_from_file()` attempts to detect the type of Callback saved in a given file,
@@ -99,7 +100,7 @@ class Callback(ABC):
         )
 
     @classmethod
-    def _load_from_file(cls, path: os.PathLike | str) -> Callback:
+    def _load_from_file(cls, path: ReadablePathLike) -> Callback:
         """Load this Callback from file
 
         Individual Callbacks implement this method to define how they can be loaded from files

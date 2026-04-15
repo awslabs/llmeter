@@ -193,10 +193,11 @@ class TestPlotLoadTestResults:
         """Test that latency_clients_fig is called with correct dimension parameters."""
         mock_latency.return_value = MagicMock()
 
-        with patch("llmeter.plotting.plotting.rpm_clients_fig"), patch(
-            "llmeter.plotting.plotting.error_clients_fig"
-        ), patch("llmeter.plotting.plotting.average_input_tokens_clients_fig"), patch(
-            "llmeter.plotting.plotting.average_output_tokens_clients_fig"
+        with (
+            patch("llmeter.plotting.plotting.rpm_clients_fig"),
+            patch("llmeter.plotting.plotting.error_clients_fig"),
+            patch("llmeter.plotting.plotting.average_input_tokens_clients_fig"),
+            patch("llmeter.plotting.plotting.average_output_tokens_clients_fig"),
         ):
             plot_load_test_results(sample_load_test_result)
 
@@ -307,31 +308,31 @@ class TestPlotLoadTestResults:
 
         # Verify all returned figures have the necessary methods for format output
         for plot_name, fig in result.items():
-            assert hasattr(
-                fig, "write_image"
-            ), f"Figure {plot_name} missing write_image method"
-            assert hasattr(
-                fig, "write_html"
-            ), f"Figure {plot_name} missing write_html method"
-            assert hasattr(
-                fig, "to_image"
-            ), f"Figure {plot_name} missing to_image method"
+            assert hasattr(fig, "write_image"), (
+                f"Figure {plot_name} missing write_image method"
+            )
+            assert hasattr(fig, "write_html"), (
+                f"Figure {plot_name} missing write_html method"
+            )
+            assert hasattr(fig, "to_image"), (
+                f"Figure {plot_name} missing to_image method"
+            )
 
     def test_plot_load_test_results_validates_return_structure_for_file_formats(
         self, sample_load_test_result
     ):
         """Test that plot_load_test_results returns structure suitable for different file formats."""
-        with patch(
-            "llmeter.plotting.plotting.latency_clients_fig"
-        ) as mock_latency, patch(
-            "llmeter.plotting.plotting.rpm_clients_fig"
-        ) as mock_rpm, patch(
-            "llmeter.plotting.plotting.error_clients_fig"
-        ) as mock_error, patch(
-            "llmeter.plotting.plotting.average_input_tokens_clients_fig"
-        ) as mock_avg_in, patch(
-            "llmeter.plotting.plotting.average_output_tokens_clients_fig"
-        ) as mock_avg_out:
+        with (
+            patch("llmeter.plotting.plotting.latency_clients_fig") as mock_latency,
+            patch("llmeter.plotting.plotting.rpm_clients_fig") as mock_rpm,
+            patch("llmeter.plotting.plotting.error_clients_fig") as mock_error,
+            patch(
+                "llmeter.plotting.plotting.average_input_tokens_clients_fig"
+            ) as mock_avg_in,
+            patch(
+                "llmeter.plotting.plotting.average_output_tokens_clients_fig"
+            ) as mock_avg_out,
+        ):
             # Create mock figures that simulate plotly figure behavior
             def create_format_compatible_figure():
                 fig = MagicMock()
@@ -410,9 +411,9 @@ class TestPlotLoadTestResults:
         required_methods = ["write_image", "write_html", "show", "update_layout"]
         for plot_name, fig in result.items():
             for method in required_methods:
-                assert hasattr(
-                    fig, method
-                ), f"Figure {plot_name} missing {method} method"
-                assert callable(
-                    getattr(fig, method)
-                ), f"Figure {plot_name} {method} is not callable"
+                assert hasattr(fig, method), (
+                    f"Figure {plot_name} missing {method} method"
+                )
+                assert callable(getattr(fig, method)), (
+                    f"Figure {plot_name} {method} is not callable"
+                )

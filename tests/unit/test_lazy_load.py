@@ -153,9 +153,9 @@ class TestLoadResponsesOnDemand:
             "failed_requests",
             "requests_per_minute",
         ]:
-            assert lazy_stats[key] == pytest.approx(
-                full_stats[key]
-            ), f"Mismatch on {key}"
+            assert lazy_stats[key] == pytest.approx(full_stats[key]), (
+                f"Mismatch on {key}"
+            )
 
     def test_load_responses_no_output_path_raises(self):
         result = Result(

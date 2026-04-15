@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Literal
 
-from upath import UPath as Path
-
 from ..runner import Result
 from ..utils import DeferredError
 
@@ -22,7 +20,7 @@ else:
 
 try:
     import kaleido
-except ModuleNotFoundError as e:
+except ImportError as e:
     kaleido = DeferredError(e)
 
 from typing import TYPE_CHECKING
@@ -116,7 +114,6 @@ def plot_heatmap(
     dimension: str,
     n_bins_x: int | None,
     n_bins_y: int | None,
-    output_path: Path | None = None,
     show_scatter=False,
 ) -> go.Figure:
     """
@@ -157,7 +154,7 @@ def plot_heatmap(
             "x": "Number of input tokens",
             "y": "Number of output tokens",
         },
-        title=f'LLMeter: average {dimension.replace("_", " ").capitalize()}',
+        title=f"LLMeter: average {dimension.replace('_', ' ').capitalize()}",
         width=800,
         height=800,
     )
@@ -439,7 +436,7 @@ def latency_clients_fig(
             title=f"{dimension.replace('_', ' ').capitalize()} vs number of clients",
             xaxis_title="Number of clients",
             xaxis_tickformat="s",
-            yaxis_title=f'{dimension.replace("_", " ").capitalize()} (s)',
+            yaxis_title=f"{dimension.replace('_', ' ').capitalize()} (s)",
             yaxis_tickformat=".2s",
         )
         if log_scale:

@@ -1,17 +1,21 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 # Python Built-Ins:
-from dataclasses import dataclass, field
 import importlib
+from dataclasses import dataclass, field
+
+# Extrnal Dependencies:
+from upath.types import ReadablePathLike, WritablePathLike
 
 # Local Dependencies:
 from ...endpoints.base import InvocationResponse
 from ...results import Result
 from ...runner import _RunConfig
+from ...utils import ensure_path
 from ..base import Callback
 from .dimensions import IRequestCostDimension, IRunCostDimension
 from .results import CalculatedCostWithDimensions
-from .serde import from_dict_with_class_map, JSONableBase
+from .serde import JSONableBase, from_dict_with_class_map
 
 
 @dataclass
@@ -199,9 +203,11 @@ class CostModel(JSONableBase, Callback):
             result, recalculate_request_costs=False, save=True
         )
 
-    def save_to_file(self, path: str) -> None:
+    def save_to_file(self, path: WritablePathLike) -> None:
         """Save the cost model (including all dimensions) to a JSON file"""
-        with open(path, "w") as f:
+        path = ensure_path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("w") as f:
             f.write(self.to_json())
 
     @classmethod
@@ -220,7 +226,8 @@ class CostModel(JSONableBase, Callback):
         return super().from_dict(raw_args, alt_classes=alt_classes, **kwargs)
 
     @classmethod
-    def _load_from_file(cls, path: str):
+    def _load_from_file(cls, path: ReadablePathLike):
         """Load the cost model (including all dimensions) from a JSON file"""
-        with open(path, "r") as f:
+        path = ensure_path(path)
+        with path.open("r") as f:
             return cls.from_json(f.read())
