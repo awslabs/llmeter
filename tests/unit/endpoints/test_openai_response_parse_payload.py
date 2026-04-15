@@ -1,13 +1,13 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Unit tests for ResponseEndpoint._parse_payload method."""
+"""Unit tests for OpenAIResponseEndpoint._parse_payload method."""
 
 from llmeter.endpoints.openai_response import OpenAIResponseEndpoint, OpenAIResponseStreamEndpoint
 
 
-class TestResponseEndpointParsePayload:
-    """Test _parse_payload method for ResponseEndpoint."""
+class TestOpenAIResponseEndpointParsePayload:
+    """Test _parse_payload method for OpenAIResponseEndpoint."""
 
     def test_parse_payload_with_string_input(self):
         """Test parsing payload with string input (return as-is)."""

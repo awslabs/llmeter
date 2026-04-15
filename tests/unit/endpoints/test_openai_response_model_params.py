@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Unit tests for model-specific parameter support in ResponseEndpoint and ResponseStreamEndpoint.
+Unit tests for model-specific parameter support in OpenAIResponseEndpoint and
+OpenAIResponseStreamEndpoint.
 
 This module tests that model-specific parameters like temperature, top_p, and other
 additional parameters are correctly passed through to the API.

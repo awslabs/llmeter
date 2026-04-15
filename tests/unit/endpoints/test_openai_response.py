@@ -2,10 +2,10 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Unit tests for ResponseEndpoint class.
+Unit tests for OpenAIResponseEndpoint class.
 
 This module tests endpoint initialization, payload creation, response parsing,
-error handling, and timing measurements for the ResponseEndpoint class.
+error handling, and timing measurements for the OpenAIResponseEndpoint class.
 """
 
 from unittest.mock import Mock, patch
@@ -13,7 +13,7 @@ from unittest.mock import Mock, patch
 from llmeter.endpoints.openai_response import OpenAIResponseEndpoint
 
 
-class TestResponseEndpointInitialization:
+class TestOpenAIResponseEndpointInitialization:
     """Test endpoint initialization.
 
     **Validates: Requirements 1.1, 1.2, 1.3, 1.4, 1.5**
@@ -64,7 +64,7 @@ class TestResponseEndpointInitialization:
         assert endpoint.provider == "custom-provider"
 
 
-class TestResponseEndpointPayloadCreation:
+class TestOpenAIResponseEndpointPayloadCreation:
     """Test payload creation helper method.
 
     **Validates: Requirements 8.2, 8.3, 8.4, 8.5, 8.6**
@@ -161,7 +161,7 @@ class TestResponseEndpointPayloadCreation:
         assert payload["presence_penalty"] == 0.3
 
 
-class TestResponseEndpointResponseParsing:
+class TestOpenAIResponseEndpointResponseParsing:
     """Test response parsing with mocked responses.
 
     **Validates: Requirements 3.1, 3.2, 3.3, 3.4, 3.5**
@@ -295,7 +295,7 @@ class TestResponseEndpointResponseParsing:
         assert response.num_tokens_output == 50
 
 
-class TestResponseEndpointErrorHandling:
+class TestOpenAIResponseEndpointErrorHandling:
     """Test error handling with mocked errors.
 
     **Validates: Requirements 4.1, 4.2, 4.3, 4.4, 4.5**
@@ -414,7 +414,7 @@ class TestResponseEndpointErrorHandling:
         assert response.id is not None
 
 
-class TestResponseEndpointTimingMeasurements:
+class TestOpenAIResponseEndpointTimingMeasurements:
     """Test timing measurements.
 
     **Validates: Requirements 2.3, 3.4**

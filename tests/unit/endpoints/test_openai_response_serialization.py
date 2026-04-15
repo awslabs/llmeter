@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Unit tests for ResponseEndpoint and ResponseStreamEndpoint serialization.
+Unit tests for OpenAIResponseEndpoint and OpenAIResponseStreamEndpoint serialization.
 
 This module tests endpoint serialization/deserialization including to_dict,
 save, load_from_file, and round-trip operations.

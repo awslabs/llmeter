@@ -2,11 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 
 """
-Integration tests for ResponseEndpoint and ResponseStreamEndpoint.
+Integration tests for OpenAIResponseEndpoint and OpenAIResponseStreamEndpoint.
 
-This module contains integration tests that verify the llmeter ResponseEndpoint
-and ResponseStreamEndpoint wrappers work correctly with Bedrock's Response API
-via the Mantle endpoint.
+This module contains integration tests that verify the llmeter
+OpenAIResponseEndpoint and OpenAIResponseStreamEndpoint wrappers work correctly
+with Bedrock's Response API via the Mantle endpoint.
 
 Tests are marked with @pytest.mark.integ and are skipped by default to avoid
 AWS costs and credential requirements during regular development.
@@ -56,9 +56,9 @@ def test_response_endpoint_non_streaming(
     aws_credentials, aws_region, bedrock_openai_test_model
 ):
     """
-    Test ResponseEndpoint wrapper with Bedrock's Response API.
+    Test OpenAIResponseEndpoint wrapper with Bedrock's Response API.
 
-    Validates that the llmeter ResponseEndpoint can:
+    Validates that the llmeter OpenAIResponseEndpoint can:
     - Initialize with Bedrock Mantle endpoint credentials
     - Invoke the Response API via create_payload helper
     - Return an InvocationResponse with text, timing, and optionally token counts

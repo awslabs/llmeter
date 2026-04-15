@@ -1,7 +1,7 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-"""Unit tests for error handling in ResponseEndpoint and ResponseStreamEndpoint."""
+"""Unit tests for error handling in OpenAIResponse{Stream}Endpoint classes."""
 
 from unittest.mock import Mock, patch
 
@@ -15,8 +15,8 @@ from openai import (
 from llmeter.endpoints.openai_response import OpenAIResponseEndpoint, OpenAIResponseStreamEndpoint
 
 
-class TestResponseEndpointErrorHandling:
-    """Test error handling for ResponseEndpoint."""
+class TestOpenAIResponseEndpointErrorHandling:
+    """Test error handling for OpenAIResponseEndpoint."""
 
     @patch("llmeter.endpoints.openai.OpenAI")
     def test_invoke_api_connection_error(self, mock_openai_class):
