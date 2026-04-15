@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Literal
 
-from upath import UPath as Path
-
 from ..runner import Result
 from ..utils import DeferredError
 
@@ -116,7 +114,6 @@ def plot_heatmap(
     dimension: str,
     n_bins_x: int | None,
     n_bins_y: int | None,
-    output_path: Path | None = None,
     show_scatter=False,
 ) -> go.Figure:
     """
