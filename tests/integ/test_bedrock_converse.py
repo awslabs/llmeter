@@ -84,8 +84,11 @@ def test_bedrock_converse_non_streaming(
         f"Response should not contain errors: {response.error}"
     )
 
-    # Verify response has an ID
+    # Verify response has an ID from the Bedrock API (AWS RequestId format)
     assert response.id is not None, "Response should have an ID"
+    assert "-" in response.id, (
+        f"Response ID should be an AWS RequestId (UUID with hyphens), got: {response.id}"
+    )
 
 
 @pytest.mark.integ
@@ -161,8 +164,11 @@ def test_bedrock_converse_streaming(
         f"Response should not contain errors: {response.error}"
     )
 
-    # Verify response has an ID
+    # Verify response has an ID from the Bedrock API (AWS RequestId format)
     assert response.id is not None, "Response should have an ID"
+    assert "-" in response.id, (
+        f"Response ID should be an AWS RequestId (UUID with hyphens), got: {response.id}"
+    )
 
 
 @pytest.mark.integ
@@ -235,8 +241,11 @@ def test_bedrock_converse_with_image(
         f"Response should not contain errors: {response.error}"
     )
 
-    # Verify response has an ID
+    # Verify response has an ID from the Bedrock API (AWS RequestId format)
     assert response.id is not None, "Response should have an ID"
+    assert "-" in response.id, (
+        f"Response ID should be an AWS RequestId (UUID with hyphens), got: {response.id}"
+    )
 
 
 @pytest.mark.integ
@@ -286,6 +295,12 @@ def test_bedrock_converse_streaming_with_image(
         f"Response should not contain errors: {response.error}"
     )
 
+    # Verify response has an ID from the Bedrock API (AWS RequestId format)
+    assert response.id is not None, "Response should have an ID"
+    assert "-" in response.id, (
+        f"Response ID should be an AWS RequestId (UUID with hyphens), got: {response.id}"
+    )
+
 
 def test_save_load_payload_with_image(test_payload_with_image, tmp_path):
     """
@@ -303,7 +318,7 @@ def test_save_load_payload_with_image(test_payload_with_image, tmp_path):
         test_payload_with_image: Test payload with image content (from fixture).
         tmp_path: Temporary directory for test files (from pytest).
     """
-    from llmeter.prompt_utils import save_payloads, load_payloads
+    from llmeter.prompt_utils import load_payloads, save_payloads
 
     # Save payload with image
     output_file = save_payloads(test_payload_with_image, tmp_path, "test_image.jsonl")
@@ -346,7 +361,7 @@ def test_save_load_payload_with_video(tmp_path):
     Args:
         tmp_path: Temporary directory for test files (from pytest).
     """
-    from llmeter.prompt_utils import save_payloads, load_payloads
+    from llmeter.prompt_utils import load_payloads, save_payloads
 
     # Create a test payload with video content (simulated video bytes)
     video_payload = {
@@ -408,7 +423,7 @@ def test_save_load_multiple_images(tmp_path):
     Args:
         tmp_path: Temporary directory for test files (from pytest).
     """
-    from llmeter.prompt_utils import save_payloads, load_payloads
+    from llmeter.prompt_utils import load_payloads, save_payloads
 
     # Create a test payload with multiple images
     multi_image_payload = {
@@ -500,8 +515,8 @@ def test_round_trip_bedrock_converse_structure(
         aws_credentials: Boto3 session with valid AWS credentials (from fixture).
         aws_region: AWS region for testing (from fixture).
     """
-    from llmeter.prompt_utils import save_payloads, load_payloads
     from llmeter.endpoints.bedrock import BedrockConverse
+    from llmeter.prompt_utils import load_payloads, save_payloads
 
     # Create a complete Bedrock Converse payload with all typical fields
     complete_payload = {

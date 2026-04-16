@@ -2,9 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import json
-from typing import Dict
 from unittest.mock import patch
-from uuid import UUID
 
 import pytest
 import requests
@@ -20,7 +18,10 @@ from llmeter.endpoints.sagemaker import (
 
 
 class ConcreteClass(SageMakerBase):
-    def invoke(self, payload: Dict) -> InvocationResponse:
+    def invoke(self, payload) -> InvocationResponse:
+        return self.parse_response(None, 0.0)
+
+    def parse_response(self, raw_response, start_t: float) -> InvocationResponse:
         return InvocationResponse(response_text="test response")
 
 
@@ -114,7 +115,7 @@ def test_sagemaker_endpoint_invoke(sagemaker_endpoint: SageMakerEndpoint):
     assert response.response_text == "Test output"
     assert response.num_tokens_output == 10
     assert isinstance(response.id, str)
-    assert UUID(response.id, version=4)
+    assert len(response.id) > 0
 
 
 # @patch("boto3.client")

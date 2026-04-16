@@ -4,12 +4,16 @@
 import tempfile
 from pathlib import Path
 
-
 from llmeter.endpoints.bedrock import BedrockBase
 from llmeter.endpoints.openai import OpenAIEndpoint
 from llmeter.endpoints.sagemaker import SageMakerBase
-from llmeter.prompt_utils import ImageContent, DocumentContent
-from llmeter.prompt_utils import save_payloads, load_payloads, load_prompts
+from llmeter.prompt_utils import (
+    DocumentContent,
+    ImageContent,
+    load_payloads,
+    load_prompts,
+    save_payloads,
+)
 
 
 class TestMultiModalSerialization:

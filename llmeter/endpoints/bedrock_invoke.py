@@ -5,14 +5,13 @@ import json
 import logging
 import time
 from typing import Any
-from uuid import uuid4
 
 import boto3
 import jmespath
 from botocore.config import Config
-from botocore.exceptions import ClientError
 
 from .base import Endpoint, InvocationResponse
+from .bedrock import BEDROCK_STREAM_ERROR_TYPES
 
 logger = logging.getLogger(__name__)
 
@@ -169,132 +168,59 @@ class BedrockInvoke(Endpoint):
             logger.exception("Failed to create InvokeModel payload")
             raise RuntimeError(f"Failed to create payload: {str(e)}") from e
 
-    def _parse_response(self, response: dict) -> InvocationResponse:
-        """
-        Parse the response from a Bedrock InvokeModel API call.
+    def parse_response(self, response: dict, start_t: float) -> InvocationResponse:
+        """Parse the response from a Bedrock InvokeModel API call.
 
         Args:
-            response (dict): Raw response from the Bedrock API containing output text and metadata
+            response: Raw response from the Bedrock API.
+            start_t: The timestamp when the request was initiated.
 
         Returns:
-            InvocationResponse: Parsed response containing the generated text and metadata
-
-        Raises:
-            KeyError: If required fields are missing from the response
-            TypeError: If response fields have unexpected types
+            InvocationResponse with the generated text and metadata.
         """
-        try:
-            response_body_json = response["body"].read().decode("utf-8")
-            response_body = json.loads(response_body_json)
-        except json.JSONDecodeError as e:
-            logger.exception(
-                "Error parsing response as JSON. Accept header='%s'",
-                response.get("accept"),
-            )
-            return InvocationResponse.error_output(
-                id=uuid4().hex,
-                error=f"Failed to parse endpoint response as JSON: {e}",
-            )
+        response_body_json = response["body"].read().decode("utf-8")
+        response_body = json.loads(response_body_json)
 
-        try:
-            response_text = jmespath.search(self.generated_text_jmespath, response_body)
-            if isinstance(response_text, list):
-                response_text = "\n".join(response_text)
+        response_text = jmespath.search(self.generated_text_jmespath, response_body)
+        if isinstance(response_text, list):
+            response_text = "\n".join(response_text)
 
-            id = response_body.get("id", uuid4().hex)
-            retries = response.get("ResponseMetadata", {}).get("RetryAttempts")
-            num_tokens_input = (
-                jmespath.search(self.input_token_count_jmespath, response_body)
-                if self.input_token_count_jmespath
-                else None
-            )
-            num_tokens_output = (
-                jmespath.search(self.generated_token_count_jmespath, response_body)
-                if self.generated_token_count_jmespath
-                else None
-            )
+        id = response_body.get("id") or response.get("ResponseMetadata", {}).get(
+            "RequestId"
+        )
+        retries = response.get("ResponseMetadata", {}).get("RetryAttempts")
+        num_tokens_input = (
+            jmespath.search(self.input_token_count_jmespath, response_body)
+            if self.input_token_count_jmespath
+            else None
+        )
+        num_tokens_output = (
+            jmespath.search(self.generated_token_count_jmespath, response_body)
+            if self.generated_token_count_jmespath
+            else None
+        )
 
-            return InvocationResponse(
-                id=id,
-                response_text=response_text,
-                num_tokens_input=num_tokens_input,
-                num_tokens_output=num_tokens_output,
-                retries=retries,
-            )
-
-        except KeyError as e:
-            logger.exception(f"Missing required field in response: {e}")
-            return InvocationResponse.error_output(
-                id=uuid4().hex,
-                error=f"Missing required field: {e}",
-            )
-
-        except TypeError as e:
-            logger.exception(f"Unexpected type in response: {e}")
-            return InvocationResponse.error_output(
-                id=uuid4().hex,
-                error=f"Type error in response: {e}",
-            )
-
-        except Exception as e:
-            logger.exception(f"Error parsing InvokeModel response: {e}")
-            return InvocationResponse.error_output(
-                id=uuid4().hex,
-                error=f"Response parsing error: {e}",
-            )
+        return InvocationResponse(
+            id=id,
+            response_text=response_text,
+            num_tokens_input=num_tokens_input,
+            num_tokens_output=num_tokens_output,
+            retries=retries,
+        )
 
     def invoke(self, payload: dict) -> InvocationResponse:
-        """Invoke the Bedrock InvokeModel API with the given payload.
+        """Invoke the Bedrock InvokeModel API with the given payload."""
+        req_body = json.dumps(payload).encode("utf-8")
 
-        Args:
-            payload (dict): The payload containing the request parameters
-
-        Returns:
-            InvocationResponse: Response object containing generated text and metadata
-
-        Raises:
-            ClientError: If there is an error calling the Bedrock API
-            ValueError: If payload is invalid
-            TypeError: If payload is not a dictionary
-        """
-        if not isinstance(payload, dict):
-            raise TypeError("Payload must be a dictionary")
-
-        try:
-            req_body = json.dumps(payload).encode("utf-8")
-            try:
-                start_t = time.perf_counter()
-                client_response = self._bedrock_client.invoke_model(  # type: ignore
-                    accept="application/json",
-                    body=req_body,
-                    contentType="application/json",
-                    modelId=self.model_id,
-                    # TODO: Provide config for other optional arguments
-                    # trace, guardrailIdentifier/Version, performanceConfigLatency, serviceTier
-                )
-                time_to_last_token = time.perf_counter() - start_t
-            except ClientError as e:
-                logger.error(f"Bedrock API error: {e}")
-                return InvocationResponse.error_output(
-                    input_payload=payload, id=uuid4().hex, error=str(e)
-                )
-            except Exception as e:
-                logger.error(f"Unexpected error during API call: {e}")
-                return InvocationResponse.error_output(
-                    input_payload=payload, id=uuid4().hex, error=str(e)
-                )
-
-            response = self._parse_response(client_response)  # type: ignore
-            response.input_payload = payload
-            response.input_prompt = self._parse_payload(payload)
-            response.time_to_last_token = time_to_last_token
-            return response
-
-        except Exception as e:
-            logger.error(f"Error in invoke method: {e}")
-            return InvocationResponse.error_output(
-                input_payload=payload, id=uuid4().hex, error=str(e)
-            )
+        client_response = self._bedrock_client.invoke_model(  # type: ignore
+            accept="application/json",
+            body=req_body,
+            contentType="application/json",
+            modelId=self.model_id,
+            # TODO: Provide config for other optional arguments
+            # trace, guardrailIdentifier/Version, performanceConfigLatency, serviceTier
+        )
+        return self.parse_response(client_response, self._start_t)  # type: ignore
 
 
 class BedrockInvokeStream(BedrockInvoke):
@@ -354,138 +280,86 @@ class BedrockInvokeStream(BedrockInvoke):
 
     def invoke(self, payload: dict) -> InvocationResponse:
         req_body = json.dumps(payload).encode("utf-8")
-        try:
-            start_t = time.perf_counter()
-            client_response = self._bedrock_client.invoke_model_with_response_stream(  # type: ignore
-                accept="application/json",
-                body=req_body,
-                contentType="application/json",
-                modelId=self.model_id,
-                # TODO: Provide config for other optional arguments
-                # trace, guardrailIdentifier/Version, performanceConfigLatency, serviceTier
-            )
-        except (ClientError, Exception) as e:
-            logger.error(e)
-            return InvocationResponse.error_output(
-                input_payload=payload, id=uuid4().hex, error=str(e)
-            )
-        response = self._parse_response_stream(client_response, start_t)
-        response.input_payload = payload
-        response.input_prompt = self._parse_payload(payload)
-        return response
 
-    def _parse_response_stream(
-        self, client_response, start_t: float
-    ) -> InvocationResponse:
-        """Parse the streaming response from Bedrock InovkeModel API.
+        client_response = self._bedrock_client.invoke_model_with_response_stream(  # type: ignore
+            accept="application/json",
+            body=req_body,
+            contentType="application/json",
+            modelId=self.model_id,
+            # TODO: Provide config for other optional arguments
+            # trace, guardrailIdentifier/Version, performanceConfigLatency, serviceTier
+        )
+        return self.parse_response(client_response, self._start_t)
+
+    def parse_response(self, client_response, start_t: float) -> InvocationResponse:
+        """Parse the streaming response from Bedrock InvokeModel API.
 
         Args:
-            client_response (dict): The raw response from the Bedrock API
-            start_t (float): The timestamp when the request was initiated
+            client_response: The raw response from the Bedrock API.
+            start_t: The timestamp when the request was initiated.
 
         Returns:
-            InvocationResponse: Parsed response containing the generated text and metadata
-
-        Raises:
-            KeyError: If required fields are missing from the response
-            TypeError: If response fields have unexpected types
+            InvocationResponse with the generated text and metadata.
         """
         output_text = ""
         chunks = []
         time_to_first_token = None
         time_to_last_token = None
+        error = None
 
-        try:
-            for event in client_response["body"]:
-                if "chunk" in event:
-                    chunk_bytes = event["chunk"]["bytes"]
-                    chunk_data = json.loads(chunk_bytes)
-                    chunk_text = jmespath.search(
-                        self.generated_text_jmespath, chunk_data
-                    )
-                    if isinstance(chunk_text, list):
-                        chunk_text = "".join(chunk_text)
-                    if chunk_text:
-                        now = time.perf_counter()
-                        if time_to_first_token is None:
-                            time_to_first_token = now - start_t
-                        time_to_last_token = now - start_t
-                        output_text += chunk_text
-                    chunks.append(chunk_data)
-                else:
-                    for etype in (
-                        "internalServerException",
-                        "modelStreamErrorException",
-                        "validationException",
-                        "throttlingException",
-                        "modelTimeoutException",
-                        "serviceUnavailableException",
-                    ):
-                        if etype in event:
-                            msg = f"Bedrock {etype}: {event[etype]['message']}"
-                            logger.error(msg)
-                            return InvocationResponse.error_output(
-                                id=uuid4().hex,
-                                error=msg,
-                            )
-                    # Unknown event type - probably an error
-                    return InvocationResponse.error_output(
-                        id=uuid4().hex,
-                        error=f"Unknown event type in response stream: {event}",
-                    )
+        for event in client_response["body"]:
+            if "chunk" in event:
+                chunk_bytes = event["chunk"]["bytes"]
+                chunk_data = json.loads(chunk_bytes)
+                chunk_text = jmespath.search(self.generated_text_jmespath, chunk_data)
+                if isinstance(chunk_text, list):
+                    chunk_text = "".join(chunk_text)
+                if chunk_text:
+                    now = time.perf_counter()
+                    if time_to_first_token is None:
+                        time_to_first_token = now - start_t
+                    time_to_last_token = now - start_t
+                    output_text += chunk_text
+                chunks.append(chunk_data)
+            else:
+                # Non-chunk events: check for Bedrock error events, skip
+                # everything else (e.g. messageStart, contentBlockStart).
+                for error_type in BEDROCK_STREAM_ERROR_TYPES:
+                    if error_type in event:
+                        error = f"Bedrock {error_type}: {event[error_type]['message']}"
+                        logger.error(error)
+                        break
 
-            # Post-process additional data from chunks:
-            # (Which we do after performance timing, to avoid counting JMESPath overhead)
-            num_tokens_input = None
-            num_tokens_output = None
-            resp_id = None
-            for chunk in chunks:
-                if "id" in chunk:
-                    resp_id = chunk["id"]
-                # Usage counts should only appear once in the stream. We'll overwrite if duplicated:
-                chk_tokens_input = (
-                    jmespath.search(self.input_token_count_jmespath, chunk)
-                    if self.input_token_count_jmespath
-                    else None
-                )
-                if chk_tokens_input is not None:
-                    num_tokens_input = chk_tokens_input
-                chk_tokens_output = (
-                    jmespath.search(self.generated_token_count_jmespath, chunk)
-                    if self.generated_token_count_jmespath
-                    else None
-                )
-                if chk_tokens_output is not None:
-                    num_tokens_output = chk_tokens_output
+        # Post-process additional data from chunks
+        # (after performance timing, to avoid counting JMESPath overhead)
+        num_tokens_input = None
+        num_tokens_output = None
+        resp_id = None
+        for chunk in chunks:
+            if "id" in chunk:
+                resp_id = chunk["id"]
+            chk_tokens_input = (
+                jmespath.search(self.input_token_count_jmespath, chunk)
+                if self.input_token_count_jmespath
+                else None
+            )
+            if chk_tokens_input is not None:
+                num_tokens_input = chk_tokens_input
+            chk_tokens_output = (
+                jmespath.search(self.generated_token_count_jmespath, chunk)
+                if self.generated_token_count_jmespath
+                else None
+            )
+            if chk_tokens_output is not None:
+                num_tokens_output = chk_tokens_output
 
-            response = InvocationResponse(
-                id=resp_id or uuid4().hex,
-                response_text=output_text,
-                time_to_first_token=time_to_first_token,
-                time_to_last_token=time_to_last_token,
-                num_tokens_input=num_tokens_input,
-                num_tokens_output=num_tokens_output,
-                retries=client_response.get("ResponseMetadata", {}).get(
-                    "RetryAttempts"
-                ),
-            )
-            return response
-
-        except KeyError as e:
-            logger.error(f"Missing required field in response: {e}")
-            return InvocationResponse.error_output(
-                id=uuid4().hex,
-                error=f"Missing required field: {e}",
-            )
-        except TypeError as e:
-            logger.error(f"Unexpected type in response: {e}")
-            return InvocationResponse.error_output(
-                id=uuid4().hex,
-                error=f"Type error in response: {e}",
-            )
-        except Exception as e:
-            logger.error(f"Error parsing response stream: {e}")
-            return InvocationResponse.error_output(
-                id=uuid4().hex,
-                error=f"Stream parsing error: {e}",
-            )
+        return InvocationResponse(
+            id=resp_id or client_response.get("ResponseMetadata", {}).get("RequestId"),
+            response_text=output_text,
+            time_to_first_token=time_to_first_token,
+            time_to_last_token=time_to_last_token,
+            num_tokens_input=num_tokens_input,
+            num_tokens_output=num_tokens_output,
+            error=error,
+            retries=client_response.get("ResponseMetadata", {}).get("RetryAttempts"),
+        )

@@ -6,7 +6,6 @@ import logging
 import os
 import time
 from typing import Any, Sequence
-from uuid import uuid4
 
 import litellm
 from litellm import CustomStreamWrapper, completion
@@ -44,6 +43,11 @@ class LiteLLMBase(Endpoint):
     def _parse_payload(self, payload):
         return json.dumps(payload.get("messages"))
 
+    def prepare_payload(self, payload, **kwargs):
+        if kwargs:
+            payload = {**payload, **kwargs}
+        return payload
+
     @staticmethod
     def create_payload(
         user_message: str | Sequence[str],
@@ -76,25 +80,14 @@ class LiteLLMBase(Endpoint):
 
 
 class LiteLLM(LiteLLMBase):
-    def invoke(self, payload, **kwargs):
-        try:
-            response = completion(model=self.litellm_model, **payload, **kwargs)
-            if not isinstance(response, ModelResponse):
-                raise ValueError(f"Expected ModelResponse, got {type(response)}")
-            response = self._parse_converse_response(response)
-            response.input_prompt = self._parse_payload(payload)
-            return response
+    def invoke(self, payload):
+        response = completion(model=self.litellm_model, **payload)
+        if not isinstance(response, ModelResponse):
+            raise ValueError(f"Expected ModelResponse, got {type(response)}")
+        return self.parse_response(response, self._start_t)
 
-        except Exception as e:
-            logger.exception(e)
-            response = InvocationResponse.error_output(
-                input_payload=payload, error=str(e), id=uuid4().hex
-            )
-            response.input_prompt = self._parse_payload(payload)
-            return response
-
-    def _parse_converse_response(
-        self, client_response: ModelResponse
+    def parse_response(
+        self, client_response: ModelResponse, start_t: float
     ) -> InvocationResponse:
         response = InvocationResponse(
             id=client_response.id,
@@ -111,15 +104,21 @@ class LiteLLM(LiteLLMBase):
 
 
 class LiteLLMStreaming(LiteLLMBase):
-    def invoke(self, payload, **kwargs):
+    def invoke(self, payload):
+        response = completion(model=self.litellm_model, **payload)
+
+        if not isinstance(response, CustomStreamWrapper):
+            raise ValueError(f"Expected CustomStreamWrapper, got {type(response)}")
+        return self.parse_response(response, self._start_t)
+
+    def prepare_payload(self, payload, **kwargs):
         # Make a copy of payload to avoid modifying the original
         payload_copy = payload.copy()
 
-        # Create a clean kwargs dict without conflicting parameters
-        clean_kwargs = {}
+        # Merge kwargs, excluding stream-related keys (we control those)
         for key, value in kwargs.items():
             if key not in ["stream", "stream_options"]:
-                clean_kwargs[key] = value
+                payload_copy[key] = value
 
         # Ensure streaming is enabled
         payload_copy["stream"] = True
@@ -131,30 +130,12 @@ class LiteLLMStreaming(LiteLLMBase):
         elif "stream_options" not in payload_copy:
             payload_copy["stream_options"] = {"include_usage": True}
         else:
-            # Merge with existing stream_options in payload if present
             existing_options = payload_copy.get("stream_options", {})
             payload_copy["stream_options"] = {**existing_options, "include_usage": True}
 
-        try:
-            start_t = time.perf_counter()
-            response = completion(
-                model=self.litellm_model, **payload_copy, **clean_kwargs
-            )
-        except Exception as e:
-            logger.exception(e)
-            response = InvocationResponse.error_output(
-                input_payload=payload, error=str(e), id=uuid4().hex
-            )
-            response.input_prompt = self._parse_payload(payload)
-            return response
+        return payload_copy
 
-        if not isinstance(response, CustomStreamWrapper):
-            raise ValueError(f"Expected CustomStreamWrapper, got {type(response)}")
-        response = self._parse_stream(response, start_t)
-        response.input_prompt = self._parse_payload(payload)
-        return response
-
-    def _parse_stream(
+    def parse_response(
         self, client_response: CustomStreamWrapper, start_t: float
     ) -> InvocationResponse:
         usage = None

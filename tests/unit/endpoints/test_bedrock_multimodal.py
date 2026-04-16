@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from llmeter.endpoints.bedrock import BedrockBase
-from llmeter.prompt_utils import ImageContent, DocumentContent
+from llmeter.prompt_utils import DocumentContent, ImageContent
 
 
 class TestBedrockMultiModal:

@@ -109,8 +109,11 @@ def test_bedrock_invoke_non_streaming(aws_credentials, aws_region, bedrock_test_
         f"Response should not contain errors: {response.error}"
     )
 
-    # Verify response has an ID
+    # Verify response has an ID from the Bedrock API
     assert response.id is not None, "Response should have an ID"
+    assert "-" in response.id, (
+        f"Response ID should be an AWS RequestId (UUID with hyphens), got: {response.id}"
+    )
 
 
 @pytest.mark.integ
@@ -195,6 +198,12 @@ def test_bedrock_invoke_with_image(aws_credentials, aws_region, bedrock_test_mod
     assert "red" in response_lower or "blue" in response_lower, (
         "Model should identify at least one color (red/blue) from the split image, got: "
         f"{response.response_text[:200]}"
+    )
+
+    # Verify response has an ID from the Bedrock API
+    assert response.id is not None, "Response should have an ID"
+    assert "-" in response.id, (
+        f"Response ID should be an AWS RequestId (UUID with hyphens), got: {response.id}"
     )
 
 
@@ -299,8 +308,11 @@ def test_bedrock_invoke_streaming(aws_credentials, aws_region, bedrock_test_mode
         f"Response should not contain errors: {response.error}"
     )
 
-    # Verify response has an ID
+    # Verify response has an ID from the Bedrock API
     assert response.id is not None, "Response should have an ID"
+    assert "-" in response.id, (
+        f"Response ID should be an AWS RequestId (UUID with hyphens), got: {response.id}"
+    )
 
 
 def test_save_load_invoke_payload_with_image(tmp_path):
@@ -319,9 +331,11 @@ def test_save_load_invoke_payload_with_image(tmp_path):
     Args:
         tmp_path: Temporary directory for test files (from pytest).
     """
-    from llmeter.prompt_utils import save_payloads, load_payloads
     import io
+
     from PIL import Image
+
+    from llmeter.prompt_utils import load_payloads, save_payloads
 
     # Create a simple test image
     img = Image.new("RGB", (50, 50), color="blue")
@@ -403,7 +417,7 @@ def test_round_trip_invoke_structure(
         aws_region: AWS region for testing (from fixture).
         bedrock_test_model: Model ID for testing (from fixture).
     """
-    from llmeter.prompt_utils import save_payloads, load_payloads
+    from llmeter.prompt_utils import load_payloads, save_payloads
 
     # Create a complete Bedrock Invoke payload with provider-specific structure
     # This mimics the actual Anthropic Claude Messages API format used by InvokeModel

@@ -13,7 +13,8 @@ Feature: openai-response-api
 
 from unittest.mock import Mock, patch
 
-from hypothesis import given, settings, strategies as st
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from llmeter.endpoints.base import InvocationResponse
 from llmeter.endpoints.openai_response import (

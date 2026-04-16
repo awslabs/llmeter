@@ -46,7 +46,7 @@ class TestBedrock:
 
         # Call the method under test
         start_time = time.perf_counter()
-        result = bedrock_stream._parse_conversation_stream(client_response, start_time)
+        result = bedrock_stream.parse_response(client_response, start_time)
 
         # Assert the result is an InvocationResponse object
         assert isinstance(result, InvocationResponse)
@@ -93,9 +93,7 @@ class TestBedrock:
             mock_perf_counter.side_effect = [start_t + 0.1, start_t + 0.2]
 
             bedrock_stream = BedrockConverseStream(model_id="test_model")
-            result = bedrock_stream._parse_conversation_stream(
-                mock_client_response, start_t
-            )
+            result = bedrock_stream.parse_response(mock_client_response, start_t)
 
         assert isinstance(result, InvocationResponse)
         assert result.response_text == "Hello world!"
@@ -131,11 +129,11 @@ class TestBedrock:
         }
 
         # Call the method
-        result = bedrock_stream._parse_conversation_stream(client_response, start_t)
+        result = bedrock_stream.parse_response(client_response, start_t)
 
         # Assertions
         assert isinstance(result, InvocationResponse)
-        assert result.id
+        # id is back-filled by the invoke wrapper, not by parse_response
         assert result.response_text == ""
         assert result.time_to_last_token is not None
         assert result.time_to_first_token is None
@@ -169,7 +167,7 @@ class TestBedrock:
         start_t = time.perf_counter()
 
         # Call the method
-        response = bedrock_stream._parse_conversation_stream(client_response, start_t)
+        response = bedrock_stream.parse_response(client_response, start_t)
 
         # Assertions
         assert isinstance(response, InvocationResponse)
@@ -216,7 +214,7 @@ class TestBedrock:
         start_t = time.perf_counter()
 
         # Call the method under test
-        result = bedrock_stream._parse_conversation_stream(mock_response, start_t)
+        result = bedrock_stream.parse_response(mock_response, start_t)
 
         # Assertions
         assert isinstance(result, InvocationResponse)
@@ -253,13 +251,13 @@ class TestBedrock:
         start_t = time.perf_counter()
 
         # Call the method under test
-        response = bedrock_stream._parse_conversation_stream(client_response, start_t)
+        response = bedrock_stream.parse_response(client_response, start_t)
 
         # Assert the response is an InvocationResponse
         assert isinstance(response, InvocationResponse)
 
         # Assert the response contains expected values
-        assert response.id is not None
+        # id is back-filled by the invoke wrapper, not by parse_response
         assert response.response_text == "Hello"
         assert response.time_to_last_token is not None
         assert response.time_to_first_token is not None
@@ -276,7 +274,7 @@ class TestBedrock:
         empty_response = {"stream": [], "ResponseMetadata": {"RetryAttempts": 0}}
         start_t = 0.0
 
-        result = bedrock._parse_conversation_stream(empty_response, start_t)
+        result = bedrock.parse_response(empty_response, start_t)
 
         assert isinstance(result, InvocationResponse)
         assert result.response_text == ""
@@ -286,17 +284,15 @@ class TestBedrock:
     def test__parse_conversation_stream_incorrect_type(self):
         """
         Test _parse_conversation_stream with incorrect input type.
+        Parsing methods are internal — they raise on bad input, and the
+        base invoke wrapper converts the exception to an error response.
         """
         bedrock = BedrockConverseStream(model_id="test_model")
         incorrect_type_response = "Not a dictionary"
         start_t = 0.0
 
-        result = bedrock._parse_conversation_stream(incorrect_type_response, start_t)
-
-        assert isinstance(result, InvocationResponse)
-        assert result.response_text is None
-        assert result.time_to_first_token is None
-        assert result.time_to_last_token is None
+        with pytest.raises(TypeError):
+            bedrock.parse_response(incorrect_type_response, start_t)
 
     def test__parse_conversation_stream_invalid_input(self):
         """
@@ -309,12 +305,8 @@ class TestBedrock:
         }
         start_t = 0.0
 
-        result = bedrock._parse_conversation_stream(invalid_response, start_t)
-
-        assert isinstance(result, InvocationResponse)
-        assert result.response_text is None
-        assert result.time_to_first_token is None
-        assert result.time_to_last_token is None
+        with pytest.raises(KeyError):
+            bedrock.parse_response(invalid_response, start_t)
 
     def test__parse_conversation_stream_missing_metadata(self):
         """
@@ -330,7 +322,7 @@ class TestBedrock:
         }
         start_t = 0.0
 
-        result = bedrock._parse_conversation_stream(response_without_metadata, start_t)
+        result = bedrock.parse_response(response_without_metadata, start_t)
 
         assert isinstance(result, InvocationResponse)
         assert result.response_text == "Hello"
@@ -340,17 +332,16 @@ class TestBedrock:
     def test__parse_converse_response_invalid_output_structure(self):
         """
         Test _parse_converse_response with an invalid 'output' structure.
-        This should return an InvocationResponse with error details.
+        Parsing methods raise on bad input; the base invoke wrapper converts
+        exceptions to error responses.
         """
         bedrock_converse = BedrockConverse(model_id="test_model")
         invalid_response = {
             "output": {"invalid_key": "value"},
             "ResponseMetadata": {"RetryAttempts": 0},
         }
-        result = bedrock_converse._parse_converse_response(invalid_response)
-        assert isinstance(result, InvocationResponse)
-        assert result.error is not None
-        assert "missing required field" in str(result.error).lower()
+        with pytest.raises(KeyError):
+            bedrock_converse.parse_response(invalid_response, 0.0)
 
     def test__parse_converse_response_invalid_usage_type(self):
         """
@@ -363,7 +354,7 @@ class TestBedrock:
             "usage": "invalid_usage",
             "ResponseMetadata": {"RetryAttempts": 0},
         }
-        result = bedrock_converse._parse_converse_response(response)
+        result = bedrock_converse.parse_response(response, 0.0)
         assert isinstance(result, InvocationResponse)
         assert result.num_tokens_input is None
         assert result.num_tokens_output is None
@@ -371,28 +362,22 @@ class TestBedrock:
     def test__parse_converse_response_missing_output(self):
         """
         Test _parse_converse_response with a dictionary missing the 'output' key.
-        This should return an InvocationResponse with an error.
         """
         bedrock_converse = BedrockConverse(model_id="test_model")
         invalid_response = {"ResponseMetadata": {"RetryAttempts": 0}}
-        result = bedrock_converse._parse_converse_response(invalid_response)
-        assert isinstance(result, InvocationResponse)
-        assert result.error is not None
-        assert "output" in str(result.error).lower()
+        with pytest.raises(KeyError):
+            bedrock_converse.parse_response(invalid_response, 0.0)
 
     def test__parse_converse_response_missing_response_metadata(self):
         """
         Test _parse_converse_response with a dictionary missing the 'ResponseMetadata' key.
-        This should return an InvocationResponse with an error.
         """
         bedrock_converse = BedrockConverse(model_id="test_model")
         invalid_response = {
             "output": {"message": {"content": [{"text": "Test output"}]}}
         }
-        result = bedrock_converse._parse_converse_response(invalid_response)
-        assert isinstance(result, InvocationResponse)
-        assert result.error is not None
-        assert "responsemetadata" in str(result.error).lower()
+        with pytest.raises(KeyError):
+            bedrock_converse.parse_response(invalid_response, 0.0)
 
     def test__parse_payload_1(self):
         """
@@ -685,14 +670,10 @@ class TestBedrock:
         payload = {"messages": [{"role": "user", "content": [{"text": "Hello"}]}]}
 
         # Act
-        with patch(
-            "llmeter.endpoints.bedrock.uuid4", return_value=Mock(hex="mock_uuid")
-        ):
-            result = bedrock_converse.invoke(payload)
+        result = bedrock_converse.invoke(payload)
 
         # Assert
         assert isinstance(result, InvocationResponse)
-        assert result.id == "mock_uuid"
         assert result.error == "API error"
         assert result.input_payload == {
             "messages": [{"role": "user", "content": [{"text": "Hello"}]}],
@@ -801,7 +782,6 @@ class TestBedrock:
         # Assert the response is an error InvocationResponse
         assert isinstance(response, InvocationResponse)
         assert response.error == "API Error"
-        # assert response.id == "mock_uuid"
         assert response.input_payload == {
             "messages": [{"role": "user", "content": "Hello"}],
             "inferenceConfig": {},
@@ -830,7 +810,7 @@ class TestBedrock:
 
         # Act
         with patch("uuid.uuid4", return_value=Mock(hex="mock_uuid")):
-            result = bedrock_converse._parse_converse_response(mock_response)
+            result = bedrock_converse.parse_response(mock_response, 0.0)
 
         # Assert
         assert isinstance(result, InvocationResponse)

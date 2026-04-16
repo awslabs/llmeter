@@ -242,7 +242,7 @@ class TestLiteLLM:
         usage_mock.completion_tokens = 8
         mock_response.usage = usage_mock
 
-        result = self.endpoint._parse_converse_response(mock_response)
+        result = self.endpoint.parse_response(mock_response, 0.0)
 
         assert isinstance(result, InvocationResponse)
         assert result.id == "response-id"
@@ -259,7 +259,7 @@ class TestLiteLLM:
         # Remove usage attribute to simulate AttributeError
         del mock_response.usage
 
-        result = self.endpoint._parse_converse_response(mock_response)
+        result = self.endpoint.parse_response(mock_response, 0.0)
 
         assert isinstance(result, InvocationResponse)
         assert result.id == "response-id"
@@ -412,7 +412,7 @@ class TestLiteLLMStreaming:
         mock_stream = MagicMock()
         mock_stream.__iter__ = lambda self: iter([chunk1, chunk2])
 
-        result = self.endpoint._parse_stream(mock_stream, start_t)  # type: ignore
+        result = self.endpoint.parse_response(mock_stream, start_t)  # type: ignore
 
         assert isinstance(result, InvocationResponse)
         assert result.id == "test-id"
@@ -440,7 +440,7 @@ class TestLiteLLMStreaming:
         mock_stream = MagicMock()
         mock_stream.__iter__ = lambda self: iter([chunk])
 
-        result = self.endpoint._parse_stream(mock_stream, start_t)  # type: ignore
+        result = self.endpoint.parse_response(mock_stream, start_t)  # type: ignore
 
         assert result.num_tokens_input is None
         assert result.num_tokens_output is None
@@ -468,7 +468,7 @@ class TestLiteLLMStreaming:
         mock_stream = MagicMock()
         mock_stream.__iter__ = lambda self: iter([chunk1, chunk2])
 
-        result = self.endpoint._parse_stream(mock_stream, start_t)  # type: ignore
+        result = self.endpoint.parse_response(mock_stream, start_t)  # type: ignore
 
         assert result.response_text == "Real content"
 
@@ -489,7 +489,7 @@ class TestLiteLLMStreaming:
         mock_stream = MagicMock()
         mock_stream.__iter__ = lambda self: iter([chunk])
 
-        result = self.endpoint._parse_stream(mock_stream, start_t)  # type: ignore
+        result = self.endpoint.parse_response(mock_stream, start_t)  # type: ignore
 
         # With 1 token, (num_tokens_output - 1) = 0, so time_per_output_token should be None
         assert result.time_per_output_token is None

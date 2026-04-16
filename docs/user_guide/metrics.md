@@ -95,12 +95,18 @@ Each request produces an `InvocationResponse` with:
 
 | Field | Unit | Description |
 | --- | --- | --- |
+| `response_text` | string | The generated text from the model. `None` on error. |
+| `id` | string | A unique identifier for the invocation. Extracted from the API response when available (e.g. OpenAI response ID, AWS RequestId), otherwise auto-generated. |
 | `time_to_first_token` | seconds | TTFT. Only populated for streaming endpoints. |
 | `time_to_last_token` | seconds | TTLT. Always populated on successful requests. |
 | `time_per_output_token` | seconds | TPOT. Only available when `num_tokens_output > 1`. |
 | `num_tokens_input` | count | Input token count. Reported by the endpoint or estimated by a tokenizer configured on the `Runner`. |
 | `num_tokens_output` | count | Output token count. Reported by the endpoint or estimated by a tokenizer configured on the `Runner`. |
-| `error` | string | Error message if the request failed, `None` otherwise. |
+| `num_tokens_input_cached` | count | Input tokens served from prompt cache. Reported by Bedrock (`cacheReadInputTokens`) and OpenAI (`cached_tokens`). `None` when caching is not active. |
+| `input_payload` | dict | The full API request payload as sent to the provider (after `prepare_payload` processing). |
+| `input_prompt` | string | The user-facing input text extracted from the payload, used for observability and as a token-counting fallback. |
+| `error` | string | Error message if the request failed, `None` otherwise. Partial data (text, timing) may still be present alongside an error for streaming endpoints that fail mid-stream. |
+| `retries` | count | Number of retries attempted by the underlying SDK. Reported by AWS endpoints (Bedrock, SageMaker) via `ResponseMetadata.RetryAttempts`. `None` for providers that don't expose this. |
 
 ### Run-level statistics
 

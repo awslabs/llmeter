@@ -12,9 +12,9 @@ from .sagemaker import SageMakerEndpoint, SageMakerStreamEndpoint  # noqa: F401
 spec = importlib.util.find_spec("openai")
 if spec:
     from .openai import (  # noqa: F401
-        OpenAIEndpoint,
         OpenAICompletionEndpoint,
         OpenAICompletionStreamEndpoint,
+        OpenAIEndpoint,
     )
     from .openai_response import (  # noqa: F401
         OpenAIResponseEndpoint,

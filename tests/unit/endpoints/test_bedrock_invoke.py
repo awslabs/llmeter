@@ -1,11 +1,11 @@
-from contextlib import contextmanager
-from io import BytesIO
 import json
 import time
+from contextlib import contextmanager
+from io import BytesIO
 
+import pytest
 from botocore.exceptions import ClientError
 from mock import MagicMock
-import pytest
 
 from llmeter.endpoints.bedrock_invoke import (
     BedrockInvoke,
@@ -125,7 +125,7 @@ class TestBedrockInvoke:
             retries=1,
         ) as mock_response:
             # Act
-            result = endpoint._parse_response(mock_response)
+            result = endpoint.parse_response(mock_response, 0.0)
 
         # Assert
         assert isinstance(result, InvocationResponse)
@@ -141,10 +141,10 @@ class TestBedrockInvoke:
         """
         endpoint = BedrockInvoke(model_id="test_model")
         with _mock_invoke_model_response({"wrong_key": "wrong_value"}) as mock_resp:
-            result = endpoint._parse_response(mock_resp)
+            result = endpoint.parse_response(mock_resp, 0.0)
         assert isinstance(result, InvocationResponse)
         assert result.error is None
-        assert isinstance(result.id, str)
+        # id is back-filled by the invoke wrapper, not by parse_response
         assert result.input_prompt is None
         assert result.num_tokens_input is None
         assert result.num_tokens_output is None
@@ -152,15 +152,13 @@ class TestBedrockInvoke:
 
     def test__parse_response_invalid_json(self):
         """
-        If response is invalid JSON, result is an error:
+        If response is invalid JSON, _parse_response raises JSONDecodeError.
+        The base invoke wrapper converts this to an error response.
         """
         endpoint = BedrockInvoke(model_id="test_model")
         with BytesIO('{"Oops": '.encode("utf-8")) as invalid_body:
-            result = endpoint._parse_response({"body": invalid_body})
-        assert isinstance(result, InvocationResponse)
-        assert result.error is not None
-        assert "json" in str(result.error).lower()
-        assert isinstance(result.id, str)
+            with pytest.raises(json.JSONDecodeError):
+                endpoint.parse_response({"body": invalid_body}, 0.0)
 
     def test__parse_response_custom_jmespaths(self):
         """
@@ -185,7 +183,7 @@ class TestBedrockInvoke:
             },
         ) as mock_response:
             # Act
-            result = endpoint._parse_response(mock_response)
+            result = endpoint.parse_response(mock_response, 0.0)
 
         # Assert
         assert isinstance(result, InvocationResponse)
@@ -278,7 +276,8 @@ class TestBedrockInvoke:
 
     def test_invoke_payload_no_text(self):
         """
-        When text cannot be extracted from the input payload, an error should be returned
+        When text cannot be extracted from the input payload, the invocation
+        should still succeed — _parse_payload failure is not an invocation error.
         """
         endpoint = BedrockInvoke(model_id="test_model")
         endpoint._bedrock_client = MagicMock()
@@ -288,8 +287,9 @@ class TestBedrockInvoke:
             )
             response = endpoint.invoke({})
         assert isinstance(response, InvocationResponse)
-        assert response.error is not None
-        assert "failed to extract input text" in str(response.error).lower()
+        assert response.error is None
+        # input_prompt falls back to None when _parse_payload can't extract text
+        assert response.input_prompt is None
 
     def test_invoke_generic_exception(self):
         """
@@ -407,7 +407,7 @@ class TestBedrockInvokeStream:
 
         # Call the method under test
         start_time = time.perf_counter()
-        result = endpoint._parse_response_stream(client_response, start_time)
+        result = endpoint.parse_response(client_response, start_time)
 
         # Assert the result is an InvocationResponse object
         assert isinstance(result, InvocationResponse)
@@ -462,7 +462,7 @@ class TestBedrockInvokeStream:
 
         # Call the method under test
         start_time = time.perf_counter()
-        result = endpoint._parse_response_stream(client_response, start_time)
+        result = endpoint.parse_response(client_response, start_time)
 
         # Assert the result is an InvocationResponse object
         assert isinstance(result, InvocationResponse)
@@ -478,51 +478,98 @@ class TestBedrockInvokeStream:
 
     def test__parse_response_stream_known_error(self):
         """
-        Test _parse_response_stream detects and returns known errors in the stream
+        Test parse_response records known Bedrock stream errors and returns partial data.
         """
         endpoint = BedrockInvokeStream(model_id="test_model")
         client_response = {
             "body": [
                 {"throttlingException": {"message": "Test error"}},
-                MagicMock(
-                    side_effect=RuntimeError("Shouldn't try to access this chunk")
-                ),
             ],
             "ResponseMetadata": {"RetryAttempts": 0},
         }
 
-        # Call the method under test
         start_time = time.perf_counter()
-        result = endpoint._parse_response_stream(client_response, start_time)
+        result = endpoint.parse_response(client_response, start_time)
 
-        # Check result:
         assert isinstance(result, InvocationResponse)
         assert result.error is not None
-        assert "test error" in str(result.error).lower()
+        assert "test error" in result.error.lower()
 
-    def test__parse_response_stream_unknown_error(self):
+    def test__parse_response_stream_known_error_with_partial_data(self):
         """
-        Test _parse_response_stream detects and returns unknown errors in the stream
+        Test that partial data collected before a stream error is preserved.
         """
-        endpoint = BedrockInvokeStream(model_id="test_model")
+        endpoint = BedrockInvokeStream(
+            model_id="test_model",
+            generated_text_jmespath="choices[0].delta.content",
+        )
         client_response = {
             "body": [
-                {"myUnexpectedChunkType": {"hello": "world"}},
-                MagicMock(
-                    side_effect=RuntimeError("Shouldn't try to access this chunk")
-                ),
+                {
+                    "chunk": {
+                        "bytes": json.dumps(
+                            {"choices": [{"delta": {"content": "Hello"}}]}
+                        ).encode()
+                    }
+                },
+                {
+                    "chunk": {
+                        "bytes": json.dumps(
+                            {"choices": [{"delta": {"content": " world"}}]}
+                        ).encode()
+                    }
+                },
+                {"throttlingException": {"message": "Rate exceeded"}},
             ],
             "ResponseMetadata": {"RetryAttempts": 0},
         }
 
-        # Call the method under test
         start_time = time.perf_counter()
-        result = endpoint._parse_response_stream(client_response, start_time)
+        result = endpoint.parse_response(client_response, start_time)
 
-        # Check result:
         assert isinstance(result, InvocationResponse)
         assert result.error is not None
-        assert "unknown event" in str(result.error).lower()
+        assert "rate exceeded" in result.error.lower()
+        # Partial data is preserved
+        assert result.response_text == "Hello world"
+        assert result.time_to_first_token is not None
+
+    def test__parse_response_stream_unknown_event(self):
+        """
+        Test parse_response skips unknown event types without aborting.
+        """
+        endpoint = BedrockInvokeStream(
+            model_id="test_model",
+            generated_text_jmespath="choices[0].delta.content",
+        )
+        client_response = {
+            "body": [
+                {
+                    "chunk": {
+                        "bytes": json.dumps(
+                            {"choices": [{"delta": {"content": "Hi"}}]}
+                        ).encode()
+                    }
+                },
+                {"myUnexpectedChunkType": {"hello": "world"}},
+                {
+                    "chunk": {
+                        "bytes": json.dumps(
+                            {"choices": [{"delta": {"content": "!"}}]}
+                        ).encode()
+                    }
+                },
+            ],
+            "ResponseMetadata": {"RetryAttempts": 0},
+        }
+
+        start_time = time.perf_counter()
+        result = endpoint.parse_response(client_response, start_time)
+
+        assert isinstance(result, InvocationResponse)
+        # Unknown events are skipped, not errors
+        assert result.error is None
+        assert result.response_text == "Hi!"
 
     def test__parse_response_stream_empty_input(self):
         """
@@ -531,7 +578,7 @@ class TestBedrockInvokeStream:
         endpoint = BedrockInvokeStream(model_id="test_model")
         empty_response = {"body": [], "ResponseMetadata": {"RetryAttempts": 0}}
         start_time = time.perf_counter()
-        result = endpoint._parse_response_stream(empty_response, start_time)
+        result = endpoint.parse_response(empty_response, start_time)
 
         assert isinstance(result, InvocationResponse)
         assert result.response_text == ""

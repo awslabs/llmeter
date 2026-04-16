@@ -6,10 +6,9 @@ import base64
 import logging
 import os
 import time
-from typing import Any, cast, Literal
-from uuid import uuid4
+from typing import Any, Literal, cast
 
-from openai import APIConnectionError, OpenAI
+from openai import OpenAI
 from openai.types.chat import (
     ChatCompletion,
     ChatCompletionChunk,
@@ -225,86 +224,49 @@ class OpenAIEndpoint(Endpoint):
 class OpenAICompletionEndpoint(OpenAIEndpoint):
     """Endpoint for OpenAI-compatible Chat Completion APIs (non-streaming mode)"""
 
-    def invoke(
-        self, payload: CompletionCreateParams, **kwargs: Any
-    ) -> InvocationResponse:
-        """Invoke the OpenAI chat completion API.
+    def invoke(self, payload: CompletionCreateParams) -> InvocationResponse:
+        """Invoke the OpenAI chat completion API."""
+        client_response: ChatCompletion = self._client.chat.completions.create(
+            **payload
+        )
+        return self.parse_response(client_response, self._start_t)
 
-        Args:
-            payload (CompletionCreateParams): Request payload
-            **kwargs (Any): Additional parameters for the request
-
-        Returns:
-            InvocationResponse: Response from the API
-        """
+    def prepare_payload(self, payload, **kwargs):
         payload = {**kwargs, **payload}
         payload["model"] = self.model_id
+        return payload
 
-        start_t = time.perf_counter()
-        try:
-            client_response: ChatCompletion = self._client.chat.completions.create(
-                **payload
-            )
-        except (APIConnectionError, Exception) as e:
-            logger.error(e)
-            return InvocationResponse.error_output(
-                input_payload=payload, id=uuid4().hex, error=str(e)
-            )
-
-        response = self._parse_converse_response(client_response, start_t)
-        response.input_payload = payload
-        response.input_prompt = self._parse_payload(payload)
-        return response
-
-    def _parse_converse_response(self, client_response: ChatCompletion, start_t: float):
+    def parse_response(self, client_response: ChatCompletion, start_t: float):
         usage = client_response.usage
+        cached_tokens = None
+        if usage and usage.prompt_tokens_details:
+            cached_tokens = getattr(usage.prompt_tokens_details, "cached_tokens", None)
         return InvocationResponse(
             id=client_response.id,
             response_text=client_response.choices[0].message.content,
             num_tokens_input=usage and usage.prompt_tokens,
             num_tokens_output=usage and usage.completion_tokens,
-            time_to_last_token=time.perf_counter() - start_t,
+            num_tokens_input_cached=cached_tokens,
         )
 
 
 class OpenAICompletionStreamEndpoint(OpenAIEndpoint):
     """Endpoint for OpenAI-compatible Chat Completion APIs (streaming mode)"""
 
-    def invoke(
-        self, payload: CompletionCreateParams, **kwargs: Any
-    ) -> InvocationResponse:
-        """Invoke the OpenAI streaming chat completion API.
+    def invoke(self, payload: CompletionCreateParams) -> InvocationResponse:
+        """Invoke the OpenAI streaming chat completion API."""
+        client_response = self._client.chat.completions.create(**payload)
+        return self.parse_response(client_response, self._start_t)
 
-        Args:
-            payload (CompletionCreateParams): Request payload
-            **kwargs (Any): Additional parameters for the request
-
-        Returns:
-            InvocationResponse: Response from the API
-        """
+    def prepare_payload(self, payload, **kwargs):
         payload = {**kwargs, **payload}
         payload["model"] = self.model_id
-
         if not payload.get("stream"):
             payload["stream"] = True
             payload["stream_options"] = {"include_usage": True}
+        return payload
 
-        try:
-            start_t = time.perf_counter()
-            client_response = self._client.chat.completions.create(**payload)
-        except (APIConnectionError, Exception) as e:
-            logger.error(e)
-            return InvocationResponse.error_output(
-                input_payload=payload, id=uuid4().hex, error=str(e)
-            )
-        response = self._parse_converse_stream_response(client_response, start_t)
-        response.input_payload = payload
-        response.input_prompt = self._parse_payload(payload)
-        return response
-
-    def _parse_converse_stream_response(
-        self, client_response, start_t: float
-    ) -> InvocationResponse:
+    def parse_response(self, client_response, start_t: float) -> InvocationResponse:
         """Parse the streaming API response from OpenAI chat completion API.
 
         Args:
@@ -316,6 +278,7 @@ class OpenAICompletionStreamEndpoint(OpenAIEndpoint):
         """
         prompt_tokens = None
         completion_tokens = None
+        cached_tokens = None
         response_text = ""
         response_id = None
         time_to_first_token = None
@@ -335,6 +298,10 @@ class OpenAICompletionStreamEndpoint(OpenAIEndpoint):
             if chunk.usage is not None:
                 prompt_tokens = chunk.usage.prompt_tokens
                 completion_tokens = chunk.usage.completion_tokens
+                if chunk.usage.prompt_tokens_details:
+                    cached_tokens = getattr(
+                        chunk.usage.prompt_tokens_details, "cached_tokens", None
+                    )
 
         time_to_last_token = time.perf_counter() - start_t
 
@@ -346,6 +313,7 @@ class OpenAICompletionStreamEndpoint(OpenAIEndpoint):
             response_text=response_text,
             num_tokens_input=prompt_tokens,
             num_tokens_output=completion_tokens,
+            num_tokens_input_cached=cached_tokens,
             time_to_first_token=time_to_first_token,
             time_to_last_token=time_to_last_token,
         )

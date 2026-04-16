@@ -74,10 +74,13 @@ class ConcreteEndpoint(Endpoint):
         )
 
     def invoke(self, payload: dict) -> InvocationResponse:
+        return self.parse_response(payload, 0.0)
+
+    def parse_response(self, raw_response, start_t: float) -> InvocationResponse:
         return InvocationResponse(
             id="test_id",
-            response_text=f"Invoked with payload: {payload}",
-            input_prompt=payload.get("prompt", ""),
+            response_text=f"Invoked with payload: {raw_response}",
+            input_prompt=raw_response.get("prompt", ""),
         )
 
     @classmethod

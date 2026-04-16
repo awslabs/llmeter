@@ -430,6 +430,7 @@ class TestInvocationResponseTypeConsistency:
         **Validates: Requirements 10.1**
         """
         from openai import APIConnectionError
+
         from llmeter.endpoints.base import InvocationResponse
 
         # Setup mock
@@ -458,6 +459,7 @@ class TestInvocationResponseTypeConsistency:
         **Validates: Requirements 10.1**
         """
         from openai import APIConnectionError
+
         from llmeter.endpoints.base import InvocationResponse
 
         # Setup mock

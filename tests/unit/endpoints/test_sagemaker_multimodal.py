@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from llmeter.endpoints.sagemaker import SageMakerBase
-from llmeter.prompt_utils import ImageContent, DocumentContent
+from llmeter.prompt_utils import DocumentContent, ImageContent
 
 
 class TestSageMakerMultiModal:

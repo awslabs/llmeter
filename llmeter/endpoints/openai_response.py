@@ -4,20 +4,14 @@
 import logging
 import time
 from collections.abc import Sequence
-from typing import cast, Any
-from uuid import uuid4
+from typing import Any, cast
 
 from openai import (
-    APIConnectionError,
-    AuthenticationError,
-    BadRequestError,
     OpenAI,
-    RateLimitError,
 )
 from openai.types.responses import Response, ResponseCreateParams
 from openai.types.responses.response_create_params import (
     ResponseCreateParamsNonStreaming,
-    ResponseCreateParamsStreaming,
 )
 
 from .base import Endpoint, InvocationResponse
@@ -53,60 +47,17 @@ class OpenAIResponseEndpoint(Endpoint):
         super().__init__(endpoint_name, model_id, provider=provider)
         self._client = OpenAI(api_key=api_key, **kwargs)
 
-    def invoke(
-        self, payload: ResponseCreateParamsNonStreaming, **kwargs
-    ) -> InvocationResponse:
-        """Invoke the Responses API.
+    def invoke(self, payload: ResponseCreateParamsNonStreaming) -> InvocationResponse:
+        """Invoke the Responses API."""
+        client_response = self._client.responses.create(**payload)
+        return self.parse_response(client_response, self._start_t)
 
-        Args:
-            payload: Request payload typed as
-                ``openai.types.responses.ResponseCreateParams``. You can build
-                this yourself using the OpenAI SDK types, or use the
-                ``create_payload`` convenience helper.
-            **kwargs: Additional parameters to merge with payload
-
-        Returns:
-            InvocationResponse with response text, timing, and token counts
-        """
-        # Merge kwargs with payload and add model_id
+    def prepare_payload(self, payload, **kwargs):
         payload = {**kwargs, **payload}  # type: ignore
         payload["model"] = self.model_id
+        return payload
 
-        start_t = time.perf_counter()
-        try:
-            client_response = self._client.responses.create(**payload)
-        except APIConnectionError as e:
-            logger.exception(e)
-            return InvocationResponse.error_output(
-                input_payload=payload, id=uuid4().hex, error=str(e)
-            )
-        except AuthenticationError as e:
-            logger.exception(e)
-            return InvocationResponse.error_output(
-                input_payload=payload, id=uuid4().hex, error=str(e)
-            )
-        except RateLimitError as e:
-            logger.exception(e)
-            return InvocationResponse.error_output(
-                input_payload=payload, id=uuid4().hex, error=str(e)
-            )
-        except BadRequestError as e:
-            logger.exception(e)
-            return InvocationResponse.error_output(
-                input_payload=payload, id=uuid4().hex, error=str(e)
-            )
-        except Exception as e:
-            logger.exception(e)
-            return InvocationResponse.error_output(
-                input_payload=payload, id=uuid4().hex, error=str(e)
-            )
-
-        response = self._parse_response(client_response, start_t)
-        response.input_payload = payload
-        response.input_prompt = self._parse_payload(payload)
-        return response
-
-    def _parse_response(
+    def parse_response(
         self, client_response: Response, start_t: float
     ) -> InvocationResponse:
         """Parse Response API output into InvocationResponse.
@@ -122,16 +73,20 @@ class OpenAIResponseEndpoint(Endpoint):
 
         input_tokens = None
         output_tokens = None
+        cached_tokens = None
         if usage is not None:
             input_tokens = usage.input_tokens
             output_tokens = usage.output_tokens
+            details = getattr(usage, "input_tokens_details", None)
+            if details:
+                cached_tokens = getattr(details, "cached_tokens", None)
 
         return InvocationResponse(
             id=client_response.id,
             response_text=client_response.output_text,
             num_tokens_input=input_tokens,
             num_tokens_output=output_tokens,
-            time_to_last_token=time.perf_counter() - start_t,
+            num_tokens_input_cached=cached_tokens,
         )
 
     @staticmethod
@@ -236,63 +191,20 @@ class OpenAIResponseStreamEndpoint(OpenAIResponseEndpoint):
             **kwargs,
         )
 
-    def invoke(self, payload: ResponseCreateParams, **kwargs) -> InvocationResponse:
-        """Invoke the Responses API with streaming.
+    def invoke(self, payload: ResponseCreateParams) -> InvocationResponse:
+        """Invoke the Responses API with streaming."""
+        client_response = self._client.responses.create(**payload)
+        return self.parse_response(client_response, self._start_t)
 
-        Args:
-            payload: Request payload typed as
-                ``openai.types.responses.ResponseCreateParams``.
-            **kwargs: Additional parameters to merge with payload
-
-        Returns:
-            InvocationResponse with response text, timing (TTFT, TTLT), and token counts
-        """
-        # Merge kwargs with payload and add model_id
+    def prepare_payload(self, payload, **kwargs):
         payload = {**kwargs, **payload}
         payload["model"] = self.model_id
-
-        # Set streaming parameters
         if not payload.get("stream"):
             payload["stream"] = True
             payload["stream_options"] = {"include_usage": True}
+        return payload
 
-        try:
-            start_t = time.perf_counter()
-            client_response = self._client.responses.create(**payload)
-        except APIConnectionError as e:
-            logger.exception(e)
-            return InvocationResponse.error_output(
-                input_payload=payload, id=uuid4().hex, error=str(e)
-            )
-        except AuthenticationError as e:
-            logger.exception(e)
-            return InvocationResponse.error_output(
-                input_payload=payload, id=uuid4().hex, error=str(e)
-            )
-        except RateLimitError as e:
-            logger.exception(e)
-            return InvocationResponse.error_output(
-                input_payload=payload, id=uuid4().hex, error=str(e)
-            )
-        except BadRequestError as e:
-            logger.exception(e)
-            return InvocationResponse.error_output(
-                input_payload=payload, id=uuid4().hex, error=str(e)
-            )
-        except Exception as e:
-            logger.exception(e)
-            return InvocationResponse.error_output(
-                input_payload=payload, id=uuid4().hex, error=str(e)
-            )
-
-        response = self._parse_stream_response(client_response, start_t)
-        response.input_payload = payload
-        response.input_prompt = self._parse_payload(payload)
-        return response
-
-    def _parse_stream_response(
-        self, client_response, start_t: float
-    ) -> InvocationResponse:
+    def parse_response(self, client_response, start_t: float) -> InvocationResponse:
         """Parse streaming Response API output into InvocationResponse.
 
         Processes typed events from the stream:
@@ -309,6 +221,7 @@ class OpenAIResponseStreamEndpoint(OpenAIResponseEndpoint):
         """
         input_tokens = None
         output_tokens = None
+        cached_tokens = None
         response_text = ""
         response_id = None
         time_to_first_token = None
@@ -327,6 +240,9 @@ class OpenAIResponseStreamEndpoint(OpenAIResponseEndpoint):
                 if usage is not None:
                     input_tokens = usage.input_tokens
                     output_tokens = usage.output_tokens
+                    details = getattr(usage, "input_tokens_details", None)
+                    if details:
+                        cached_tokens = getattr(details, "cached_tokens", None)
 
         time_to_last_token = time.perf_counter() - start_t
 
@@ -338,6 +254,7 @@ class OpenAIResponseStreamEndpoint(OpenAIResponseEndpoint):
             response_text=response_text,
             num_tokens_input=input_tokens,
             num_tokens_output=output_tokens,
+            num_tokens_input_cached=cached_tokens,
             time_to_first_token=time_to_first_token,
             time_to_last_token=time_to_last_token,
         )

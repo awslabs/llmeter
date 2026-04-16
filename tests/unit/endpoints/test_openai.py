@@ -269,17 +269,20 @@ class TestOpenAICompletionEndpoint:
             assert response.response_text is None
 
     def test_parse_converse_response(self, endpoint, mock_chat_completion):
-        """Test _parse_converse_response method."""
+        """Test parse_response method.
+
+        Note: time_to_last_token is back-filled by the base invoke wrapper,
+        not by parse_response itself for non-streaming endpoints.
+        """
         start_time = time.perf_counter()
 
-        response = endpoint._parse_converse_response(mock_chat_completion, start_time)
+        response = endpoint.parse_response(mock_chat_completion, start_time)
 
         assert isinstance(response, InvocationResponse)
         assert response.id == "chatcmpl-test123"
         assert response.response_text == "Hello! How can I help you today?"
         assert response.num_tokens_input == 10
         assert response.num_tokens_output == 8
-        assert response.time_to_last_token is not None
 
     def test_parse_converse_response_no_usage(self, endpoint):
         """Test _parse_converse_response with no usage information."""
@@ -299,7 +302,7 @@ class TestOpenAICompletionEndpoint:
         )
 
         start_time = time.perf_counter()
-        response = endpoint._parse_converse_response(completion, start_time)
+        response = endpoint.parse_response(completion, start_time)
 
         assert response.num_tokens_input is None
         assert response.num_tokens_output is None
@@ -447,9 +450,7 @@ class TestOpenAICompletionStreamEndpoint:
         """Test _parse_converse_stream_response method."""
         start_time = time.perf_counter()
 
-        response = endpoint._parse_converse_stream_response(
-            iter(mock_stream_response), start_time
-        )
+        response = endpoint.parse_response(iter(mock_stream_response), start_time)
 
         assert isinstance(response, InvocationResponse)
         assert response.id == "chatcmpl-test123"
@@ -463,7 +464,7 @@ class TestOpenAICompletionStreamEndpoint:
         """Test _parse_converse_stream_response with empty stream."""
         start_time = time.perf_counter()
 
-        response = endpoint._parse_converse_stream_response(iter([]), start_time)
+        response = endpoint.parse_response(iter([]), start_time)
 
         assert response.response_text == ""
         assert response.num_tokens_input is None
@@ -484,9 +485,7 @@ class TestOpenAICompletionStreamEndpoint:
         chunk2.usage = None
 
         start_time = time.perf_counter()
-        response = endpoint._parse_converse_stream_response(
-            iter([chunk1, chunk2]), start_time
-        )
+        response = endpoint.parse_response(iter([chunk1, chunk2]), start_time)
 
         assert response.response_text == "Hello"
         assert response.num_tokens_input is None
@@ -505,9 +504,7 @@ class TestOpenAICompletionStreamEndpoint:
         chunk2.choices[0].delta.content = "Hello"
 
         start_time = time.perf_counter()
-        response = endpoint._parse_converse_stream_response(
-            iter([chunk1, chunk2]), start_time
-        )
+        response = endpoint.parse_response(iter([chunk1, chunk2]), start_time)
 
         assert response.response_text == "Hello"
 
@@ -664,9 +661,12 @@ class TestOpenAIEndpointEdgeCases:
 
             payload = {"messages": [{"role": "user", "content": "Hello"}]}
 
-            # This should raise AttributeError when trying to access choices
-            with pytest.raises(AttributeError):
-                endpoint.invoke(payload)
+            # Malformed chunks are caught by the base invoke wrapper and
+            # returned as an error InvocationResponse instead of propagating.
+            response = endpoint.invoke(payload)
+            assert isinstance(response, InvocationResponse)
+            assert response.error is not None
+            assert response.input_payload is not None
 
     def test_response_timing_accuracy(self):
         """Test that response timing measurements are accurate."""
