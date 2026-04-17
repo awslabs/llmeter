@@ -211,6 +211,7 @@ class BedrockInvoke(Endpoint):
     @llmeter_invoke
     def invoke(self, payload: dict) -> InvocationResponse:
         """Invoke the Bedrock InvokeModel API with the given payload."""
+        start_t = time.perf_counter()
         req_body = json.dumps(payload).encode("utf-8")
 
         client_response = self._bedrock_client.invoke_model(  # type: ignore
@@ -221,7 +222,7 @@ class BedrockInvoke(Endpoint):
             # TODO: Provide config for other optional arguments
             # trace, guardrailIdentifier/Version, performanceConfigLatency, serviceTier
         )
-        return self.parse_response(client_response, self._start_t)  # type: ignore
+        return self.parse_response(client_response, start_t)  # type: ignore
 
 
 class BedrockInvokeStream(BedrockInvoke):
@@ -281,6 +282,7 @@ class BedrockInvokeStream(BedrockInvoke):
 
     @llmeter_invoke
     def invoke(self, payload: dict) -> InvocationResponse:
+        start_t = time.perf_counter()
         req_body = json.dumps(payload).encode("utf-8")
 
         client_response = self._bedrock_client.invoke_model_with_response_stream(  # type: ignore
@@ -291,7 +293,7 @@ class BedrockInvokeStream(BedrockInvoke):
             # TODO: Provide config for other optional arguments
             # trace, guardrailIdentifier/Version, performanceConfigLatency, serviceTier
         )
-        return self.parse_response(client_response, self._start_t)
+        return self.parse_response(client_response, start_t)
 
     def parse_response(self, client_response, start_t: float) -> InvocationResponse:
         """Parse the streaming response from Bedrock InvokeModel API.

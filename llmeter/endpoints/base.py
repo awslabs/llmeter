@@ -9,6 +9,7 @@ payload preparation, timing, error handling, and metadata back-fill.  Apply it
 to every concrete ``invoke`` in an :class:`Endpoint` subclass.
 """
 
+import copy
 import functools
 import importlib
 import json
@@ -122,27 +123,36 @@ def llmeter_invoke(fn):
         class MyEndpoint(Endpoint):
             @llmeter_invoke
             def invoke(self, payload: dict) -> InvocationResponse:
+                start_t = time.perf_counter()
                 raw = self._client.call(**payload)
-                return self.parse_response(raw, self._start_t)
+                return self.parse_response(raw, start_t)
 
     The wrapper performs the following steps around the decorated function:
 
     1. Calls :meth:`~Endpoint.prepare_payload` to merge ``**kwargs`` and
        inject provider-specific fields.
-    2. Records ``self._start_t`` via :func:`time.perf_counter`.
-    3. Calls the inner ``invoke``.
-    4. On exception, converts it to an error :class:`InvocationResponse`.
-    5. Back-fills ``time_to_last_token``, ``input_payload``,
+    2. Calls the inner ``invoke``.
+    3. On exception, converts it to an error :class:`InvocationResponse`.
+    4. Back-fills ``time_to_last_token``, ``input_payload``,
        ``input_prompt``, ``id``, and ``request_time`` if the subclass
        didn't set them.
+
+    .. note::
+
+       The inner ``invoke`` should capture its own ``start_t`` via
+       :func:`time.perf_counter` and pass it to :meth:`parse_response`.
+       The decorator independently tracks timing for the
+       ``time_to_last_token`` back-fill.
     """
 
     @functools.wraps(fn)
     def wrapper(self: "Endpoint", payload: dict, **kw: Any) -> InvocationResponse:
         prepared = self.prepare_payload(payload, **kw)
-        self._last_payload = prepared
+        # Snapshot before the API call for _parse_payload, which runs after
+        # the inner invoke — by which point the client may have mutated the dict.
+        saved_payload = copy.deepcopy(prepared)
         request_time = datetime.now(timezone.utc)
-        self._start_t = time.perf_counter()
+        start_t = time.perf_counter()
         try:
             response = fn(self, prepared)
         except Exception as e:
@@ -155,13 +165,13 @@ def llmeter_invoke(fn):
             )
 
         if response.time_to_last_token is None and response.error is None:
-            response.time_to_last_token = time.perf_counter() - self._start_t
+            response.time_to_last_token = time.perf_counter() - start_t
 
         if response.input_payload is None:
             response.input_payload = prepared
         if response.input_prompt is None:
             try:
-                response.input_prompt = self._parse_payload(prepared)
+                response.input_prompt = self._parse_payload(saved_payload)
             except Exception:
                 logger.debug("_parse_payload failed; leaving input_prompt as None")
         if response.id is None:
@@ -213,18 +223,18 @@ class Endpoint(ABC):
 
             @llmeter_invoke
             def invoke(self, payload: dict) -> InvocationResponse:
+                start_t = time.perf_counter()
                 raw = self._client.call(**payload)
-                return self.parse_response(raw, self._start_t)
+                return self.parse_response(raw, start_t)
 
         The :func:`llmeter_invoke` wrapper provides:
 
         * **Payload preparation** — calls :meth:`prepare_payload` before the
           inner function, so ``**kwargs`` are merged and provider-specific
           fields (``model``, ``modelId``, etc.) are set.
-        * **Timing** — ``self._start_t`` is set immediately before the call
-          and ``time_to_last_token`` is back-filled on the response if the
-          subclass didn't set it (streaming endpoints typically set it during
-          stream consumption).
+        * **Timing** — ``time_to_last_token`` is back-filled on the response
+          if the subclass didn't set it (streaming endpoints typically set it
+          during stream consumption).
         * **Error handling** — unhandled exceptions are caught, logged, and
           converted to an error :class:`InvocationResponse`.
         * **Metadata back-fill** — ``input_payload`` and ``input_prompt`` are
@@ -262,8 +272,7 @@ class Endpoint(ABC):
                 client.  The type varies by provider (e.g. ``ChatCompletion``,
                 ``dict``, a streaming iterator).
             start_t: The :func:`time.perf_counter` timestamp captured
-                immediately before the API call (also available as
-                ``self._start_t``).
+                immediately before the API call in the ``invoke`` method.
 
         Returns:
             InvocationResponse: Parsed response with at least

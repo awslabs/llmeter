@@ -50,8 +50,9 @@ class OpenAIResponseEndpoint(Endpoint):
     @llmeter_invoke
     def invoke(self, payload: ResponseCreateParamsNonStreaming) -> InvocationResponse:
         """Invoke the Responses API."""
+        start_t = time.perf_counter()
         client_response = self._client.responses.create(**payload)
-        return self.parse_response(client_response, self._start_t)
+        return self.parse_response(client_response, start_t)
 
     def prepare_payload(self, payload, **kwargs):
         payload = {**kwargs, **payload}  # type: ignore
@@ -195,8 +196,9 @@ class OpenAIResponseStreamEndpoint(OpenAIResponseEndpoint):
     @llmeter_invoke
     def invoke(self, payload: ResponseCreateParams) -> InvocationResponse:
         """Invoke the Responses API with streaming."""
+        start_t = time.perf_counter()
         client_response = self._client.responses.create(**payload)
-        return self.parse_response(client_response, self._start_t)
+        return self.parse_response(client_response, start_t)
 
     def prepare_payload(self, payload, **kwargs):
         payload = {**kwargs, **payload}

@@ -321,8 +321,9 @@ class BedrockConverse(BedrockBase):
     @llmeter_invoke
     def invoke(self, payload: dict) -> InvocationResponse:
         """Invoke the Bedrock converse API with the given payload."""
+        start_t = time.perf_counter()
         client_response = self._bedrock_client.converse(**payload)  # type: ignore
-        return self.parse_response(client_response, self._start_t)  # type: ignore
+        return self.parse_response(client_response, start_t)  # type: ignore
 
     def prepare_payload(self, payload, **kwargs):
         payload = {**kwargs, **payload}
@@ -335,8 +336,9 @@ class BedrockConverse(BedrockBase):
 class BedrockConverseStream(BedrockConverse):
     @llmeter_invoke
     def invoke(self, payload: dict) -> InvocationResponse:
+        start_t = time.perf_counter()
         client_response = self._bedrock_client.converse_stream(**payload)  # type: ignore
-        return self.parse_response(client_response, self._start_t)
+        return self.parse_response(client_response, start_t)
 
     def parse_response(self, client_response, start_t: float) -> InvocationResponse:
         """Parse the streaming response from Bedrock conversation API.

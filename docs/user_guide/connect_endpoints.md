@@ -38,8 +38,9 @@ class MyEndpoint(Endpoint):
 
     @llmeter_invoke
     def invoke(self, payload: dict) -> InvocationResponse:
+        start_t = time.perf_counter()
         raw_response = my_api_call(payload, api_key=self._api_key)
-        return self.parse_response(raw_response, self._start_t)
+        return self.parse_response(raw_response, start_t)
 
     def parse_response(self, raw_response, start_t: float) -> InvocationResponse:
         return InvocationResponse(

@@ -207,6 +207,7 @@ class SageMakerEndpoint(SageMakerBase):
     @llmeter_invoke
     def invoke(self, payload: dict) -> InvocationResponse:
         """Invoke the SageMaker endpoint with the given payload."""
+        start_t = time.perf_counter()
         json_payload = json.dumps(payload)
 
         client_response = self._sagemaker_runtime.invoke_endpoint(
@@ -214,7 +215,7 @@ class SageMakerEndpoint(SageMakerBase):
             ContentType="application/json",
             Body=bytes(json_payload, "utf-8"),
         )
-        return self.parse_response(client_response, self._start_t)
+        return self.parse_response(client_response, start_t)
 
 
 class SageMakerStreamEndpoint(SageMakerBase):
@@ -259,6 +260,7 @@ class SageMakerStreamEndpoint(SageMakerBase):
     @llmeter_invoke
     def invoke(self, payload: dict) -> InvocationResponse:
         """Invoke a SageMaker streaming endpoint with the given payload."""
+        start_t = time.perf_counter()
         json_payload = json.dumps(payload)
 
         client_response = self._sagemaker_runtime.invoke_endpoint_with_response_stream(
@@ -266,7 +268,7 @@ class SageMakerStreamEndpoint(SageMakerBase):
             Body=json_payload,
             ContentType="application/json",
         )
-        return self.parse_response(client_response, self._start_t)
+        return self.parse_response(client_response, start_t)
 
     def prepare_payload(self, payload, **kwargs):
         if "parameters" in payload:

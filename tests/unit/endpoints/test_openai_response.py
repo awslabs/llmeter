@@ -453,7 +453,8 @@ class TestOpenAIResponseEndpointTimingMeasurements:
         mock_openai_class.return_value = mock_client
 
         # Mock time.perf_counter to return predictable values
-        mock_perf_counter.side_effect = [1.0, 1.5]  # start_t=1.0, end_t=1.5
+        # Call sequence: decorator start_t=1.0, inner invoke start_t=1.5, decorator back-fill=1.5
+        mock_perf_counter.side_effect = [1.0, 1.5, 1.5]
 
         mock_response = Mock()
         mock_response.id = "resp_timing_accuracy"
