@@ -228,8 +228,9 @@ class AnthropicMessages(AnthropicMessagesEndpoint):
     @llmeter_invoke
     def invoke(self, payload: dict) -> InvocationResponse:
         """Invoke the Anthropic Messages API (non-streaming)."""
+        start_t = time.perf_counter()
         client_response = self._client.messages.create(**payload)
-        return self.parse_response(client_response, self._start_t)
+        return self.parse_response(client_response, start_t)
 
     def prepare_payload(self, payload: dict, **kwargs: Any) -> dict:
         payload = {**kwargs, **payload}
@@ -291,8 +292,9 @@ class AnthropicMessagesStream(AnthropicMessagesEndpoint):
     @llmeter_invoke
     def invoke(self, payload: dict) -> InvocationResponse:
         """Invoke the Anthropic Messages API with streaming."""
+        start_t = time.perf_counter()
         client_response = self._client.messages.create(**payload)
-        return self.parse_response(client_response, self._start_t)
+        return self.parse_response(client_response, start_t)
 
     def prepare_payload(self, payload: dict, **kwargs: Any) -> dict:
         payload = {**kwargs, **payload}
@@ -328,9 +330,7 @@ class AnthropicMessagesStream(AnthropicMessagesEndpoint):
                 response_id = event.message.id
                 # input token count is available in the initial message usage
                 if event.message.usage:
-                    input_tokens = getattr(
-                        event.message.usage, "input_tokens", None
-                    )
+                    input_tokens = getattr(event.message.usage, "input_tokens", None)
                     cached_tokens = getattr(
                         event.message.usage, "cache_read_input_tokens", None
                     )
