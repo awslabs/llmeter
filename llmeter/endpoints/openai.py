@@ -24,7 +24,7 @@ from ..prompt_utils import (
     MediaContent,
     VideoContent,
 )
-from .base import Endpoint, InvocationResponse
+from .base import Endpoint, InvocationResponse, llmeter_invoke
 
 logger = logging.getLogger(__name__)
 
@@ -224,6 +224,7 @@ class OpenAIEndpoint(Endpoint):
 class OpenAICompletionEndpoint(OpenAIEndpoint):
     """Endpoint for OpenAI-compatible Chat Completion APIs (non-streaming mode)"""
 
+    @llmeter_invoke
     def invoke(self, payload: CompletionCreateParams) -> InvocationResponse:
         """Invoke the OpenAI chat completion API."""
         client_response: ChatCompletion = self._client.chat.completions.create(
@@ -253,6 +254,7 @@ class OpenAICompletionEndpoint(OpenAIEndpoint):
 class OpenAICompletionStreamEndpoint(OpenAIEndpoint):
     """Endpoint for OpenAI-compatible Chat Completion APIs (streaming mode)"""
 
+    @llmeter_invoke
     def invoke(self, payload: CompletionCreateParams) -> InvocationResponse:
         """Invoke the OpenAI streaming chat completion API."""
         client_response = self._client.chat.completions.create(**payload)

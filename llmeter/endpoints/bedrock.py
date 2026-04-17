@@ -25,7 +25,7 @@ from ..prompt_utils import (
     MediaContent,
     VideoContent,
 )
-from .base import Endpoint, InvocationResponse
+from .base import Endpoint, InvocationResponse, llmeter_invoke
 
 logger = logging.getLogger(__name__)
 
@@ -318,6 +318,7 @@ class BedrockConverse(BedrockBase):
             retries=retries,
         )
 
+    @llmeter_invoke
     def invoke(self, payload: dict) -> InvocationResponse:
         """Invoke the Bedrock converse API with the given payload."""
         client_response = self._bedrock_client.converse(**payload)  # type: ignore
@@ -332,6 +333,7 @@ class BedrockConverse(BedrockBase):
 
 
 class BedrockConverseStream(BedrockConverse):
+    @llmeter_invoke
     def invoke(self, payload: dict) -> InvocationResponse:
         client_response = self._bedrock_client.converse_stream(**payload)  # type: ignore
         return self.parse_response(client_response, self._start_t)

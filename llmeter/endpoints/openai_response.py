@@ -14,7 +14,7 @@ from openai.types.responses.response_create_params import (
     ResponseCreateParamsNonStreaming,
 )
 
-from .base import Endpoint, InvocationResponse
+from .base import Endpoint, InvocationResponse, llmeter_invoke
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +47,7 @@ class OpenAIResponseEndpoint(Endpoint):
         super().__init__(endpoint_name, model_id, provider=provider)
         self._client = OpenAI(api_key=api_key, **kwargs)
 
+    @llmeter_invoke
     def invoke(self, payload: ResponseCreateParamsNonStreaming) -> InvocationResponse:
         """Invoke the Responses API."""
         client_response = self._client.responses.create(**payload)
@@ -191,6 +192,7 @@ class OpenAIResponseStreamEndpoint(OpenAIResponseEndpoint):
             **kwargs,
         )
 
+    @llmeter_invoke
     def invoke(self, payload: ResponseCreateParams) -> InvocationResponse:
         """Invoke the Responses API with streaming."""
         client_response = self._client.responses.create(**payload)

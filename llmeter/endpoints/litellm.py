@@ -12,7 +12,7 @@ from litellm import CustomStreamWrapper, completion
 from litellm.types.utils import ModelResponse
 from litellm.utils import get_llm_provider  # type: ignore
 
-from . import Endpoint, InvocationResponse
+from . import Endpoint, InvocationResponse, llmeter_invoke
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +80,7 @@ class LiteLLMBase(Endpoint):
 
 
 class LiteLLM(LiteLLMBase):
+    @llmeter_invoke
     def invoke(self, payload):
         response = completion(model=self.litellm_model, **payload)
         if not isinstance(response, ModelResponse):
@@ -104,6 +105,7 @@ class LiteLLM(LiteLLMBase):
 
 
 class LiteLLMStreaming(LiteLLMBase):
+    @llmeter_invoke
     def invoke(self, payload):
         response = completion(model=self.litellm_model, **payload)
 

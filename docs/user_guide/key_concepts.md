@@ -12,7 +12,7 @@ The base `Endpoint` class handles common concerns (error handling, timing, metad
 2. **`invoke(payload)`** — makes the API call and delegates to `parse_response()`
 3. **`parse_response(raw_response, start_t)`** — extracts text, token counts, and other metadata from the provider's raw response
 
-Subclasses implement these three methods with their provider-specific logic. The base class wraps `invoke` with standardized error handling, timing (`time_to_last_token`), and metadata back-fill (`input_payload`, `input_prompt`, `id`), so individual endpoints don't need to duplicate that boilerplate.
+Subclasses implement these three methods with their provider-specific logic. The `@llmeter_invoke` decorator wraps `invoke` with standardized error handling, timing (`time_to_last_token`), and metadata back-fill (`input_payload`, `input_prompt`, `id`), so individual endpoints don't need to duplicate that boilerplate.
 
 LLMeter provides a [range of built-in Endpoint connectors](connect_endpoints.md) for different types of Cloud-deployed or local LLM, or you can also define your own custom integrations.
 

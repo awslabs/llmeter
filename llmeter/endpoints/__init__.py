@@ -4,7 +4,7 @@
 
 import importlib.util
 
-from .base import Endpoint, InvocationResponse  # noqa: F401
+from .base import Endpoint, InvocationResponse, llmeter_invoke  # noqa: F401
 from .bedrock import BedrockConverse, BedrockConverseStream  # noqa: F401
 from .bedrock_invoke import BedrockInvoke, BedrockInvokeStream  # noqa: F401
 from .sagemaker import SageMakerEndpoint, SageMakerStreamEndpoint  # noqa: F401

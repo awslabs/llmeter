@@ -22,10 +22,10 @@ To create a custom endpoint, implement three methods:
 - **`parse_response(raw_response, start_t)`** — extract text, token counts, and metadata into an `InvocationResponse`
 - **`prepare_payload(payload, **kwargs)`** *(optional)* — transform the caller's payload before invocation (merge kwargs, inject model ID, etc.)
 
-The base class automatically wraps `invoke` with error handling, timing, and metadata back-fill, so your implementation only needs the happy path:
+The `@llmeter_invoke` decorator wraps `invoke` with error handling, timing, and metadata back-fill, so your implementation only needs the happy path:
 
 ```python
-from llmeter.endpoints.base import Endpoint, InvocationResponse
+from llmeter.endpoints.base import Endpoint, InvocationResponse, llmeter_invoke
 
 class MyEndpoint(Endpoint):
     def __init__(self, model_id: str, api_key: str):
@@ -36,6 +36,7 @@ class MyEndpoint(Endpoint):
         )
         self._api_key = api_key
 
+    @llmeter_invoke
     def invoke(self, payload: dict) -> InvocationResponse:
         raw_response = my_api_call(payload, api_key=self._api_key)
         return self.parse_response(raw_response, self._start_t)
@@ -55,7 +56,7 @@ class MyEndpoint(Endpoint):
         return {"prompt": user_message, "max_tokens": max_tokens}
 ```
 
-You don't need to handle errors, set `time_to_last_token`, `input_payload`, `input_prompt`, or `id` — the base class does all of that. If your `invoke` or `parse_response` raises an exception, it's caught and converted to an error `InvocationResponse` with the prepared payload attached.
+You don't need to handle errors, set `time_to_last_token`, `input_payload`, `input_prompt`, or `id` — the decorator does all of that. If your `invoke` or `parse_response` raises an exception, it's caught and converted to an error `InvocationResponse` with the prepared payload attached.
 
 Note that [Amazon Bedrock](https://aws.amazon.com/bedrock/) supports several different APIs for accessing Foundation Models. Depending on your target API, you can use LLMeter's:
 

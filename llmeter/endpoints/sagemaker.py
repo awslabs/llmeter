@@ -18,7 +18,7 @@ from ..prompt_utils import (
     MediaContent,
     VideoContent,
 )
-from .base import Endpoint, InvocationResponse
+from .base import Endpoint, InvocationResponse, llmeter_invoke
 
 logger = logging.getLogger(__name__)
 
@@ -204,6 +204,7 @@ class SageMakerEndpoint(SageMakerBase):
             retries=client_response.get("ResponseMetadata", {}).get("RetryAttempts"),
         )
 
+    @llmeter_invoke
     def invoke(self, payload: dict) -> InvocationResponse:
         """Invoke the SageMaker endpoint with the given payload."""
         json_payload = json.dumps(payload)
@@ -255,6 +256,7 @@ class SageMakerStreamEndpoint(SageMakerBase):
             retries=client_response.get("ResponseMetadata", {}).get("RetryAttempts"),
         )
 
+    @llmeter_invoke
     def invoke(self, payload: dict) -> InvocationResponse:
         """Invoke a SageMaker streaming endpoint with the given payload."""
         json_payload = json.dumps(payload)

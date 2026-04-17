@@ -10,7 +10,7 @@ import boto3
 import jmespath
 from botocore.config import Config
 
-from .base import Endpoint, InvocationResponse
+from .base import Endpoint, InvocationResponse, llmeter_invoke
 from .bedrock import BEDROCK_STREAM_ERROR_TYPES
 
 logger = logging.getLogger(__name__)
@@ -208,6 +208,7 @@ class BedrockInvoke(Endpoint):
             retries=retries,
         )
 
+    @llmeter_invoke
     def invoke(self, payload: dict) -> InvocationResponse:
         """Invoke the Bedrock InvokeModel API with the given payload."""
         req_body = json.dumps(payload).encode("utf-8")
@@ -278,6 +279,7 @@ class BedrockInvokeStream(BedrockInvoke):
             input_token_count_jmespath=input_token_count_jmespath,
         )
 
+    @llmeter_invoke
     def invoke(self, payload: dict) -> InvocationResponse:
         req_body = json.dumps(payload).encode("utf-8")
 

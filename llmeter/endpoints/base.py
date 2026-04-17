@@ -3,8 +3,13 @@
 """Base classes used across the different LLM endpoint types offered by LLMeter
 
 You can also use these classes to implement your own custom `Endpoint` types.
+
+The :func:`llmeter_invoke` decorator wraps a concrete ``invoke`` method with
+payload preparation, timing, error handling, and metadata back-fill.  Apply it
+to every concrete ``invoke`` in an :class:`Endpoint` subclass.
 """
 
+import functools
 import importlib
 import json
 import logging
@@ -107,6 +112,69 @@ class InvocationResponse:
         return asdict(self)
 
 
+def llmeter_invoke(fn):
+    """Decorator that wraps an :meth:`Endpoint.invoke` implementation with
+    payload preparation, timing, error handling, and metadata back-fill.
+
+    Apply this to every concrete ``invoke`` method in an :class:`Endpoint`
+    subclass::
+
+        class MyEndpoint(Endpoint):
+            @llmeter_invoke
+            def invoke(self, payload: dict) -> InvocationResponse:
+                raw = self._client.call(**payload)
+                return self.parse_response(raw, self._start_t)
+
+    The wrapper performs the following steps around the decorated function:
+
+    1. Calls :meth:`~Endpoint.prepare_payload` to merge ``**kwargs`` and
+       inject provider-specific fields.
+    2. Records ``self._start_t`` via :func:`time.perf_counter`.
+    3. Calls the inner ``invoke``.
+    4. On exception, converts it to an error :class:`InvocationResponse`.
+    5. Back-fills ``time_to_last_token``, ``input_payload``,
+       ``input_prompt``, ``id``, and ``request_time`` if the subclass
+       didn't set them.
+    """
+
+    @functools.wraps(fn)
+    def wrapper(self: "Endpoint", payload: dict, **kw: Any) -> InvocationResponse:
+        prepared = self.prepare_payload(payload, **kw)
+        self._last_payload = prepared
+        request_time = datetime.now(timezone.utc)
+        self._start_t = time.perf_counter()
+        try:
+            response = fn(self, prepared)
+        except Exception as e:
+            logger.exception("Endpoint invocation failed: %s", e)
+            response = InvocationResponse.error_output(
+                input_payload=prepared,
+                id=uuid4().hex,
+                error=str(e),
+                request_time=request_time,
+            )
+
+        if response.time_to_last_token is None and response.error is None:
+            response.time_to_last_token = time.perf_counter() - self._start_t
+
+        if response.input_payload is None:
+            response.input_payload = prepared
+        if response.input_prompt is None:
+            try:
+                response.input_prompt = self._parse_payload(prepared)
+            except Exception:
+                logger.debug("_parse_payload failed; leaving input_prompt as None")
+        if response.id is None:
+            response.id = uuid4().hex
+        if response.request_time is None:
+            response.request_time = request_time
+
+        return response
+
+    wrapper._is_llmeter_invoke = True
+    return wrapper
+
+
 class Endpoint(ABC):
     """
     An abstract base class for endpoint implementations.
@@ -139,13 +207,20 @@ class Endpoint(ABC):
         """Invoke the endpoint with the given payload.
 
         Subclasses implement this with their provider-specific API call,
-        passing the raw response to :meth:`parse_response`.  The payload
-        received here has already been through :meth:`prepare_payload`, so
-        ``**kwargs`` have been merged and provider-specific fields
-        (``model``, ``modelId``, etc.) are set.
+        passing the raw response to :meth:`parse_response`.  Decorate the
+        concrete implementation with :func:`llmeter_invoke` to get automatic
+        payload preparation, timing, error handling, and metadata back-fill::
 
-        The base class automatically wraps every subclass implementation with:
+            @llmeter_invoke
+            def invoke(self, payload: dict) -> InvocationResponse:
+                raw = self._client.call(**payload)
+                return self.parse_response(raw, self._start_t)
 
+        The :func:`llmeter_invoke` wrapper provides:
+
+        * **Payload preparation** — calls :meth:`prepare_payload` before the
+          inner function, so ``**kwargs`` are merged and provider-specific
+          fields (``model``, ``modelId``, etc.) are set.
         * **Timing** — ``self._start_t`` is set immediately before the call
           and ``time_to_last_token`` is back-filled on the response if the
           subclass didn't set it (streaming endpoints typically set it during
@@ -215,60 +290,6 @@ class Endpoint(ABC):
             dict: The final payload to send to the API.
         """
         return payload
-
-    def __init_subclass__(cls, **kwargs: Any) -> None:
-        super().__init_subclass__(**kwargs)
-
-        # Wrap the subclass invoke (if it defines one) with prepare_payload,
-        # error handling, and metadata back-fill.
-        if "invoke" not in cls.__dict__:
-            return
-
-        inner = cls.__dict__["invoke"]
-
-        if not callable(inner) or isinstance(inner, (classmethod, staticmethod)):
-            return
-
-        def invoke(self: "Endpoint", payload: dict, **kw: Any) -> InvocationResponse:
-            prepared = self.prepare_payload(payload, **kw)
-            self._last_payload = prepared
-            request_time = datetime.now(timezone.utc)
-            self._start_t = time.perf_counter()
-            try:
-                response = inner(self, prepared)
-            except Exception as e:
-                logger.exception("Endpoint invocation failed: %s", e)
-                response = InvocationResponse.error_output(
-                    input_payload=prepared,
-                    id=uuid4().hex,
-                    error=str(e),
-                    request_time=request_time,
-                )
-
-            # Back-fill time_to_last_token if the subclass didn't set it
-            # (streaming endpoints typically set it during stream consumption).
-            if response.time_to_last_token is None and response.error is None:
-                response.time_to_last_token = time.perf_counter() - self._start_t
-
-            if response.input_payload is None:
-                response.input_payload = prepared
-            if response.input_prompt is None:
-                try:
-                    response.input_prompt = self._parse_payload(prepared)
-                except Exception:
-                    logger.debug("_parse_payload failed; leaving input_prompt as None")
-            if response.id is None:
-                response.id = uuid4().hex
-            if response.request_time is None:
-                response.request_time = request_time
-
-            return response
-
-        invoke.__name__ = inner.__name__
-        invoke.__qualname__ = inner.__qualname__
-        invoke.__doc__ = inner.__doc__
-        invoke.__module__ = inner.__module__
-        cls.invoke = invoke  # type: ignore[attr-defined]
 
     def _parse_payload(self, payload: dict) -> str | dict | None:
         """Extract the user-facing input text from an API request payload.
