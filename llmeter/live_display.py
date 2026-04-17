@@ -33,19 +33,19 @@ DEFAULT_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
 #: Each entry maps a short display label to a *stat spec*:
 #:
 #: * A plain string — the canonical key in ``RunningStats.to_stats()``
-#:   (e.g. ``"failed_requests"``, ``"rpm"``, ``"time_to_first_token-p50"``).
+#:   (e.g. ``"failed_requests"``, ``"time_to_first_token-p50"``).
 #: * A ``(stat_key, "inv")`` tuple — display the reciprocal of the value
 #:   (e.g. seconds-per-token → tokens-per-second).
 DEFAULT_DISPLAY_STATS: dict[str, str | tuple[str, str]] = {
-    "rpm": "rpm",
+    "rpm": "requests_per_minute",
     "output_tps": "output_tps",
     "p50_ttft": "time_to_first_token-p50",
     "p90_ttft": "time_to_first_token-p90",
     "p50_ttlt": "time_to_last_token-p50",
     "p90_ttlt": "time_to_last_token-p90",
     "p50_tps": ("time_per_output_token-p50", "inv"),
-    "input_tokens": "num_tokens_input-sum",
-    "output_tokens": "num_tokens_output-sum",
+    "input_tokens": "total_input_tokens",
+    "output_tokens": "total_output_tokens",
     "fail": "failed_requests",
 }
 
@@ -67,10 +67,8 @@ def _format_stat(key: str, value: float | int, *, invert: bool = False) -> str:
         return f"{value:.1f} tok/s"
     if "time" in key or "ttft" in key or "ttlt" in key:
         return f"{value:.3f}s"
-    if "rpm" in key:
+    if "_per_minute" in key:
         return f"{value:.1f}"
-    if isinstance(value, float) and value == int(value):
-        return str(int(value))
     if isinstance(value, int):
         return str(value)
     return f"{value:.1f}"

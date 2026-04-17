@@ -67,7 +67,7 @@ results = await endpoint_test.run(
     n_requests=100,
     clients=5,
     progress_bar_stats={
-        "rpm": "rpm",
+        "rpm": "requests_per_minute",
         "p99_ttlt": ("time_to_last_token", "p99"),
         "tps": ("time_per_output_token", "p50", "inv"),
         "fail": "failed",

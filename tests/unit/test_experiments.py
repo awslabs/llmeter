@@ -559,7 +559,7 @@ class TestLoadTestTimeBound:
 
     def test_load_test_with_progress_bar_stats(self, mock_endpoint):
         """progress_bar_stats should be stored on the LoadTest instance."""
-        custom_stats = {"rpm": "rpm", "fail": "failed_requests"}
+        custom_stats = {"rpm": "requests_per_minute", "fail": "failed_requests"}
         lt = LoadTest(
             endpoint=mock_endpoint,
             payload={"input": "test"},
@@ -633,7 +633,7 @@ class TestLoadTestTimeBound:
     @pytest.mark.asyncio
     async def test_progress_bar_stats_passed_to_runner(self, mock_endpoint):
         """progress_bar_stats should be forwarded to each runner.run() call."""
-        custom_stats = {"rpm": "rpm"}
+        custom_stats = {"rpm": "requests_per_minute"}
         mock_runner_instance = AsyncMock(spec=Runner)
         mock_runner_instance.run.return_value = MagicMock(
             spec=Result, clients=1, total_requests=10

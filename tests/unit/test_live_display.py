@@ -13,7 +13,6 @@ from llmeter.live_display import (
     _in_notebook,
 )
 
-
 # ── _classify ────────────────────────────────────────────────────────────────
 
 
@@ -134,8 +133,8 @@ class TestFormatStat:
     def test_integer_value(self):
         assert _format_stat("failed_requests", 3) == "3"
 
-    def test_float_that_is_whole(self):
-        assert _format_stat("failed_requests", 0.0) == "0"
+    def test_float_whole_number(self):
+        assert _format_stat("failed_requests", 0.0) == "0.0"
 
 
 # ── LiveStatsDisplay ─────────────────────────────────────────────────────────
@@ -169,7 +168,7 @@ class TestLiveStatsDisplay:
         }
         result = display.format_stats(raw)
         assert result["rpm"] == "185.9"
-        assert result["fail"] == "0"
+        assert result["fail"] == "0.0"
         assert result["p50_ttft"] == "0.312s"
 
     def test_format_stats_inverse(self):
@@ -182,11 +181,16 @@ class TestLiveStatsDisplay:
 
     def test_format_stats_missing_key_shows_placeholder(self):
         display = LiveStatsDisplay(
-            display_stats={"rpm": "rpm", "missing": "nonexistent_key"}
+            display_stats={"rpm": "requests_per_minute", "missing": "nonexistent_key"}
         )
-        result = display.format_stats({"rpm": 100.0})
-        assert result["rpm"] == "100.0"
+        result = display.format_stats({"requests_per_minute": 123.4})
+        assert result["rpm"] == "123.4"
         assert result["missing"] == "—"
+
+    def test_format_stats_round_number_float(self):
+        display = LiveStatsDisplay(display_stats={"rpm": "requests_per_minute"})
+        result = display.format_stats({"requests_per_minute": 100.0})
+        assert result["rpm"] == "100.0"
 
     def test_custom_display_stats(self):
         custom = {"latency": "time_to_last_token-p99", "errors": "failed_requests"}
