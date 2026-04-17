@@ -110,6 +110,36 @@ def test_base_endpoint_invoke(concrete_endpoint):
     assert response.input_prompt == "Hello"
 
 
+def test_invoke_sets_request_time(concrete_endpoint):
+    """The invoke wrapper should always set request_time on the response."""
+    from datetime import datetime, timezone
+
+    before = datetime.now(timezone.utc)
+    response = concrete_endpoint.invoke({"prompt": "Hello"})
+    after = datetime.now(timezone.utc)
+
+    assert response.request_time is not None
+    assert before <= response.request_time <= after
+
+
+def test_invoke_error_sets_request_time(concrete_endpoint):
+    """request_time should be set even when invoke raises an exception."""
+    from datetime import datetime, timezone
+    from unittest.mock import patch
+
+    # Make parse_response raise to trigger the error path
+    with patch.object(
+        type(concrete_endpoint), "parse_response", side_effect=RuntimeError("boom")
+    ):
+        before = datetime.now(timezone.utc)
+        response = concrete_endpoint.invoke({"prompt": "Hello"})
+        after = datetime.now(timezone.utc)
+
+    assert response.error is not None
+    assert response.request_time is not None
+    assert before <= response.request_time <= after
+
+
 def test_base_endpoint_create_payload():
     payload = ConcreteEndpoint.create_payload("Test prompt")
     assert payload == {"prompt": "Test prompt"}

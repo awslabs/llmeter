@@ -11,6 +11,7 @@ import logging
 import time
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 from typing import Any
 from uuid import uuid4
 
@@ -40,6 +41,7 @@ class InvocationResponse:
         input_prompt (str): The input prompt used in the invocation.
         time_per_output_token (float): The average time taken to generate each token in the response.
         error (str): Any error that occurred during invocation.
+        request_time (datetime): The wall-clock time when the request was sent.
     """
 
     response_text: str | None
@@ -54,6 +56,7 @@ class InvocationResponse:
     time_per_output_token: float | None = None
     error: str | None = None
     retries: int | None = None
+    request_time: datetime | None = None
 
     def to_json(self, default=llmeter_default_serializer, **kwargs) -> str:
         """Serialize this response to a JSON string.
@@ -75,7 +78,10 @@ class InvocationResponse:
 
     @staticmethod
     def error_output(
-        input_payload: dict | None = None, error=None, id: str | None = None
+        input_payload: dict | None = None,
+        error=None,
+        id: str | None = None,
+        request_time: datetime | None = None,
     ) -> "InvocationResponse":
         return InvocationResponse(
             id=id or uuid4().hex,
@@ -83,6 +89,7 @@ class InvocationResponse:
             input_payload=input_payload,
             time_to_last_token=None,
             error="invocation failed" if error is None else str(error),
+            request_time=request_time,
         )
 
     def __repr__(self):
@@ -225,6 +232,7 @@ class Endpoint(ABC):
         def invoke(self: "Endpoint", payload: dict, **kw: Any) -> InvocationResponse:
             prepared = self.prepare_payload(payload, **kw)
             self._last_payload = prepared
+            request_time = datetime.now(timezone.utc)
             self._start_t = time.perf_counter()
             try:
                 response = inner(self, prepared)
@@ -234,6 +242,7 @@ class Endpoint(ABC):
                     input_payload=prepared,
                     id=uuid4().hex,
                     error=str(e),
+                    request_time=request_time,
                 )
 
             # Back-fill time_to_last_token if the subclass didn't set it
@@ -250,6 +259,8 @@ class Endpoint(ABC):
                     logger.debug("_parse_payload failed; leaving input_prompt as None")
             if response.id is None:
                 response.id = uuid4().hex
+            if response.request_time is None:
+                response.request_time = request_time
 
             return response
 
