@@ -1,7 +1,6 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 import bisect
-import time
 from datetime import datetime, timezone
 from itertools import filterfalse
 from math import isnan
@@ -113,28 +112,10 @@ class RunningStats:
         self._metrics = list(metrics)
         self._count = 0
         self._failed = 0
-        self._sends = 0
-        self._first_send_time: float | None = None
-        self._last_send_time: float | None = None
+        self._first_send_time: datetime | None = None
+        self._last_send_time: datetime | None = None
         self._sums: dict[str, float] = {m: 0.0 for m in metrics}
         self._values: dict[str, list[float]] = {m: [] for m in metrics}
-
-    def record_send(self) -> None:
-        """Record that a request was dispatched to the endpoint.
-
-        Call this from the invocation loop each time a request is sent, *before*
-        waiting for the response. This tracks the send-side time window used for
-        accurate RPM and throughput calculations.
-
-        The send window (``_first_send_time`` to ``_last_send_time``) excludes
-        the tail latency of the final response, giving a more accurate picture
-        of the request dispatch rate.
-        """
-        now = time.perf_counter()
-        self._sends += 1
-        if self._first_send_time is None:
-            self._first_send_time = now
-        self._last_send_time = now
 
     def update(self, response_dict: dict[str, Any]) -> None:
         """Record one response's metric values.
@@ -158,61 +139,39 @@ class RunningStats:
         self._count += 1
         if response_dict.get("error") is not None:
             self._failed += 1
+        request_time = response_dict.get("request_time")
+        if request_time is not None:
+            if self._first_send_time is None or request_time < self._first_send_time:
+                self._first_send_time = request_time
+            if self._last_send_time is None or request_time > self._last_send_time:
+                self._last_send_time = request_time
         for m in self._metrics:
             val = response_dict.get(m)
-            if val is not None and not (isinstance(val, float) and isnan(val)):
+            if val is not None and not (isinstance(val, (float, int)) and isnan(val)):
                 self._sums[m] += val
                 bisect.insort(self._values[m], val)
 
     def to_stats(
         self,
-        total_requests: int | None = None,
-        total_test_time: float | None = None,
+        end_time: datetime | None = None,
         result_dict: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Compute all accumulated statistics as raw numeric values.
 
         This is the single source of truth for stats computation.  It is called
-        once at the end of a run (with all three optional arguments) to produce
-        the full ``Result.stats`` dict, and also called internally by
-        :meth:`snapshot` (without arguments) for mid-run progress display.
+        once at the end of a run (with all arguments) to produce the full
+        ``Result.stats`` dict, and also called internally by :meth:`snapshot`
+        (without arguments) for mid-run progress display.
 
         Args:
-            total_requests: Total number of requests across all clients.  When
-                provided, enables ``failed_requests_rate`` and
-                ``requests_per_minute`` computation.
-            total_test_time: Wall-clock duration of the run in seconds.  When
-                provided, enables throughput metrics (requests/min, tokens/min).
+            end_time: Wall-clock end time of the run.  Used together with
+                ``_first_send_time`` to compute output-rate metrics.
             result_dict: Base key-value pairs to include in the output (typically
                 from ``Result.to_dict()``).  When ``None``, only metric
                 aggregations and failure counts are returned.
 
         Returns:
-            A flat dictionary of statistics.  Keys include:
-
-            * ``failed_requests``, ``failed_requests_rate``, ``requests_per_minute``
-            * ``total_input_tokens``, ``total_output_tokens``
-            * ``average_input_tokens_per_minute``, ``average_output_tokens_per_minute``
-            * ``{metric}-{agg}`` for each tracked metric and each aggregation
-              (``average``, ``p50``, ``p90``, ``p99``).
-
-        Example::
-
-            rs = RunningStats(metrics=["time_to_first_token", "num_tokens_output"])
-            for resp in responses:
-                rs.update(resp.to_dict())
-
-            # Mid-run (no run-level context):
-            partial = rs.to_stats()
-            partial["time_to_first_token-p50"]  # 0.312
-
-            # End of run (full Result.stats schema):
-            full = rs.to_stats(
-                total_requests=100,
-                total_test_time=42.5,
-                result_dict=result.to_dict(),
-            )
-            full["requests_per_minute"]  # 141.2
+            A flat dictionary of statistics.
         """
         stats: dict[str, Any] = {}
         if result_dict is not None:
@@ -220,20 +179,9 @@ class RunningStats:
 
         # Run-level stats
         stats["failed_requests"] = self._failed
-        stats["failed_requests_rate"] = total_requests and self._failed / total_requests
-        stats["requests_per_minute"] = (
-            total_test_time and total_requests / total_test_time * 60
-            if total_requests
-            else None
-        )
+        stats["failed_requests_rate"] = self._count and self._failed / self._count
         stats["total_input_tokens"] = self._sums.get("num_tokens_input", 0)
         stats["total_output_tokens"] = self._sums.get("num_tokens_output", 0)
-        stats["average_input_tokens_per_minute"] = (
-            total_test_time and stats["total_input_tokens"] / total_test_time * 60
-        )
-        stats["average_output_tokens_per_minute"] = (
-            total_test_time and stats["total_output_tokens"] / total_test_time * 60
-        )
 
         # Per-metric aggregations
         for m in self._metrics:
@@ -241,28 +189,40 @@ class RunningStats:
             for j, v in agg.items():
                 stats[f"{m}-{j}"] = v
 
-        # Send-window throughput (live RPM and output tokens/s).
-        # These use the dispatch timestamps rather than response timestamps,
-        # giving a more accurate picture of the request rate.
+        # Input rate metrics use the dispatch timestamps (request_time on
+        # responses) rather than response timestamps, giving a more accurate
+        # picture of the request rate.
         send_window = self._send_window()
         if send_window and send_window > 0:
-            stats["rpm"] = self._count / send_window * 60
+            stats["requests_per_minute"] = self._count * 60 / send_window
+            stats["average_input_tokens_per_minute"] = (
+                stats["total_input_tokens"] * 60 / send_window
+            )
+
+        # Output rate metrics use overall test end time (or now, when ongoing).
+        if (
+            self._first_send_time is not None
+            and end_time is not None
+            and end_time > self._first_send_time
+        ):
+            run_window = (end_time - self._first_send_time).total_seconds()
             total_out = self._sums.get("num_tokens_output", 0)
-            stats["output_tps"] = total_out / send_window
+            stats["average_output_tokens_per_minute"] = total_out * 60 / run_window
+            stats["output_tps"] = total_out / run_window
 
         return stats
 
     def _send_window(self) -> float | None:
-        """Return the elapsed seconds between first and last ``record_send`` call.
+        """Return the elapsed seconds between first and last request timestamp.
 
-        Returns ``None`` when fewer than two sends have been recorded.
+        Returns ``None`` when fewer than two requests have been recorded.
         """
         if (
             self._first_send_time is not None
             and self._last_send_time is not None
             and self._last_send_time > self._first_send_time
         ):
-            return self._last_send_time - self._first_send_time
+            return (self._last_send_time - self._first_send_time).total_seconds()
         return None
 
 

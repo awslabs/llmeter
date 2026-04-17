@@ -34,6 +34,8 @@ class Result:
     run_name: str | None = None
     run_description: str | None = None
     start_time: datetime | None = None
+    first_request_time: datetime | None = None
+    last_request_time: datetime | None = None
     end_time: datetime | None = None
 
     def __str__(self):
@@ -128,7 +130,12 @@ class Result:
         """Return the results as a dictionary with JSON-serializable values."""
         data = asdict(self)
         # Serialize datetime objects so stats dict is always JSON-safe
-        for key in ("start_time", "end_time"):
+        for key in (
+            "start_time",
+            "end_time",
+            "first_request_time",
+            "last_request_time",
+        ):
             if key in data and isinstance(data[key], datetime):
                 data[key] = llmeter_default_serializer(data[key])
         if include_responses:
@@ -204,7 +211,12 @@ class Result:
             summary = json.load(g)
 
         # Convert datetime strings back to datetime objects
-        for key in ["start_time", "end_time"]:
+        for key in [
+            "start_time",
+            "end_time",
+            "first_request_time",
+            "last_request_time",
+        ]:
             if key in summary and summary[key] and isinstance(summary[key], str):
                 try:
                     summary[key] = datetime.fromisoformat(summary[key])
@@ -241,7 +253,12 @@ class Result:
                 with stats_path.open("r") as s:
                     result._preloaded_stats = json.loads(s.read())
                     # Convert datetime strings in stats
-                    for key in ["start_time", "end_time"]:
+                    for key in [
+                        "start_time",
+                        "end_time",
+                        "first_request_time",
+                        "last_request_time",
+                    ]:
                         val = result._preloaded_stats.get(key)
                         if val and isinstance(val, str):
                             try:

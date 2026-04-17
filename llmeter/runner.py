@@ -320,7 +320,7 @@ class _Run(_RunConfig):
                 self._progress_bar.update(1)
 
             if self._stats_display is not None:
-                raw = self._running_stats.to_stats()
+                raw = self._running_stats.to_stats(end_time=now_utc())
                 if raw:
                     prefix = (
                         f"reqs={self._running_stats._count}" if self._time_bound else ""
@@ -411,7 +411,6 @@ class _Run(_RunConfig):
             p = next(payload_iter)
             try:
                 p = asyncio.run(process_before_invoke_callbacks(self.callbacks, p))
-                self._running_stats.record_send()
                 response = self._endpoint.invoke(p)
             except Exception as e:
                 logger.exception(f"Error with invocation with payload {p}: {e}")
@@ -685,13 +684,14 @@ class _Run(_RunConfig):
             if self._time_bound
             else self.n_requests,
             start_time=run_start_time,
+            first_request_time=self._running_stats._first_send_time,
+            last_request_time=self._running_stats._last_send_time,
             end_time=run_end_time,
         )
 
         # Compute stats from the running accumulators
         result._preloaded_stats = self._running_stats.to_stats(
-            total_requests=result.total_requests,
-            total_test_time=total_test_time,
+            end_time=run_end_time,
             result_dict=result.to_dict(),
         )
         result._preloaded_stats["start_time"] = run_start_time
