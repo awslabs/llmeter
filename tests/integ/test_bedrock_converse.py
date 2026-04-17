@@ -23,6 +23,8 @@ Estimated Cost:
     - ~$0.0006 total for all tests in this module
 """
 
+from datetime import datetime
+
 import pytest
 
 from llmeter.endpoints.bedrock import BedrockConverse
@@ -88,6 +90,11 @@ def test_bedrock_converse_non_streaming(
     assert response.id is not None, "Response should have an ID"
     assert "-" in response.id, (
         f"Response ID should be an AWS RequestId (UUID with hyphens), got: {response.id}"
+    )
+
+    # Verify request_time is always set
+    assert isinstance(response.request_time, datetime), (
+        "request_time should be a datetime"
     )
 
 
@@ -170,6 +177,11 @@ def test_bedrock_converse_streaming(
         f"Response ID should be an AWS RequestId (UUID with hyphens), got: {response.id}"
     )
 
+    # Verify request_time is always set
+    assert isinstance(response.request_time, datetime), (
+        "request_time should be a datetime"
+    )
+
 
 @pytest.mark.integ
 def test_bedrock_converse_with_image(
@@ -245,6 +257,11 @@ def test_bedrock_converse_with_image(
     assert response.id is not None, "Response should have an ID"
     assert "-" in response.id, (
         f"Response ID should be an AWS RequestId (UUID with hyphens), got: {response.id}"
+    )
+
+    # Verify request_time is always set
+    assert isinstance(response.request_time, datetime), (
+        "request_time should be a datetime"
     )
 
 

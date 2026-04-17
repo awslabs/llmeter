@@ -21,6 +21,8 @@ Estimated Cost:
     - ~$0.0002 total for all tests in this module
 """
 
+from datetime import datetime
+
 import pytest
 
 from llmeter.endpoints.bedrock import BedrockConverse
@@ -97,6 +99,11 @@ def test_invalid_model_error(aws_credentials, aws_region):
     if response.num_tokens_output is not None:
         assert response.num_tokens_output == 0, "Output tokens should be 0 on error"
 
+    # Verify request_time is set even on error
+    assert isinstance(response.request_time, datetime), (
+        "request_time should be a datetime even on error"
+    )
+
 
 @pytest.mark.integ
 def test_invalid_payload_error(aws_credentials, aws_region, bedrock_test_model):
@@ -167,6 +174,11 @@ def test_invalid_payload_error(aws_credentials, aws_region, bedrock_test_model):
         assert response.num_tokens_input == 0, "Input tokens should be 0 on error"
     if response.num_tokens_output is not None:
         assert response.num_tokens_output == 0, "Output tokens should be 0 on error"
+
+    # Verify request_time is set even on error
+    assert isinstance(response.request_time, datetime), (
+        "request_time should be a datetime even on error"
+    )
 
 
 @pytest.mark.integ
@@ -259,6 +271,11 @@ def test_error_response_structure(aws_credentials, aws_region, bedrock_test_mode
         )
         assert hasattr(response, "time_to_first_token"), (
             f"Error response {i}: should have time_to_first_token field"
+        )
+
+        # Verify request_time is set even on error
+        assert isinstance(response.request_time, datetime), (
+            f"Error response {i}: request_time should be a datetime even on error"
         )
 
     # Verify that different error types produce different error messages
