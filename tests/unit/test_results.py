@@ -602,6 +602,8 @@ def test_invocation_response_to_json_with_kwargs():
     # Verify it's still valid JSON
     parsed = json.loads(json_str)
     assert parsed["id"] == "test-kwargs"
+
+
 # ── Contributed stats round-trip ─────────────────────────────────────────────
 
 

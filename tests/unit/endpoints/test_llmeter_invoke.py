@@ -9,9 +9,7 @@ error handling, metadata back-fill, and invocation isolation.
 
 from datetime import datetime, timezone
 
-
 from llmeter.endpoints.base import Endpoint, InvocationResponse, llmeter_invoke
-
 
 # ---------------------------------------------------------------------------
 # Minimal concrete endpoint for testing the decorator in isolation
@@ -21,7 +19,7 @@ from llmeter.endpoints.base import Endpoint, InvocationResponse, llmeter_invoke
 class StubEndpoint(Endpoint):
     """Endpoint whose invoke body and side-effects are fully controllable."""
 
-    def __init__(self, invoke_fn=None, parse_payload_fn=None):
+    def __init__(self, invoke_fn=None, parse_payload_fn=None, parse_response_fn=None):
         super().__init__(
             endpoint_name="stub",
             model_id="stub-model",
@@ -29,14 +27,27 @@ class StubEndpoint(Endpoint):
         )
         self._invoke_fn = invoke_fn
         self._parse_payload_fn = parse_payload_fn
+        self._parse_response_fn = parse_response_fn
 
     @llmeter_invoke
-    def invoke(self, payload: dict) -> InvocationResponse:
+    def invoke(self, payload: dict):
         if self._invoke_fn:
             return self._invoke_fn(self, payload)
-        return InvocationResponse(response_text="ok")
+        return {"text": "ok"}
 
     def parse_response(self, raw_response, start_t):
+        if self._parse_response_fn:
+            return self._parse_response_fn(raw_response, start_t)
+        if isinstance(raw_response, InvocationResponse):
+            return raw_response
+        if isinstance(raw_response, dict):
+            return InvocationResponse(
+                response_text=raw_response.get("text", str(raw_response)),
+                id=raw_response.get("id"),
+                time_to_first_token=raw_response.get("time_to_first_token"),
+                time_to_last_token=raw_response.get("time_to_last_token"),
+                input_payload=raw_response.get("input_payload"),
+            )
         return InvocationResponse(response_text=str(raw_response))
 
     def _parse_payload(self, payload):
@@ -66,7 +77,7 @@ class TestPayloadMutation:
             # Simulate what boto3 does: pop keys, add metadata
             payload.pop("extra_field", None)
             payload["_injected_by_client"] = True
-            return InvocationResponse(response_text="ok")
+            return {"text": "ok"}
 
         endpoint = StubWithPrepare(invoke_fn=mutating_invoke)
         response = endpoint.invoke({"prompt": "hello", "extra_field": "will be popped"})
@@ -89,7 +100,7 @@ class TestPayloadMutation:
         def mutating_invoke(self, payload):
             # Wipe the prompt field — simulates a destructive client
             payload.pop("prompt", None)
-            return InvocationResponse(response_text="ok")
+            return {"text": "ok"}
 
         endpoint = StubWithPrepare(
             invoke_fn=mutating_invoke,
@@ -110,7 +121,7 @@ class TestPayloadMutation:
 
         def mutating_invoke(self, payload):
             payload["injected"] = True
-            return InvocationResponse(response_text="ok")
+            return {"text": "ok"}
 
         endpoint = StubWithPrepare(invoke_fn=mutating_invoke)
         original = {"prompt": "hello"}
@@ -150,10 +161,10 @@ class TestInvocationIsolation:
         def counting_invoke(self, payload):
             nonlocal call_count
             call_count += 1
-            return InvocationResponse(
-                response_text=f"response-{call_count}",
-                id=f"id-{call_count}",
-            )
+            return {
+                "text": f"response-{call_count}",
+                "id": f"id-{call_count}",
+            }
 
         endpoint = StubWithPrepare(invoke_fn=counting_invoke)
 
@@ -167,7 +178,9 @@ class TestInvocationIsolation:
         assert r1.input_payload["prompt"] == "first"
         assert r2.input_payload["prompt"] == "second"
         # Each has its own request_time
-        assert r1.request_time != r2.request_time or r1.request_time is not r2.request_time
+        assert (
+            r1.request_time != r2.request_time or r1.request_time is not r2.request_time
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -191,11 +204,11 @@ class TestTiming:
         decorator should not overwrite it."""
 
         def streaming_invoke(self, payload):
-            return InvocationResponse(
-                response_text="streamed",
-                time_to_first_token=0.1,
-                time_to_last_token=0.5,
-            )
+            return {
+                "text": "streamed",
+                "time_to_first_token": 0.1,
+                "time_to_last_token": 0.5,
+            }
 
         endpoint = StubEndpoint(invoke_fn=streaming_invoke)
         response = endpoint.invoke({"prompt": "hello"})
@@ -269,7 +282,7 @@ class TestMetadataBackfill:
 
     def test_id_not_overwritten_when_set(self):
         def invoke_with_id(self, payload):
-            return InvocationResponse(response_text="ok", id="my-custom-id")
+            return {"text": "ok", "id": "my-custom-id"}
 
         endpoint = StubEndpoint(invoke_fn=invoke_with_id)
         response = endpoint.invoke({"prompt": "hello"})
@@ -295,9 +308,7 @@ class TestMetadataBackfill:
         custom_payload = {"custom": True}
 
         def invoke_with_payload(self, payload):
-            return InvocationResponse(
-                response_text="ok", input_payload=custom_payload
-            )
+            return {"text": "ok", "input_payload": custom_payload}
 
         endpoint = StubEndpoint(invoke_fn=invoke_with_payload)
         response = endpoint.invoke({"prompt": "hello"})

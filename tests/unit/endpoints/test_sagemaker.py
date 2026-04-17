@@ -19,7 +19,7 @@ from llmeter.endpoints.sagemaker import (
 
 class ConcreteClass(SageMakerBase):
     def invoke(self, payload) -> InvocationResponse:
-        return self.parse_response(None, 0.0)
+        return None
 
     def parse_response(self, raw_response, start_t: float) -> InvocationResponse:
         return InvocationResponse(response_text="test response")

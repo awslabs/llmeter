@@ -227,11 +227,10 @@ class OpenAICompletionEndpoint(OpenAIEndpoint):
     @llmeter_invoke
     def invoke(self, payload: CompletionCreateParams) -> InvocationResponse:
         """Invoke the OpenAI chat completion API."""
-        start_t = time.perf_counter()
         client_response: ChatCompletion = self._client.chat.completions.create(
             **payload
         )
-        return self.parse_response(client_response, start_t)
+        return client_response
 
     def prepare_payload(self, payload, **kwargs):
         payload = {**kwargs, **payload}
@@ -258,9 +257,8 @@ class OpenAICompletionStreamEndpoint(OpenAIEndpoint):
     @llmeter_invoke
     def invoke(self, payload: CompletionCreateParams) -> InvocationResponse:
         """Invoke the OpenAI streaming chat completion API."""
-        start_t = time.perf_counter()
         client_response = self._client.chat.completions.create(**payload)
-        return self.parse_response(client_response, start_t)
+        return client_response
 
     def prepare_payload(self, payload, **kwargs):
         payload = {**kwargs, **payload}

@@ -122,27 +122,22 @@ def llmeter_invoke(fn):
 
         class MyEndpoint(Endpoint):
             @llmeter_invoke
-            def invoke(self, payload: dict) -> InvocationResponse:
-                start_t = time.perf_counter()
-                raw = self._client.call(**payload)
-                return self.parse_response(raw, start_t)
+            def invoke(self, payload: dict) -> Any:
+                return self._client.call(**payload)
 
     The wrapper performs the following steps around the decorated function:
 
     1. Calls :meth:`~Endpoint.prepare_payload` to merge ``**kwargs`` and
        inject provider-specific fields.
-    2. Calls the inner ``invoke``.
-    3. On exception, converts it to an error :class:`InvocationResponse`.
-    4. Back-fills ``time_to_last_token``, ``input_payload``,
+    2. Captures ``start_t`` via :func:`time.perf_counter`.
+    3. Calls the inner ``invoke`` which returns the raw API response.
+    4. Calls :meth:`~Endpoint.parse_response` with the raw response and
+       ``start_t``.
+    5. On exception (from either step 3 or 4), converts it to an error
+       :class:`InvocationResponse`.
+    6. Back-fills ``time_to_last_token``, ``input_payload``,
        ``input_prompt``, ``id``, and ``request_time`` if the subclass
        didn't set them.
-
-    .. note::
-
-       The inner ``invoke`` should capture its own ``start_t`` via
-       :func:`time.perf_counter` and pass it to :meth:`parse_response`.
-       The decorator independently tracks timing for the
-       ``time_to_last_token`` back-fill.
     """
 
     @functools.wraps(fn)
@@ -154,7 +149,8 @@ def llmeter_invoke(fn):
         request_time = datetime.now(timezone.utc)
         start_t = time.perf_counter()
         try:
-            response = fn(self, prepared)
+            raw_response = fn(self, prepared)
+            response = self.parse_response(raw_response, start_t)
         except Exception as e:
             logger.exception("Endpoint invocation failed: %s", e)
             response = InvocationResponse.error_output(
@@ -213,40 +209,34 @@ class Endpoint(ABC):
         self.provider = provider
 
     @abstractmethod
-    def invoke(self, payload: dict) -> InvocationResponse:
-        """Invoke the endpoint with the given payload.
+    def invoke(self, payload: dict) -> Any:
+        """Make the API call and return the raw provider response.
 
-        Subclasses implement this with their provider-specific API call,
-        passing the raw response to :meth:`parse_response`.  Decorate the
-        concrete implementation with :func:`llmeter_invoke` to get automatic
-        payload preparation, timing, error handling, and metadata back-fill::
+        Subclasses implement this with their provider-specific API call.
+        Decorate the concrete implementation with :func:`llmeter_invoke`
+        to get automatic payload preparation, timing, error handling,
+        response parsing, and metadata back-fill::
 
             @llmeter_invoke
-            def invoke(self, payload: dict) -> InvocationResponse:
-                start_t = time.perf_counter()
-                raw = self._client.call(**payload)
-                return self.parse_response(raw, start_t)
+            def invoke(self, payload: dict) -> Any:
+                return self._client.call(**payload)
 
-        The :func:`llmeter_invoke` wrapper provides:
+        The :func:`llmeter_invoke` wrapper:
 
-        * **Payload preparation** — calls :meth:`prepare_payload` before the
-          inner function, so ``**kwargs`` are merged and provider-specific
-          fields (``model``, ``modelId``, etc.) are set.
-        * **Timing** — ``time_to_last_token`` is back-filled on the response
-          if the subclass didn't set it (streaming endpoints typically set it
-          during stream consumption).
-        * **Error handling** — unhandled exceptions are caught, logged, and
-          converted to an error :class:`InvocationResponse`.
-        * **Metadata back-fill** — ``input_payload`` and ``input_prompt`` are
-          guaranteed to be set on the returned response (success or error),
-          using the prepared payload.
+        1. Calls :meth:`prepare_payload` before the inner function.
+        2. Captures ``start_t`` for timing.
+        3. Calls this method to get the raw API response.
+        4. Passes the raw response to :meth:`parse_response`.
+        5. Back-fills ``time_to_last_token``, ``input_payload``,
+           ``input_prompt``, ``id``, and ``request_time``.
+        6. Catches exceptions from both this method and ``parse_response``.
 
         Args:
             payload: The prepared input payload for the model.
 
         Returns:
-            InvocationResponse: An object containing the model's response and
-                associated metrics.
+            The raw response from the provider's API client (e.g.
+            ``ChatCompletion``, ``dict``, a streaming iterator).
         """
         raise NotImplementedError
 
@@ -258,9 +248,9 @@ class Endpoint(ABC):
         timing information, and any other provider-specific metadata from the
         raw object returned by the API client.
 
-        This method is called from :meth:`invoke` after the API call.
-        Exceptions raised here will be caught by the base-class ``invoke``
-        wrapper and converted to an error response automatically.
+        Called by the :func:`llmeter_invoke` wrapper after :meth:`invoke`.
+        Exceptions raised here are caught by the wrapper and converted to an
+        error response automatically.
 
         Non-streaming endpoints can ignore ``start_t`` — the wrapper
         back-fills ``time_to_last_token`` automatically.  Streaming endpoints
@@ -268,15 +258,12 @@ class Endpoint(ABC):
         during stream consumption.
 
         Args:
-            raw_response: The raw response object from the provider's API
-                client.  The type varies by provider (e.g. ``ChatCompletion``,
-                ``dict``, a streaming iterator).
-            start_t: The :func:`time.perf_counter` timestamp captured
-                immediately before the API call in the ``invoke`` method.
+            raw_response: The raw response object returned by :meth:`invoke`.
+            start_t: :func:`time.perf_counter` timestamp captured immediately
+                before the API call.
 
         Returns:
-            InvocationResponse: Parsed response with at least
-                ``response_text`` populated.
+            InvocationResponse with at least ``response_text`` populated.
         """
         raise NotImplementedError
 

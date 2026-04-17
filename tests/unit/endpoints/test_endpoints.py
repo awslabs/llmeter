@@ -75,7 +75,7 @@ class ConcreteEndpoint(Endpoint):
 
     @llmeter_invoke
     def invoke(self, payload: dict) -> InvocationResponse:
-        return self.parse_response(payload, 0.0)
+        return payload
 
     def parse_response(self, raw_response, start_t: float) -> InvocationResponse:
         return InvocationResponse(

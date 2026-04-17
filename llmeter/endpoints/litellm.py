@@ -82,11 +82,7 @@ class LiteLLMBase(Endpoint):
 class LiteLLM(LiteLLMBase):
     @llmeter_invoke
     def invoke(self, payload):
-        start_t = time.perf_counter()
-        response = completion(model=self.litellm_model, **payload)
-        if not isinstance(response, ModelResponse):
-            raise ValueError(f"Expected ModelResponse, got {type(response)}")
-        return self.parse_response(response, start_t)
+        return completion(model=self.litellm_model, **payload)
 
     def parse_response(
         self, client_response: ModelResponse, start_t: float
@@ -108,12 +104,7 @@ class LiteLLM(LiteLLMBase):
 class LiteLLMStreaming(LiteLLMBase):
     @llmeter_invoke
     def invoke(self, payload):
-        start_t = time.perf_counter()
-        response = completion(model=self.litellm_model, **payload)
-
-        if not isinstance(response, CustomStreamWrapper):
-            raise ValueError(f"Expected CustomStreamWrapper, got {type(response)}")
-        return self.parse_response(response, start_t)
+        return completion(model=self.litellm_model, **payload)
 
     def prepare_payload(self, payload, **kwargs):
         # Make a copy of payload to avoid modifying the original
