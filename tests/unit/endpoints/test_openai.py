@@ -772,3 +772,59 @@ class TestOpenAIEndpointEdgeCases:
             assert response.response_text == "Hello world"
             assert response.num_tokens_input is None
             assert response.num_tokens_output is None
+
+
+class TestStreamMidStreamErrors:
+    """Verify that errors during stream consumption are caught by the invoke wrapper."""
+
+    def test_timeout_during_stream_consumption(self):
+        """A timeout while iterating chunks should be caught, not raised."""
+        endpoint = OpenAICompletionStreamEndpoint(
+            model_id="gpt-3.5-turbo", api_key="test_key"
+        )
+
+        def exploding_stream():
+            chunk = MagicMock()
+            chunk.id = "test-id"
+            chunk.choices = [MagicMock()]
+            chunk.choices[0].delta.content = "Hello"
+            chunk.usage = None
+            yield chunk
+            raise TimeoutError("Read timed out")
+
+        with patch.object(endpoint._client.chat.completions, "create") as mock_create:
+            mock_create.return_value = exploding_stream()
+            response = endpoint.invoke(
+                {"messages": [{"role": "user", "content": "Hi"}]}
+            )
+
+        assert isinstance(response, InvocationResponse)
+        assert response.error is not None
+        assert "timed out" in response.error.lower()
+        assert response.input_payload is not None
+
+    def test_connection_error_during_stream_consumption(self):
+        """A connection drop mid-stream should be caught, not raised."""
+        endpoint = OpenAICompletionStreamEndpoint(
+            model_id="gpt-3.5-turbo", api_key="test_key"
+        )
+
+        def dropping_stream():
+            chunk = MagicMock()
+            chunk.id = "test-id"
+            chunk.choices = [MagicMock()]
+            chunk.choices[0].delta.content = "Partial"
+            chunk.usage = None
+            yield chunk
+            raise ConnectionError("Connection reset")
+
+        with patch.object(endpoint._client.chat.completions, "create") as mock_create:
+            mock_create.return_value = dropping_stream()
+            response = endpoint.invoke(
+                {"messages": [{"role": "user", "content": "Hi"}]}
+            )
+
+        assert isinstance(response, InvocationResponse)
+        assert response.error is not None
+        assert "connection" in response.error.lower()
+        assert response.input_payload is not None

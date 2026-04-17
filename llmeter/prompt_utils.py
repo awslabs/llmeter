@@ -11,7 +11,7 @@ from typing import Any, Callable, Iterator
 from upath import UPath as Path
 from upath.types import ReadablePathLike, WritablePathLike
 
-from .json_utils import llmeter_default_serializer, llmeter_bytes_decoder
+from .json_utils import llmeter_bytes_decoder, llmeter_default_serializer
 from .tokenizers import DummyTokenizer, Tokenizer
 from .utils import DeferredError, ensure_path
 

@@ -1,12 +1,12 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from unittest.mock import MagicMock, patch
+
 import pytest
 from upath import UPath
 
 from llmeter.endpoints.base import InvocationResponse
-from unittest.mock import MagicMock, patch
-
 from llmeter.experiments import LoadTestResult
 from llmeter.results import Result
 

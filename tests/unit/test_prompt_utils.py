@@ -11,13 +11,13 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
+from llmeter.json_utils import llmeter_bytes_decoder, llmeter_default_serializer
 from llmeter.prompt_utils import (
     CreatePromptCollection,
     load_payloads,
     load_prompts,
     save_payloads,
 )
-from llmeter.json_utils import llmeter_default_serializer, llmeter_bytes_decoder
 from llmeter.tokenizers import DummyTokenizer
 
 

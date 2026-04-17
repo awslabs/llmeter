@@ -121,12 +121,13 @@ After a batch of requests completes, the `Runner` computes aggregate statistics 
 | `failed_requests_rate` | Ratio of failed requests to total requests (0.0 to 1.0). |
 | `total_input_tokens` | Sum of `num_tokens_input` across all requests. |
 | `total_output_tokens` | Sum of `num_tokens_output` across all requests. |
+| `total_cached_input_tokens` | Sum of `num_tokens_input_cached` across all requests. Only non-zero when prompt caching is active. |
 | `average_input_tokens_per_minute` | Total input tokens divided by test time, scaled to per-minute rate. |
 | `average_output_tokens_per_minute` | Total output tokens divided by test time, scaled to per-minute rate. |
 
 #### Distribution statistics
 
-For each of the four core per-request metrics (`time_to_last_token`, `time_to_first_token`, `num_tokens_output`, `num_tokens_input`), LLMeter computes distributional aggregates across all successful responses. Each metric gets the following aggregations, accessible as `{metric}-{aggregation}` keys in `Result.stats`:
+For each of the five core per-request metrics (`time_to_last_token`, `time_to_first_token`, `num_tokens_output`, `num_tokens_input`, `num_tokens_input_cached`), LLMeter computes distributional aggregates across all successful responses. Each metric gets the following aggregations, accessible as `{metric}-{aggregation}` keys in `Result.stats`:
 
 | Aggregation | Key suffix | Description |
 | --- | --- | --- |

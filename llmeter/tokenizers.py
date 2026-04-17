@@ -2,12 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
+
+import json
 from abc import ABC, abstractmethod
 from typing import Any
 
 from upath import UPath
 from upath.types import ReadablePathLike, WritablePathLike
-import json
 
 from .utils import ensure_path
 

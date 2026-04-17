@@ -605,3 +605,62 @@ class TestBedrockInvokeStream:
         assert isinstance(response, InvocationResponse)
         assert response.error is not None
         assert "test error" in str(response.error).lower()
+
+    def test_invoke_stream_mid_stream_timeout(self):
+        """Verify that a timeout during stream body iteration is caught by
+        the invoke wrapper and returned as an error InvocationResponse."""
+        endpoint = BedrockInvokeStream(model_id="test_model")
+        endpoint._bedrock_client = MagicMock()
+
+        def exploding_body():
+            yield {
+                "chunk": {
+                    "bytes": json.dumps(
+                        {"choices": [{"delta": {"content": "Hello"}}]}
+                    ).encode()
+                }
+            }
+            raise TimeoutError("Read timed out during streaming")
+
+        endpoint._bedrock_client.invoke_model_with_response_stream.return_value = {
+            "body": exploding_body(),
+            "ResponseMetadata": {"RetryAttempts": 0, "RequestId": "req-789"},
+        }
+
+        response = endpoint.invoke(
+            {"messages": [{"role": "user", "content": [{"text": "Hi"}]}]}
+        )
+
+        assert isinstance(response, InvocationResponse)
+        assert response.error is not None
+        assert "timed out" in response.error.lower()
+        assert response.input_payload is not None
+
+    def test_invoke_stream_connection_drop(self):
+        """Verify that a connection error mid-stream is caught by the wrapper."""
+        endpoint = BedrockInvokeStream(model_id="test_model")
+        endpoint._bedrock_client = MagicMock()
+
+        def dropping_body():
+            yield {
+                "chunk": {
+                    "bytes": json.dumps(
+                        {"choices": [{"delta": {"content": "Partial"}}]}
+                    ).encode()
+                }
+            }
+            raise ConnectionError("Connection reset by peer")
+
+        endpoint._bedrock_client.invoke_model_with_response_stream.return_value = {
+            "body": dropping_body(),
+            "ResponseMetadata": {"RetryAttempts": 0, "RequestId": "req-abc"},
+        }
+
+        response = endpoint.invoke(
+            {"messages": [{"role": "user", "content": [{"text": "Hi"}]}]}
+        )
+
+        assert isinstance(response, InvocationResponse)
+        assert response.error is not None
+        assert "connection" in response.error.lower()
+        assert response.input_payload is not None

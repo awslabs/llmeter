@@ -302,6 +302,101 @@ def test_bedrock_converse_streaming_with_image(
     )
 
 
+@pytest.mark.integ
+def test_bedrock_converse_streaming_prompt_caching(
+    aws_credentials, aws_region, bedrock_test_model
+):
+    """Test that BedrockConverseStream captures prompt caching metrics.
+
+    This test validates that:
+    - A request with a cachePoint in the system prompt succeeds
+    - ``num_tokens_input_cached`` is populated on the response
+    - A second request with the same prefix reads from cache
+
+    Prompt caching requires a minimum of 1024 tokens in the cached prefix
+    for Nova models. We use a long system prompt to meet this threshold.
+
+    Args:
+        aws_credentials: Boto3 session with valid AWS credentials.
+        aws_region: AWS region for testing.
+        bedrock_test_model: Model ID for testing.
+
+    AWS Permissions Required:
+        - bedrock:InvokeModelWithResponseStream
+
+    Estimated Cost:
+        ~$0.0003 per test run (two streaming calls with ~2K cached input tokens)
+    """
+    import time
+    from uuid import uuid4
+
+    from llmeter.endpoints.bedrock import BedrockConverseStream
+
+    endpoint = BedrockConverseStream(model_id=bedrock_test_model, region=aws_region)
+
+    # Unique prefix per test run to avoid accidental cache hits from previous runs.
+    run_id = uuid4().hex
+
+    # Build a system prompt long enough to meet the 1024-token minimum for
+    # Nova prompt caching.  Each "rule" line is ~25 tokens, so 80 lines ≈ 2000.
+    long_system_text = (
+        f"You are a helpful assistant (session {run_id}). Follow these rules:\n"
+        + "\n".join(
+            f"Rule {i}: Always be concise, accurate, and helpful in your responses. "
+            "This is an important guideline that must be followed at all times."
+            for i in range(1, 81)
+        )
+    )
+
+    payload = {
+        "system": [
+            {"text": long_system_text},
+            {"cachePoint": {"type": "default"}},
+        ],
+        "messages": [
+            {
+                "role": "user",
+                "content": [{"text": "Say hello in one word."}],
+            }
+        ],
+        "inferenceConfig": {"maxTokens": 10},
+    }
+
+    # First call: writes the system prompt to cache
+    response1 = endpoint.invoke(payload)
+    assert response1.error is None, f"First call should not error: {response1.error}"
+    assert response1.response_text, "First call should return text"
+
+    # num_tokens_input_cached should be present (may be 0 on cache write)
+    assert response1.num_tokens_input_cached is not None, (
+        "Response should include num_tokens_input_cached field"
+    )
+
+    # Brief pause to allow cache propagation
+    time.sleep(1)
+
+    # Second call with same system prefix: should read from cache
+    payload_2 = {
+        **payload,
+        "messages": [
+            {
+                "role": "user",
+                "content": [{"text": "Say goodbye in one word."}],
+            }
+        ],
+    }
+    response2 = endpoint.invoke(payload_2)
+    assert response2.error is None, f"Second call should not error: {response2.error}"
+    assert response2.response_text, "Second call should return text"
+
+    assert response2.num_tokens_input_cached is not None, (
+        "Second call should report num_tokens_input_cached"
+    )
+    assert response2.num_tokens_input_cached > 0, (
+        f"Expected cached tokens > 0 on cache hit, got {response2.num_tokens_input_cached}"
+    )
+
+
 def test_save_load_payload_with_image(test_payload_with_image, tmp_path):
     """
     Test saving and loading payload with image content using serialization.

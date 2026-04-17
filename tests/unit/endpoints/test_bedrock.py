@@ -819,3 +819,53 @@ class TestBedrock:
         assert result.num_tokens_input == 10
         assert result.num_tokens_output == 20
         assert result.retries == 1
+
+    def test_invoke_stream_mid_stream_timeout(self):
+        """Verify that a timeout during stream consumption is caught by the
+        invoke wrapper and returned as an error InvocationResponse — not raised."""
+        bedrock_stream = BedrockConverseStream(model_id="test_model")
+        bedrock_stream._bedrock_client = Mock()
+
+        # converse_stream returns immediately, but iterating the stream raises
+        def exploding_stream():
+            yield {"contentBlockDelta": {"delta": {"text": "Hello"}}}
+            raise TimeoutError("Connection timed out during streaming")
+
+        bedrock_stream._bedrock_client.converse_stream.return_value = {
+            "stream": exploding_stream(),
+            "ResponseMetadata": {"RetryAttempts": 0, "RequestId": "req-123"},
+        }
+
+        response = bedrock_stream.invoke(
+            {"messages": [{"role": "user", "content": [{"text": "Hi"}]}]}
+        )
+
+        assert isinstance(response, InvocationResponse)
+        assert response.error is not None
+        assert "timed out" in response.error.lower()
+        assert response.input_payload is not None
+
+    def test_invoke_stream_connection_drop(self):
+        """Verify that a connection error mid-stream is caught and returns
+        partial data where possible."""
+        bedrock_stream = BedrockConverseStream(model_id="test_model")
+        bedrock_stream._bedrock_client = Mock()
+
+        def dropping_stream():
+            yield {"contentBlockDelta": {"delta": {"text": "Partial"}}}
+            yield {"contentBlockDelta": {"delta": {"text": " data"}}}
+            raise ConnectionError("Connection reset by peer")
+
+        bedrock_stream._bedrock_client.converse_stream.return_value = {
+            "stream": dropping_stream(),
+            "ResponseMetadata": {"RetryAttempts": 0, "RequestId": "req-456"},
+        }
+
+        response = bedrock_stream.invoke(
+            {"messages": [{"role": "user", "content": [{"text": "Hi"}]}]}
+        )
+
+        assert isinstance(response, InvocationResponse)
+        assert response.error is not None
+        assert "connection" in response.error.lower()
+        assert response.input_payload is not None

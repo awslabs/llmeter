@@ -4,8 +4,9 @@
 
 # Python Built-Ins:
 from __future__ import annotations
-from dataclasses import dataclass
+
 import json
+from dataclasses import dataclass
 from math import ceil
 
 # External Dependencies:

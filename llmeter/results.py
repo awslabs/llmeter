@@ -281,6 +281,7 @@ class Result:
             "time_to_first_token",
             "num_tokens_output",
             "num_tokens_input",
+            "num_tokens_input_cached",
         ]
 
         results_stats = _get_stats_from_results(
@@ -442,6 +443,9 @@ def _get_run_stats(results: Result):
     )
     stats["total_output_tokens"] = sum(
         jmespath.search("[:].num_tokens_output", data=data)
+    )
+    stats["total_cached_input_tokens"] = sum(
+        v for v in jmespath.search("[:].num_tokens_input_cached", data=data) if v
     )
     stats["average_input_tokens_per_minute"] = (
         results.total_test_time
