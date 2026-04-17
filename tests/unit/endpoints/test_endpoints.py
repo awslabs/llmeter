@@ -5,7 +5,7 @@ import pytest
 
 import llmeter
 import llmeter.endpoints
-from llmeter.endpoints.base import Endpoint, InvocationResponse
+from llmeter.endpoints.base import Endpoint, InvocationResponse, llmeter_invoke
 
 # Tests for InvocationResponse
 
@@ -73,6 +73,7 @@ class ConcreteEndpoint(Endpoint):
             endpoint_name=endpoint_name, model_id=model_id, provider=provider
         )
 
+    @llmeter_invoke
     def invoke(self, payload: dict) -> InvocationResponse:
         return self.parse_response(payload, 0.0)
 
