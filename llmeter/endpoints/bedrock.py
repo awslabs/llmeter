@@ -286,7 +286,7 @@ class BedrockBase(Endpoint):
 
 
 class BedrockConverse(BedrockBase):
-    def parse_response(self, response: dict, start_t: float) -> InvocationResponse:
+    def parse_response(self, raw_response: dict, start_t: float) -> InvocationResponse:
         """Parse the response from a Bedrock converse API call.
 
         Args:
@@ -296,15 +296,15 @@ class BedrockConverse(BedrockBase):
         Returns:
             InvocationResponse with the generated text and metadata.
         """
-        output = response["output"]["message"]["content"][0]["text"]
+        output = raw_response["output"]["message"]["content"][0]["text"]
         if not isinstance(output, str):
             raise TypeError("Expected string for output text")
 
-        usage = response.get("usage") or {}
-        retries = response["ResponseMetadata"]["RetryAttempts"]
+        usage = raw_response.get("usage") or {}
+        retries = raw_response["ResponseMetadata"]["RetryAttempts"]
 
         return InvocationResponse(
-            id=response["ResponseMetadata"].get("RequestId"),
+            id=raw_response["ResponseMetadata"].get("RequestId"),
             response_text=output,
             num_tokens_input=usage.get("inputTokens")
             if isinstance(usage, dict)
@@ -319,10 +319,10 @@ class BedrockConverse(BedrockBase):
         )
 
     @llmeter_invoke
-    def invoke(self, payload: dict) -> InvocationResponse:
+    def invoke(self, payload: dict):
         """Invoke the Bedrock converse API with the given payload."""
         client_response = self._bedrock_client.converse(**payload)  # type: ignore
-        return client_response  # type: ignore
+        return client_response
 
     def prepare_payload(self, payload, **kwargs):
         payload = {**kwargs, **payload}
@@ -334,11 +334,11 @@ class BedrockConverse(BedrockBase):
 
 class BedrockConverseStream(BedrockConverse):
     @llmeter_invoke
-    def invoke(self, payload: dict) -> InvocationResponse:
+    def invoke(self, payload: dict):
         client_response = self._bedrock_client.converse_stream(**payload)  # type: ignore
         return client_response
 
-    def parse_response(self, client_response, start_t: float) -> InvocationResponse:
+    def parse_response(self, raw_response, start_t: float) -> InvocationResponse:
         """Parse the streaming response from Bedrock conversation API.
 
         Args:
@@ -355,7 +355,7 @@ class BedrockConverseStream(BedrockConverse):
         metadata = None
         error = None
 
-        for chunk in client_response["stream"]:
+        for chunk in raw_response["stream"]:
             if "contentBlockDelta" in chunk:
                 delta_text = chunk["contentBlockDelta"]["delta"].get("text", "")
                 if not isinstance(delta_text, str):
@@ -379,7 +379,7 @@ class BedrockConverseStream(BedrockConverse):
                     break
 
         response = InvocationResponse(
-            id=client_response["ResponseMetadata"].get("RequestId"),
+            id=raw_response["ResponseMetadata"].get("RequestId"),
             response_text=output_text,
             time_to_last_token=time_to_last_token,
             time_to_first_token=time_to_first_token,
@@ -392,6 +392,6 @@ class BedrockConverseStream(BedrockConverse):
             response.num_tokens_output = usage.get("outputTokens")
             response.num_tokens_input_cached = usage.get("cacheReadInputTokens")
 
-        response.retries = client_response["ResponseMetadata"]["RetryAttempts"]
+        response.retries = raw_response["ResponseMetadata"]["RetryAttempts"]
 
         return response

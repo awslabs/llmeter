@@ -16,6 +16,7 @@ import json
 import logging
 import time
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from typing import Any
@@ -113,7 +114,7 @@ class InvocationResponse:
         return asdict(self)
 
 
-def llmeter_invoke(fn):
+def llmeter_invoke(fn: Callable[..., Any]) -> Callable[..., InvocationResponse]:
     """Decorator that wraps an :meth:`Endpoint.invoke` implementation with
     payload preparation, timing, error handling, and metadata back-fill.
 
@@ -177,7 +178,9 @@ def llmeter_invoke(fn):
 
         return response
 
-    wrapper._is_llmeter_invoke = True
+    # Add a private marker to indicate that the wrapping happened:
+    # (We don't currently use this for anything except unit tests)
+    wrapper._is_llmeter_invoke = True  # type: ignore
     return wrapper
 
 

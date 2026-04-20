@@ -172,7 +172,7 @@ class SageMakerEndpoint(SageMakerBase):
     a SageMaker endpoint and parsing its response.
     """
 
-    def parse_response(self, client_response, start_t: float) -> InvocationResponse:
+    def parse_response(self, raw_response, start_t: float) -> InvocationResponse:
         """Parse the response from the SageMaker endpoint.
 
         Args:
@@ -182,10 +182,10 @@ class SageMakerEndpoint(SageMakerBase):
         Returns:
             InvocationResponse with the generated text and metadata.
         """
-        if client_response is None:
+        if raw_response is None:
             return InvocationResponse(response_text=None)
 
-        client_response_body_json = client_response["Body"].read().decode("utf-8")
+        client_response_body_json = raw_response["Body"].read().decode("utf-8")
         client_response_body = json.loads(client_response_body_json)
 
         response_text = jmespath.search(
@@ -198,10 +198,10 @@ class SageMakerEndpoint(SageMakerBase):
             )
 
         return InvocationResponse(
-            id=client_response.get("ResponseMetadata", {}).get("RequestId"),
+            id=raw_response.get("ResponseMetadata", {}).get("RequestId"),
             response_text=response_text or "",
             num_tokens_output=num_tokens_output if num_tokens_output else None,
-            retries=client_response.get("ResponseMetadata", {}).get("RetryAttempts"),
+            retries=raw_response.get("ResponseMetadata", {}).get("RetryAttempts"),
         )
 
     @llmeter_invoke
@@ -225,7 +225,7 @@ class SageMakerStreamEndpoint(SageMakerBase):
     streaming responses from a SageMaker endpoint.
     """
 
-    def parse_response(self, client_response, start_t: float) -> InvocationResponse:
+    def parse_response(self, raw_response, start_t: float) -> InvocationResponse:
         """
         Parse the streaming response from the SageMaker endpoint.
 
@@ -239,7 +239,7 @@ class SageMakerStreamEndpoint(SageMakerBase):
         Returns:
             InvocationResponse: An object containing the parsed response and metrics.
         """
-        token_iterator = TokenIterator(client_response["Body"])
+        token_iterator = TokenIterator(raw_response["Body"])
         first_token = next(token_iterator)
         time_to_first_token = time.perf_counter() - start_t
 
@@ -248,12 +248,12 @@ class SageMakerStreamEndpoint(SageMakerBase):
         num_tokens_output = len(response_text_tokens)
 
         return InvocationResponse(
-            id=client_response.get("ResponseMetadata", {}).get("RequestId"),
+            id=raw_response.get("ResponseMetadata", {}).get("RequestId"),
             response_text="".join(response_text_tokens),
             time_to_first_token=time_to_first_token,
             time_to_last_token=time_to_last_token,
             num_tokens_output=num_tokens_output,
-            retries=client_response.get("ResponseMetadata", {}).get("RetryAttempts"),
+            retries=raw_response.get("ResponseMetadata", {}).get("RetryAttempts"),
         )
 
     @llmeter_invoke

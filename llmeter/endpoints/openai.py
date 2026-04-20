@@ -225,7 +225,7 @@ class OpenAICompletionEndpoint(OpenAIEndpoint):
     """Endpoint for OpenAI-compatible Chat Completion APIs (non-streaming mode)"""
 
     @llmeter_invoke
-    def invoke(self, payload: CompletionCreateParams) -> InvocationResponse:
+    def invoke(self, payload: CompletionCreateParams):
         """Invoke the OpenAI chat completion API."""
         client_response: ChatCompletion = self._client.chat.completions.create(
             **payload
@@ -237,14 +237,14 @@ class OpenAICompletionEndpoint(OpenAIEndpoint):
         payload["model"] = self.model_id
         return payload
 
-    def parse_response(self, client_response: ChatCompletion, start_t: float):
-        usage = client_response.usage
+    def parse_response(self, raw_response: ChatCompletion, start_t: float):
+        usage = raw_response.usage
         cached_tokens = None
         if usage and usage.prompt_tokens_details:
             cached_tokens = getattr(usage.prompt_tokens_details, "cached_tokens", None)
         return InvocationResponse(
-            id=client_response.id,
-            response_text=client_response.choices[0].message.content,
+            id=raw_response.id,
+            response_text=raw_response.choices[0].message.content,
             num_tokens_input=usage and usage.prompt_tokens,
             num_tokens_output=usage and usage.completion_tokens,
             num_tokens_input_cached=cached_tokens,
@@ -255,7 +255,7 @@ class OpenAICompletionStreamEndpoint(OpenAIEndpoint):
     """Endpoint for OpenAI-compatible Chat Completion APIs (streaming mode)"""
 
     @llmeter_invoke
-    def invoke(self, payload: CompletionCreateParams) -> InvocationResponse:
+    def invoke(self, payload: CompletionCreateParams):
         """Invoke the OpenAI streaming chat completion API."""
         client_response = self._client.chat.completions.create(**payload)
         return client_response
@@ -268,7 +268,7 @@ class OpenAICompletionStreamEndpoint(OpenAIEndpoint):
             payload["stream_options"] = {"include_usage": True}
         return payload
 
-    def parse_response(self, client_response, start_t: float) -> InvocationResponse:
+    def parse_response(self, raw_response, start_t: float) -> InvocationResponse:
         """Parse the streaming API response from OpenAI chat completion API.
 
         Args:
@@ -285,7 +285,7 @@ class OpenAICompletionStreamEndpoint(OpenAIEndpoint):
         response_id = None
         time_to_first_token = None
 
-        for chunk in client_response:
+        for chunk in raw_response:
             chunk: ChatCompletionChunk
             if response_id is None:
                 response_id = chunk.id

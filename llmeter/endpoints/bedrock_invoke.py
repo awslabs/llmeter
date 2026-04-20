@@ -168,7 +168,7 @@ class BedrockInvoke(Endpoint):
             logger.exception("Failed to create InvokeModel payload")
             raise RuntimeError(f"Failed to create payload: {str(e)}") from e
 
-    def parse_response(self, response: dict, start_t: float) -> InvocationResponse:
+    def parse_response(self, raw_response: dict, start_t: float) -> InvocationResponse:
         """Parse the response from a Bedrock InvokeModel API call.
 
         Args:
@@ -178,17 +178,17 @@ class BedrockInvoke(Endpoint):
         Returns:
             InvocationResponse with the generated text and metadata.
         """
-        response_body_json = response["body"].read().decode("utf-8")
+        response_body_json = raw_response["body"].read().decode("utf-8")
         response_body = json.loads(response_body_json)
 
         response_text = jmespath.search(self.generated_text_jmespath, response_body)
         if isinstance(response_text, list):
             response_text = "\n".join(response_text)
 
-        id = response_body.get("id") or response.get("ResponseMetadata", {}).get(
+        id = response_body.get("id") or raw_response.get("ResponseMetadata", {}).get(
             "RequestId"
         )
-        retries = response.get("ResponseMetadata", {}).get("RetryAttempts")
+        retries = raw_response.get("ResponseMetadata", {}).get("RetryAttempts")
         num_tokens_input = (
             jmespath.search(self.input_token_count_jmespath, response_body)
             if self.input_token_count_jmespath
@@ -209,7 +209,7 @@ class BedrockInvoke(Endpoint):
         )
 
     @llmeter_invoke
-    def invoke(self, payload: dict) -> InvocationResponse:
+    def invoke(self, payload: dict):
         """Invoke the Bedrock InvokeModel API with the given payload."""
         req_body = json.dumps(payload).encode("utf-8")
 
@@ -221,7 +221,7 @@ class BedrockInvoke(Endpoint):
             # TODO: Provide config for other optional arguments
             # trace, guardrailIdentifier/Version, performanceConfigLatency, serviceTier
         )
-        return client_response  # type: ignore
+        return client_response
 
 
 class BedrockInvokeStream(BedrockInvoke):
@@ -280,7 +280,7 @@ class BedrockInvokeStream(BedrockInvoke):
         )
 
     @llmeter_invoke
-    def invoke(self, payload: dict) -> InvocationResponse:
+    def invoke(self, payload: dict):
         req_body = json.dumps(payload).encode("utf-8")
 
         client_response = self._bedrock_client.invoke_model_with_response_stream(  # type: ignore
@@ -293,7 +293,7 @@ class BedrockInvokeStream(BedrockInvoke):
         )
         return client_response
 
-    def parse_response(self, client_response, start_t: float) -> InvocationResponse:
+    def parse_response(self, raw_response, start_t: float) -> InvocationResponse:
         """Parse the streaming response from Bedrock InvokeModel API.
 
         Args:
@@ -309,7 +309,7 @@ class BedrockInvokeStream(BedrockInvoke):
         time_to_last_token = None
         error = None
 
-        for event in client_response["body"]:
+        for event in raw_response["body"]:
             if "chunk" in event:
                 chunk_bytes = event["chunk"]["bytes"]
                 chunk_data = json.loads(chunk_bytes)
@@ -356,12 +356,12 @@ class BedrockInvokeStream(BedrockInvoke):
                 num_tokens_output = chk_tokens_output
 
         return InvocationResponse(
-            id=resp_id or client_response.get("ResponseMetadata", {}).get("RequestId"),
+            id=resp_id or raw_response.get("ResponseMetadata", {}).get("RequestId"),
             response_text=output_text,
             time_to_first_token=time_to_first_token,
             time_to_last_token=time_to_last_token,
             num_tokens_input=num_tokens_input,
             num_tokens_output=num_tokens_output,
             error=error,
-            retries=client_response.get("ResponseMetadata", {}).get("RetryAttempts"),
+            retries=raw_response.get("ResponseMetadata", {}).get("RetryAttempts"),
         )

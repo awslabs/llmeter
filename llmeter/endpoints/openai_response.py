@@ -48,7 +48,7 @@ class OpenAIResponseEndpoint(Endpoint):
         self._client = OpenAI(api_key=api_key, **kwargs)
 
     @llmeter_invoke
-    def invoke(self, payload: ResponseCreateParamsNonStreaming) -> InvocationResponse:
+    def invoke(self, payload: ResponseCreateParamsNonStreaming):
         """Invoke the Responses API."""
         client_response = self._client.responses.create(**payload)
         return client_response
@@ -59,7 +59,7 @@ class OpenAIResponseEndpoint(Endpoint):
         return payload
 
     def parse_response(
-        self, client_response: Response, start_t: float
+        self, raw_response: Response, start_t: float
     ) -> InvocationResponse:
         """Parse Response API output into InvocationResponse.
 
@@ -70,7 +70,7 @@ class OpenAIResponseEndpoint(Endpoint):
         Returns:
             InvocationResponse with extracted fields
         """
-        usage = client_response.usage
+        usage = raw_response.usage
 
         input_tokens = None
         output_tokens = None
@@ -83,8 +83,8 @@ class OpenAIResponseEndpoint(Endpoint):
                 cached_tokens = getattr(details, "cached_tokens", None)
 
         return InvocationResponse(
-            id=client_response.id,
-            response_text=client_response.output_text,
+            id=raw_response.id,
+            response_text=raw_response.output_text,
             num_tokens_input=input_tokens,
             num_tokens_output=output_tokens,
             num_tokens_input_cached=cached_tokens,
@@ -193,7 +193,7 @@ class OpenAIResponseStreamEndpoint(OpenAIResponseEndpoint):
         )
 
     @llmeter_invoke
-    def invoke(self, payload: ResponseCreateParams) -> InvocationResponse:
+    def invoke(self, payload: ResponseCreateParams):
         """Invoke the Responses API with streaming."""
         client_response = self._client.responses.create(**payload)
         return client_response
@@ -206,7 +206,7 @@ class OpenAIResponseStreamEndpoint(OpenAIResponseEndpoint):
             payload["stream_options"] = {"include_usage": True}
         return payload
 
-    def parse_response(self, client_response, start_t: float) -> InvocationResponse:
+    def parse_response(self, raw_response, start_t: float) -> InvocationResponse:
         """Parse streaming Response API output into InvocationResponse.
 
         Processes typed events from the stream:
@@ -228,7 +228,7 @@ class OpenAIResponseStreamEndpoint(OpenAIResponseEndpoint):
         response_id = None
         time_to_first_token = None
 
-        for event in client_response:
+        for event in raw_response:
             if event.type == "response.created":
                 response_id = event.response.id
 

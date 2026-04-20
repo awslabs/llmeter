@@ -85,14 +85,14 @@ class LiteLLM(LiteLLMBase):
         return completion(model=self.litellm_model, **payload)
 
     def parse_response(
-        self, client_response: ModelResponse, start_t: float
+        self, raw_response: ModelResponse, start_t: float
     ) -> InvocationResponse:
         response = InvocationResponse(
-            id=client_response.id,
-            response_text=client_response.choices[0].message.content,  # type: ignore
+            id=raw_response.id,
+            response_text=raw_response.choices[0].message.content,  # type: ignore
         )
         try:
-            usage = client_response.usage  # type: ignore
+            usage = raw_response.usage  # type: ignore
             response.num_tokens_input = usage.prompt_tokens
             response.num_tokens_output = usage.completion_tokens
         except AttributeError:
@@ -131,7 +131,7 @@ class LiteLLMStreaming(LiteLLMBase):
         return payload_copy
 
     def parse_response(
-        self, client_response: CustomStreamWrapper, start_t: float
+        self, raw_response: CustomStreamWrapper, start_t: float
     ) -> InvocationResponse:
         usage = None
         time_flag = True
@@ -139,7 +139,7 @@ class LiteLLMStreaming(LiteLLMBase):
         output_text = ""
         id = None
 
-        for chunk in client_response:
+        for chunk in raw_response:
             content = chunk.choices[0].delta.content or ""  # type: ignore
             output_text += content
 
