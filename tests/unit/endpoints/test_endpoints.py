@@ -5,7 +5,7 @@ import pytest
 
 import llmeter
 import llmeter.endpoints
-from llmeter.endpoints.base import Endpoint, InvocationResponse, llmeter_invoke
+from llmeter.endpoints.base import Endpoint, InvocationResponse
 
 # Tests for InvocationResponse
 
@@ -67,22 +67,22 @@ def test_invocation_response_repr_and_str():
 # Tests for BaseEndpoint
 
 
-class ConcreteEndpoint(Endpoint):
+class ConcreteEndpoint(Endpoint[dict]):
     def __init__(self, endpoint_name: str, model_id: str, provider: str):
         super().__init__(
             endpoint_name=endpoint_name, model_id=model_id, provider=provider
         )
 
-    @llmeter_invoke
-    def invoke(self, payload: dict) -> InvocationResponse:
+    @Endpoint.llmeter_invoke
+    def invoke(self, payload: dict) -> dict:
         return payload
 
-    def parse_response(self, raw_response, start_t: float) -> InvocationResponse:
-        return InvocationResponse(
-            id="test_id",
-            response_text=f"Invoked with payload: {raw_response}",
-            input_prompt=raw_response.get("prompt", ""),
-        )
+    def process_raw_response(
+        self, raw_response: dict, start_t: float, response: InvocationResponse
+    ) -> None:
+        response.id = "test_id"
+        response.response_text = f"Invoked with payload: {raw_response}"
+        response.input_prompt = raw_response.get("prompt", "")
 
     @classmethod
     def create_payload(cls, prompt: str):
@@ -130,7 +130,9 @@ def test_invoke_error_sets_request_time(concrete_endpoint):
 
     # Make parse_response raise to trigger the error path
     with patch.object(
-        type(concrete_endpoint), "parse_response", side_effect=RuntimeError("boom")
+        type(concrete_endpoint),
+        "process_raw_response",
+        side_effect=RuntimeError("boom"),
     ):
         before = datetime.now(timezone.utc)
         response = concrete_endpoint.invoke({"prompt": "Hello"})

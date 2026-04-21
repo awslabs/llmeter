@@ -136,13 +136,11 @@ class TestLiteLLM:
     @patch("llmeter.endpoints.litellm.completion")
     def test_invoke_success(self, mock_completion):
         """Test successful invoke."""
-        # Mock the response
         mock_response = MagicMock()
         mock_response.id = "test-id"
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = "Hello there!"
 
-        # Create usage mock separately and assign it
         usage_mock = MagicMock()
         usage_mock.prompt_tokens = 10
         usage_mock.completion_tokens = 5
@@ -150,20 +148,19 @@ class TestLiteLLM:
 
         mock_completion.return_value = mock_response
 
-        # Patch isinstance to make the type check pass
-        with patch("llmeter.endpoints.litellm.isinstance") as mock_isinstance:
-            mock_isinstance.return_value = True
+        payload = {"messages": [{"role": "user", "content": "Hello"}]}
+        result = self.endpoint.invoke(payload)
 
-            payload = {"messages": [{"role": "user", "content": "Hello"}]}
-            result = self.endpoint.invoke(payload)
-
-            assert isinstance(result, InvocationResponse)
-            assert result.id == "test-id"
-            assert result.response_text == "Hello there!"
-            assert result.num_tokens_input == 10
-            assert result.num_tokens_output == 5
-            assert result.input_prompt == '[{"role": "user", "content": "Hello"}]'
-            mock_completion.assert_called_once_with(model="gpt-3.5-turbo", **payload)
+        assert isinstance(result, InvocationResponse)
+        assert result.id == "test-id"
+        assert result.response_text == "Hello there!"
+        assert result.num_tokens_input == 10
+        assert result.num_tokens_output == 5
+        assert result.input_prompt == '[{"role": "user", "content": "Hello"}]'
+        mock_completion.assert_called_once()
+        call_kwargs = mock_completion.call_args[1]
+        assert call_kwargs["model"] == "gpt-3.5-turbo"
+        assert call_kwargs["messages"] == [{"role": "user", "content": "Hello"}]
 
     @patch("llmeter.endpoints.litellm.completion")
     def test_invoke_success_no_usage(self, mock_completion):
@@ -176,22 +173,18 @@ class TestLiteLLM:
         del mock_response.usage
         mock_completion.return_value = mock_response
 
-        # Patch isinstance to make the type check pass
-        with patch("llmeter.endpoints.litellm.isinstance") as mock_isinstance:
-            mock_isinstance.return_value = True
+        payload = {"messages": [{"role": "user", "content": "Hello"}]}
+        result = self.endpoint.invoke(payload)
 
-            payload = {"messages": [{"role": "user", "content": "Hello"}]}
-            result = self.endpoint.invoke(payload)
-
-            assert isinstance(result, InvocationResponse)
-            assert result.id == "test-id"
-            assert result.response_text == "Hello there!"
-            assert result.num_tokens_input is None
-            assert result.num_tokens_output is None
+        assert isinstance(result, InvocationResponse)
+        assert result.id == "test-id"
+        assert result.response_text == "Hello there!"
+        assert result.num_tokens_input is None
+        assert result.num_tokens_output is None
 
     @patch("llmeter.endpoints.litellm.completion")
-    def test_invoke_with_kwargs(self, mock_completion):
-        """Test invoke with additional kwargs."""
+    def test_invoke_with_kwargs_in_payload(self, mock_completion):
+        """Test invoke with additional kwargs passed via payload."""
         mock_response = MagicMock()
         mock_response.id = "test-id"
         mock_response.choices = [MagicMock()]
@@ -205,16 +198,18 @@ class TestLiteLLM:
 
         mock_completion.return_value = mock_response
 
-        # Patch isinstance to make the type check pass
-        with patch("llmeter.endpoints.litellm.isinstance") as mock_isinstance:
-            mock_isinstance.return_value = True
+        payload = {
+            "messages": [{"role": "user", "content": "Hello"}],
+            "temperature": 0.7,
+            "top_p": 0.9,
+        }
+        self.endpoint.invoke(payload)
 
-            payload = {"messages": [{"role": "user", "content": "Hello"}]}
-            self.endpoint.invoke(payload, temperature=0.7, top_p=0.9)
-
-            mock_completion.assert_called_once_with(
-                model="gpt-3.5-turbo", temperature=0.7, top_p=0.9, **payload
-            )
+        mock_completion.assert_called_once()
+        call_kwargs = mock_completion.call_args[1]
+        assert call_kwargs["model"] == "gpt-3.5-turbo"
+        assert call_kwargs["temperature"] == 0.7
+        assert call_kwargs["top_p"] == 0.9
 
     @patch("llmeter.endpoints.litellm.completion")
     def test_invoke_exception(self, mock_completion):
@@ -229,20 +224,20 @@ class TestLiteLLM:
         assert result.input_prompt == '[{"role": "user", "content": "Hello"}]'
         assert result.id is not None and len(result.id) == 32  # UUID hex length
 
-    def test_parse_converse_response(self):
-        """Test _parse_converse_response method."""
+    def test_process_raw_response(self):
+        """Test process_raw_response method."""
         mock_response = MagicMock()
         mock_response.id = "response-id"
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = "Test response"
 
-        # Create usage mock separately and assign it
         usage_mock = MagicMock()
         usage_mock.prompt_tokens = 15
         usage_mock.completion_tokens = 8
         mock_response.usage = usage_mock
 
-        result = self.endpoint.parse_response(mock_response, 0.0)
+        result = InvocationResponse(id=None, response_text=None)
+        self.endpoint.process_raw_response(mock_response, 0.0, result)
 
         assert isinstance(result, InvocationResponse)
         assert result.id == "response-id"
@@ -250,16 +245,16 @@ class TestLiteLLM:
         assert result.num_tokens_input == 15
         assert result.num_tokens_output == 8
 
-    def test_parse_converse_response_no_usage(self):
-        """Test _parse_converse_response without usage info."""
+    def test_process_raw_response_no_usage(self):
+        """Test process_raw_response without usage info."""
         mock_response = MagicMock()
         mock_response.id = "response-id"
         mock_response.choices = [MagicMock()]
         mock_response.choices[0].message.content = "Test response"
-        # Remove usage attribute to simulate AttributeError
         del mock_response.usage
 
-        result = self.endpoint.parse_response(mock_response, 0.0)
+        result = InvocationResponse(id=None, response_text=None)
+        self.endpoint.process_raw_response(mock_response, 0.0, result)
 
         assert isinstance(result, InvocationResponse)
         assert result.id == "response-id"
@@ -281,10 +276,9 @@ class TestLiteLLMStreaming:
     @patch("time.perf_counter")
     def test_invoke_success(self, mock_time, mock_completion):
         """Test successful streaming invoke."""
-        # Mock time progression: start, first token, final time
-        mock_time.side_effect = [0.0, 0.1, 0.2]  # start, first token, end
+        # perf_counter calls: wrapper start, chunk1, chunk2, chunk3, wrapper end
+        mock_time.side_effect = [0.0, 0.1, 0.15, 0.2, 0.25]
 
-        # Mock streaming response with proper CustomStreamWrapper type
         from litellm import CustomStreamWrapper
 
         mock_stream = MagicMock(spec=CustomStreamWrapper)
@@ -390,12 +384,11 @@ class TestLiteLLMStreaming:
         assert result.input_prompt == '[{"role": "user", "content": "Hello"}]'
 
     @patch("time.perf_counter")
-    def test_parse_stream(self, mock_time):
-        """Test _parse_stream method."""
-        mock_time.side_effect = [0.15, 0.4]  # first token time, last token time
+    def test_process_raw_response(self, mock_time):
+        """Test process_raw_response method."""
+        mock_time.side_effect = [0.15, 0.4]
         start_t = 0.0
 
-        # Create mock chunks
         chunk1 = MagicMock()
         chunk1.id = "test-id"
         chunk1.choices = [MagicMock()]
@@ -412,7 +405,8 @@ class TestLiteLLMStreaming:
         mock_stream = MagicMock()
         mock_stream.__iter__ = lambda self: iter([chunk1, chunk2])
 
-        result = self.endpoint.parse_response(mock_stream, start_t)  # type: ignore
+        result = InvocationResponse(id=None, response_text=None)
+        self.endpoint.process_raw_response(mock_stream, start_t, result)
 
         assert isinstance(result, InvocationResponse)
         assert result.id == "test-id"
@@ -421,41 +415,40 @@ class TestLiteLLMStreaming:
         assert result.num_tokens_output == 3
         assert result.time_to_first_token == 0.15
         assert result.time_to_last_token == 0.4
-        # time_per_output_token is computed by the runner, not the endpoint
         assert result.time_per_output_token is None
 
     @patch("time.perf_counter")
-    def test_parse_stream_no_usage(self, mock_time):
-        """Test _parse_stream with no usage information."""
-        mock_time.side_effect = [0.0, 0.1, 0.2]
+    def test_process_raw_response_no_usage(self, mock_time):
+        """Test process_raw_response with no usage information."""
+        mock_time.side_effect = [0.1]
         start_t = 0.0
 
         chunk = MagicMock()
         chunk.id = "test-id"
         chunk.choices = [MagicMock()]
         chunk.choices[0].delta.content = "Content"
-        # Remove usage attribute to simulate AttributeError
         del chunk.usage
 
         mock_stream = MagicMock()
         mock_stream.__iter__ = lambda self: iter([chunk])
 
-        result = self.endpoint.parse_response(mock_stream, start_t)  # type: ignore
+        result = InvocationResponse(id=None, response_text=None)
+        self.endpoint.process_raw_response(mock_stream, start_t, result)
 
         assert result.num_tokens_input is None
         assert result.num_tokens_output is None
         assert result.time_per_output_token is None
 
     @patch("time.perf_counter")
-    def test_parse_stream_empty_content(self, mock_time):
-        """Test _parse_stream with None content in chunks."""
-        mock_time.side_effect = [0.0, 0.1, 0.2]
+    def test_process_raw_response_empty_content(self, mock_time):
+        """Test process_raw_response with None content in chunks."""
+        mock_time.side_effect = [0.1, 0.2]
         start_t = 0.0
 
         chunk1 = MagicMock()
         chunk1.id = "test-id"
         chunk1.choices = [MagicMock()]
-        chunk1.choices[0].delta.content = None  # Empty content
+        chunk1.choices[0].delta.content = None
         chunk1.usage = None
 
         chunk2 = MagicMock()
@@ -468,14 +461,15 @@ class TestLiteLLMStreaming:
         mock_stream = MagicMock()
         mock_stream.__iter__ = lambda self: iter([chunk1, chunk2])
 
-        result = self.endpoint.parse_response(mock_stream, start_t)  # type: ignore
+        result = InvocationResponse(id=None, response_text=None)
+        self.endpoint.process_raw_response(mock_stream, start_t, result)
 
         assert result.response_text == "Real content"
 
     @patch("time.perf_counter")
-    def test_parse_stream_single_token_output(self, mock_time):
-        """Test _parse_stream with single token output (edge case for time_per_output_token)."""
-        mock_time.side_effect = [0.0, 0.1, 0.2]
+    def test_process_raw_response_single_token_output(self, mock_time):
+        """Test process_raw_response with single token output (edge case for time_per_output_token)."""
+        mock_time.side_effect = [0.1]
         start_t = 0.0
 
         chunk = MagicMock()
@@ -484,12 +478,13 @@ class TestLiteLLMStreaming:
         chunk.choices[0].delta.content = "Hi"
         chunk.usage = MagicMock()
         chunk.usage.prompt_tokens = 5
-        chunk.usage.completion_tokens = 1  # Single token
+        chunk.usage.completion_tokens = 1
 
         mock_stream = MagicMock()
         mock_stream.__iter__ = lambda self: iter([chunk])
 
-        result = self.endpoint.parse_response(mock_stream, start_t)  # type: ignore
+        result = InvocationResponse(id=None, response_text=None)
+        self.endpoint.process_raw_response(mock_stream, start_t, result)
 
         # With 1 token, (num_tokens_output - 1) = 0, so time_per_output_token should be None
         assert result.time_per_output_token is None

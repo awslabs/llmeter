@@ -12,10 +12,19 @@ Alternatively, see:
 
 import logging
 import time
-from typing import Any
+from typing import Any, Generic, TypeVar
 
 import boto3
 from botocore.config import Config
+
+try:
+    from mypy_boto3_bedrock_runtime.type_defs import (
+        ConverseResponseTypeDef,
+        ConverseStreamResponseTypeDef,
+    )
+except ImportError:
+    ConverseResponseTypeDef = TypeVar("ConverseResponseTypeDef")
+    ConverseStreamResponseTypeDef = TypeVar("ConverseStreamResponseTypeDef")
 
 from ..prompt_utils import (
     AudioContent,
@@ -25,7 +34,7 @@ from ..prompt_utils import (
     MediaContent,
     VideoContent,
 )
-from .base import Endpoint, InvocationResponse, llmeter_invoke
+from .base import Endpoint, InvocationResponse
 
 logger = logging.getLogger(__name__)
 
@@ -113,7 +122,15 @@ def _build_content_blocks(items: list[ContentItem]) -> list[dict]:
     return blocks
 
 
-class BedrockBase(Endpoint):
+TBedrockConverseResponseBase = TypeVar(
+    "TBedrockConverseResponseBase",
+    bound=ConverseResponseTypeDef | ConverseStreamResponseTypeDef,
+)
+
+
+class BedrockBase(
+    Endpoint[TBedrockConverseResponseBase], Generic[TBedrockConverseResponseBase]
+):
     """Base class for interacting with Amazon Bedrock endpoints.
 
     This class provides core functionality for making requests to Amazon Bedrock
@@ -284,9 +301,29 @@ class BedrockBase(Endpoint):
         }
         return payload
 
+    def prepare_payload(self, payload):
+        """Enforce required properties on the input to Bedrock Converse* APIs
 
-class BedrockConverse(BedrockBase):
-    def parse_response(self, raw_response: dict, start_t: float) -> InvocationResponse:
+        In particular, ensure `modelId` is set in line with this Endpoint's configured model ID
+        and apply `self._inference_config` if no config was explicitly set on the payload.
+        """
+        payload = {**payload}
+        if payload.get("inferenceConfig") is None:
+            payload["inferenceConfig"] = self._inference_config or {}
+        payload["modelId"] = self.model_id
+        return payload
+
+
+class BedrockConverse(BedrockBase[ConverseResponseTypeDef]):
+    @BedrockBase.llmeter_invoke
+    def invoke(self, payload: dict) -> ConverseResponseTypeDef:
+        """Invoke the Bedrock converse API with the given payload."""
+        client_response = self._bedrock_client.converse(**payload)  # type: ignore
+        return client_response
+
+    def process_raw_response(
+        self, raw_response, start_t: float, response: InvocationResponse
+    ) -> None:
         """Parse the response from a Bedrock converse API call.
 
         Args:
@@ -296,50 +333,33 @@ class BedrockConverse(BedrockBase):
         Returns:
             InvocationResponse with the generated text and metadata.
         """
-        output = raw_response["output"]["message"]["content"][0]["text"]
-        if not isinstance(output, str):
-            raise TypeError("Expected string for output text")
+        resp_meta = raw_response.get("ResponseMetadata", {})
+        response.id = resp_meta.get("RequestId")
+        response.retries = resp_meta.get("RetryAttempts")
 
-        usage = raw_response.get("usage") or {}
-        retries = raw_response["ResponseMetadata"]["RetryAttempts"]
+        text_parts = [
+            part["text"]
+            for part in raw_response["output"]["message"]["content"]
+            if "text" in part
+        ]
+        response.response_text = "".join(text_parts)
 
-        return InvocationResponse(
-            id=raw_response["ResponseMetadata"].get("RequestId"),
-            response_text=output,
-            num_tokens_input=usage.get("inputTokens")
-            if isinstance(usage, dict)
-            else None,
-            num_tokens_output=usage.get("outputTokens")
-            if isinstance(usage, dict)
-            else None,
-            num_tokens_input_cached=usage.get("cacheReadInputTokens")
-            if isinstance(usage, dict)
-            else None,
-            retries=retries,
-        )
-
-    @llmeter_invoke
-    def invoke(self, payload: dict):
-        """Invoke the Bedrock converse API with the given payload."""
-        client_response = self._bedrock_client.converse(**payload)  # type: ignore
-        return client_response
-
-    def prepare_payload(self, payload, **kwargs):
-        payload = {**kwargs, **payload}
-        if payload.get("inferenceConfig") is None:
-            payload["inferenceConfig"] = self._inference_config or {}
-        payload["modelId"] = self.model_id
-        return payload
+        usage = raw_response.get("usage", {})
+        response.num_tokens_input = usage.get("inputTokens")
+        response.num_tokens_input_cached = usage.get("cacheReadInputTokens")
+        response.num_tokens_output = usage.get("outputTokens")
 
 
-class BedrockConverseStream(BedrockConverse):
-    @llmeter_invoke
+class BedrockConverseStream(BedrockBase[ConverseStreamResponseTypeDef]):
+    @Endpoint.llmeter_invoke
     def invoke(self, payload: dict):
         client_response = self._bedrock_client.converse_stream(**payload)  # type: ignore
         return client_response
 
-    def parse_response(self, raw_response, start_t: float) -> InvocationResponse:
-        """Parse the streaming response from Bedrock conversation API.
+    def process_raw_response(
+        self, raw_response, start_t: float, response: InvocationResponse
+    ) -> None:
+        """Parse the streaming response from a Bedrock ConverseStream API call
 
         Args:
             client_response: The raw response from the Bedrock API.
@@ -348,50 +368,55 @@ class BedrockConverseStream(BedrockConverse):
         Returns:
             InvocationResponse with the generated text and metadata.
         """
-        time_flag = True
-        time_to_first_token = None
-        time_to_last_token = None
-        output_text = ""
-        metadata = None
-        error = None
+        response.id = raw_response["ResponseMetadata"].get("RequestId")
+        response.retries = raw_response["ResponseMetadata"]["RetryAttempts"]
+
+        any_content_received = False
 
         for chunk in raw_response["stream"]:
+            now = time.perf_counter()
+
             if "contentBlockDelta" in chunk:
                 delta_text = chunk["contentBlockDelta"]["delta"].get("text", "")
                 if not isinstance(delta_text, str):
                     raise TypeError("Expected string for delta text")
-                output_text += delta_text or ""
-                if time_flag:
-                    time_to_first_token = time.perf_counter() - start_t
-                    time_flag = False
+                if not any_content_received:
+                    response.time_to_first_token = now - start_t
+                    any_content_received = True
+                if delta_text:
+                    if response.response_text is None:
+                        response.response_text = delta_text
+                    else:
+                        response.response_text += delta_text
 
             if "contentBlockStop" in chunk:
-                time_to_last_token = time.perf_counter() - start_t
+                response.time_to_last_token = now - start_t
 
             if "metadata" in chunk:
-                metadata = chunk["metadata"]
+                usage = chunk["metadata"].get("usage", {})
+                input_tokens = usage.get("inputTokens")
+                if input_tokens:
+                    if response.num_tokens_input is None:
+                        response.num_tokens_input = input_tokens
+                    else:
+                        response.num_tokens_input += input_tokens
+                output_tokens = usage.get("outputTokens")
+                if output_tokens:
+                    if response.num_tokens_output is None:
+                        response.num_tokens_output = output_tokens
+                    else:
+                        response.num_tokens_output += output_tokens
+                cache_read_input_tokens = usage.get("cacheReadInputTokens")
+                if cache_read_input_tokens:
+                    if response.num_tokens_input_cached is None:
+                        response.num_tokens_input_cached = cache_read_input_tokens
+                    else:
+                        response.num_tokens_input_cached += cache_read_input_tokens
 
             # Detect Bedrock stream error events
             for error_type in BEDROCK_STREAM_ERROR_TYPES:
                 if error_type in chunk:
-                    error = f"Bedrock {error_type}: {chunk[error_type]['message']}"
-                    logger.error(error)
-                    break
-
-        response = InvocationResponse(
-            id=raw_response["ResponseMetadata"].get("RequestId"),
-            response_text=output_text,
-            time_to_last_token=time_to_last_token,
-            time_to_first_token=time_to_first_token,
-            error=error,
-        )
-
-        if metadata:
-            usage = metadata.get("usage", {})
-            response.num_tokens_input = usage.get("inputTokens")
-            response.num_tokens_output = usage.get("outputTokens")
-            response.num_tokens_input_cached = usage.get("cacheReadInputTokens")
-
-        response.retries = raw_response["ResponseMetadata"]["RetryAttempts"]
-
-        return response
+                    response.time_to_last_token = now - start_t
+                    raise RuntimeError(
+                        f"Bedrock {error_type}: {chunk[error_type]['message']}"
+                    )

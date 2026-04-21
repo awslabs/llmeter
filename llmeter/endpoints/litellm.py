@@ -5,14 +5,14 @@ import json
 import logging
 import os
 import time
-from typing import Any, Sequence
+from typing import Any, Generic, Sequence, TypeVar
 
 import litellm
 from litellm import CustomStreamWrapper, completion
 from litellm.types.utils import ModelResponse
 from litellm.utils import get_llm_provider  # type: ignore
 
-from . import Endpoint, InvocationResponse, llmeter_invoke
+from . import Endpoint, InvocationResponse
 
 logger = logging.getLogger(__name__)
 
@@ -23,8 +23,15 @@ litellm.suppress_debug_info = True
 os.environ["LITELLM_LOG"] = "CRITICAL"
 os.environ["LITELLM_DONT_SHOW_FEEDBACK_BOX"] = "true"
 
+TLiteLLMResponseBase = TypeVar(
+    "TLiteLLMResponseBase",
+    bound=CustomStreamWrapper | ModelResponse,
+)
 
-class LiteLLMBase(Endpoint):
+
+class LiteLLMBase(Endpoint[TLiteLLMResponseBase], Generic[TLiteLLMResponseBase]):
+    """Base class for (streaming or non-streaming) LiteLLM-based Endpoints"""
+
     def __init__(
         self,
         litellm_model: str,
@@ -42,11 +49,6 @@ class LiteLLMBase(Endpoint):
 
     def _parse_payload(self, payload):
         return json.dumps(payload.get("messages"))
-
-    def prepare_payload(self, payload, **kwargs):
-        if kwargs:
-            payload = {**payload, **kwargs}
-        return payload
 
     @staticmethod
     def create_payload(
@@ -79,18 +81,29 @@ class LiteLLMBase(Endpoint):
         return payload
 
 
-class LiteLLM(LiteLLMBase):
-    @llmeter_invoke
-    def invoke(self, payload):
-        return completion(model=self.litellm_model, **payload)
+class LiteLLM(LiteLLMBase[ModelResponse]):
+    """Endpoint for LiteLLM SDK-based models (non-streaming mode)"""
 
-    def parse_response(
-        self, raw_response: ModelResponse, start_t: float
-    ) -> InvocationResponse:
-        response = InvocationResponse(
-            id=raw_response.id,
-            response_text=raw_response.choices[0].message.content,  # type: ignore
-        )
+    @LiteLLMBase.llmeter_invoke
+    def invoke(self, payload) -> ModelResponse:
+        # In non-streaming mode, completion always returns a ModelResponse:
+        return completion(**payload)  # type: ignore
+
+    def prepare_payload(self, payload: dict) -> dict:
+        # Make a copy of payload to avoid modifying the original
+        payload_copy = payload.copy()
+        # Ensure correct model ID
+        payload_copy["model"] = self.litellm_model
+        # Ensure streaming is disabled
+        payload_copy["stream"] = False
+        return payload_copy
+
+    def process_raw_response(
+        self, raw_response, start_t: float, response: InvocationResponse
+    ) -> None:
+        response.time_to_last_token = time.perf_counter() - start_t
+        response.id = raw_response.id
+
         try:
             usage = raw_response.usage  # type: ignore
             response.num_tokens_input = usage.prompt_tokens
@@ -98,73 +111,61 @@ class LiteLLM(LiteLLMBase):
         except AttributeError:
             pass
 
-        return response
+        response.response_text = raw_response.choices[0].message.content
 
 
-class LiteLLMStreaming(LiteLLMBase):
-    @llmeter_invoke
-    def invoke(self, payload):
-        return completion(model=self.litellm_model, **payload)
+class LiteLLMStreaming(LiteLLMBase[CustomStreamWrapper]):
+    @LiteLLMBase.llmeter_invoke
+    def invoke(self, payload) -> CustomStreamWrapper:
+        # In streaming mode, completion always returns a CustomStreamWrapper:
+        return completion(**payload)  # type: ignore
 
-    def prepare_payload(self, payload, **kwargs):
+    def prepare_payload(self, payload):
         # Make a copy of payload to avoid modifying the original
         payload_copy = payload.copy()
 
-        # Merge kwargs, excluding stream-related keys (we control those)
-        for key, value in kwargs.items():
-            if key not in ["stream", "stream_options"]:
-                payload_copy[key] = value
+        # Ensure correct model ID
+        payload_copy["model"] = self.litellm_model
 
         # Ensure streaming is enabled
         payload_copy["stream"] = True
 
-        # Handle stream_options - merge if exists in kwargs, otherwise set default
-        if "stream_options" in kwargs:
-            existing_options = kwargs.get("stream_options", {})
-            payload_copy["stream_options"] = {**existing_options, "include_usage": True}
-        elif "stream_options" not in payload_copy:
-            payload_copy["stream_options"] = {"include_usage": True}
-        else:
-            existing_options = payload_copy.get("stream_options", {})
-            payload_copy["stream_options"] = {**existing_options, "include_usage": True}
+        # Ensure stream_options includes usage
+        existing_options = payload_copy.get("stream_options", {})
+        payload_copy["stream_options"] = {**existing_options, "include_usage": True}
 
         return payload_copy
 
-    def parse_response(
-        self, raw_response: CustomStreamWrapper, start_t: float
-    ) -> InvocationResponse:
+    def process_raw_response(
+        self,
+        raw_response: CustomStreamWrapper,
+        start_t: float,
+        response: InvocationResponse,
+    ) -> None:
         usage = None
-        time_flag = True
-        time_to_first_token = None
-        output_text = ""
-        id = None
+        got_chunk_id = False
 
         for chunk in raw_response:
-            content = chunk.choices[0].delta.content or ""  # type: ignore
-            output_text += content
+            now = time.perf_counter()
 
-            # Record time to first token only when we get actual content
-            if time_flag and content:
-                time_to_first_token = time.perf_counter() - start_t
-                time_flag = False
+            if not got_chunk_id and chunk.id is not None:
+                response.id = chunk.id
+                got_chunk_id = True
 
-            # Always capture the ID from the first chunk
-            if id is None:
-                id = chunk.id
+            content = chunk.choices[0].delta.content or ""
+            if content:
+                if response.response_text is None:
+                    response.response_text = content
+                    response.time_to_first_token = now - start_t
+                else:
+                    response.response_text += content
+                response.time_to_last_token = now - start_t
 
             try:
                 usage = chunk.usage  # type: ignore
             except AttributeError:
                 continue
 
-        time_to_last_token = time.perf_counter() - start_t
-
-        response = InvocationResponse(
-            id=id,
-            response_text=output_text,
-            num_tokens_input=usage and usage.prompt_tokens,
-            num_tokens_output=usage and usage.completion_tokens,
-            time_to_first_token=time_to_first_token,
-            time_to_last_token=time_to_last_token,
-        )
-        return response
+        if usage:
+            response.num_tokens_input = usage.prompt_tokens
+            response.num_tokens_output = usage.completion_tokens

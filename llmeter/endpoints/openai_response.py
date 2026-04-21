@@ -4,33 +4,31 @@
 import logging
 import time
 from collections.abc import Sequence
-from typing import Any, cast
+from typing import Any, Generic, Iterable, TypeVar, cast
 
-from openai import (
-    OpenAI,
-)
-from openai.types.responses import Response, ResponseCreateParams
+from openai import OpenAI
+from openai.types.responses import Response, ResponseCreateParams, ResponseStreamEvent
 from openai.types.responses.response_create_params import (
     ResponseCreateParamsNonStreaming,
+    ResponseCreateParamsStreaming,
 )
 
-from .base import Endpoint, InvocationResponse, llmeter_invoke
+from .base import Endpoint, InvocationResponse
 
 logger = logging.getLogger(__name__)
 
+TOpenAIResponseBase = TypeVar(
+    "TOpenAIResponseBase", bound=Response | Iterable[ResponseStreamEvent]
+)
 
-class OpenAIResponseEndpoint(Endpoint):
-    """Endpoint for OpenAI Responses API (non-streaming).
 
-    This endpoint provides access to OpenAI's newer Responses API which offers
-    structured outputs, better response format control, and improved multi-turn
-    conversation handling.
-    """
+class OpenAIEndpointBase(Endpoint[TOpenAIResponseBase], Generic[TOpenAIResponseBase]):
+    """Base class for OpenAI Responses API endpoints (streaming and non-streaming)"""
 
     def __init__(
         self,
+        endpoint_name: str,
         model_id: str,
-        endpoint_name: str = "openai-response",
         api_key: str | None = None,
         provider: str = "openai",
         **kwargs: Any,
@@ -38,57 +36,14 @@ class OpenAIResponseEndpoint(Endpoint):
         """Initialize Response API endpoint.
 
         Args:
+            endpoint_name: Name of the endpoint
             model_id: ID of the OpenAI model to use
-            endpoint_name: Name of the endpoint (default: "openai-response")
             api_key: OpenAI API key (optional, uses OPENAI_API_KEY env var if not provided)
             provider: Provider name (default: "openai")
             **kwargs: Additional arguments passed to OpenAI client
         """
         super().__init__(endpoint_name, model_id, provider=provider)
         self._client = OpenAI(api_key=api_key, **kwargs)
-
-    @llmeter_invoke
-    def invoke(self, payload: ResponseCreateParamsNonStreaming):
-        """Invoke the Responses API."""
-        client_response = self._client.responses.create(**payload)
-        return client_response
-
-    def prepare_payload(self, payload, **kwargs):
-        payload = {**kwargs, **payload}  # type: ignore
-        payload["model"] = self.model_id
-        return payload
-
-    def parse_response(
-        self, raw_response: Response, start_t: float
-    ) -> InvocationResponse:
-        """Parse Response API output into InvocationResponse.
-
-        Args:
-            client_response: Raw ``Response`` object from OpenAI Responses API
-            start_t: Start time of the API call
-
-        Returns:
-            InvocationResponse with extracted fields
-        """
-        usage = raw_response.usage
-
-        input_tokens = None
-        output_tokens = None
-        cached_tokens = None
-        if usage is not None:
-            input_tokens = usage.input_tokens
-            output_tokens = usage.output_tokens
-            details = getattr(usage, "input_tokens_details", None)
-            if details:
-                cached_tokens = getattr(details, "cached_tokens", None)
-
-        return InvocationResponse(
-            id=raw_response.id,
-            response_text=raw_response.output_text,
-            num_tokens_input=input_tokens,
-            num_tokens_output=output_tokens,
-            num_tokens_input_cached=cached_tokens,
-        )
 
     @staticmethod
     def create_payload(
@@ -160,7 +115,68 @@ class OpenAIResponseEndpoint(Endpoint):
         return ""
 
 
-class OpenAIResponseStreamEndpoint(OpenAIResponseEndpoint):
+class OpenAIResponseEndpoint(OpenAIEndpointBase[Response]):
+    """Endpoint for OpenAI Responses API (non-streaming).
+
+    This endpoint provides access to OpenAI's newer Responses API which offers
+    structured outputs, better response format control, and improved multi-turn
+    conversation handling.
+    """
+
+    def __init__(
+        self,
+        model_id: str,
+        endpoint_name: str = "openai-response",
+        api_key: str | None = None,
+        provider: str = "openai",
+        **kwargs: Any,
+    ):
+        """Initialize Response API endpoint.
+
+        Args:
+            model_id: ID of the OpenAI model to use
+            endpoint_name: Name of the endpoint (default: "openai-response")
+            api_key: OpenAI API key (optional, uses OPENAI_API_KEY env var if not provided)
+            provider: Provider name (default: "openai")
+            **kwargs: Additional arguments passed to OpenAI client
+        """
+        super().__init__(
+            endpoint_name, model_id, api_key=api_key, provider=provider, **kwargs
+        )
+
+    @OpenAIEndpointBase.llmeter_invoke
+    def invoke(self, payload: ResponseCreateParamsNonStreaming) -> Response:
+        """Invoke the Responses API."""
+        client_response = self._client.responses.create(**payload)
+        return client_response
+
+    def prepare_payload(self, payload):
+        """Ensure payload specifies correct model ID and streaming disabled"""
+        return {
+            **payload,
+            "model": self.model_id,
+            "stream": False,
+        }
+
+    def process_raw_response(
+        self, raw_response: Response, start_t: float, response: InvocationResponse
+    ) -> None:
+        response.time_to_last_token = time.perf_counter() - start_t
+        response.id = raw_response.id
+        response.response_text = raw_response.output_text
+
+        usage = raw_response.usage
+        if usage is not None:
+            response.num_tokens_input = usage.input_tokens
+            response.num_tokens_output = usage.output_tokens
+            details = getattr(usage, "input_tokens_details", None)
+            if details:
+                response.num_tokens_input_cached = getattr(
+                    details, "cached_tokens", None
+                )
+
+
+class OpenAIResponseStreamEndpoint(OpenAIEndpointBase[Iterable[ResponseStreamEvent]]):
     """Endpoint for OpenAI Responses API (streaming).
 
     This endpoint provides streaming access to OpenAI's Responses API, enabling
@@ -192,71 +208,53 @@ class OpenAIResponseStreamEndpoint(OpenAIResponseEndpoint):
             **kwargs,
         )
 
-    @llmeter_invoke
-    def invoke(self, payload: ResponseCreateParams):
+    @OpenAIEndpointBase.llmeter_invoke
+    def invoke(self, payload: ResponseCreateParamsStreaming):
         """Invoke the Responses API with streaming."""
         client_response = self._client.responses.create(**payload)
         return client_response
 
-    def prepare_payload(self, payload, **kwargs):
-        payload = {**kwargs, **payload}
-        payload["model"] = self.model_id
+    def prepare_payload(self, payload):
+        """Ensure payload specifies correct model ID and streaming options"""
+        payload = {**payload, "model": self.model_id}
         if not payload.get("stream"):
             payload["stream"] = True
             payload["stream_options"] = {"include_usage": True}
         return payload
 
-    def parse_response(self, raw_response, start_t: float) -> InvocationResponse:
+    def process_raw_response(
+        self,
+        raw_response: Iterable[ResponseStreamEvent],
+        start_t: float,
+        response: InvocationResponse,
+    ) -> None:
         """Parse streaming Response API output into InvocationResponse.
 
         Processes typed events from the stream:
         - ``ResponseCreatedEvent``: captures ``response.id``
         - ``ResponseTextDeltaEvent``: accumulates text deltas, records TTFT
         - ``ResponseCompletedEvent``: extracts usage from ``response.usage``
-
-        Args:
-            client_response: Streaming response from OpenAI Responses API
-            start_t: Start time of the API call
-
-        Returns:
-            InvocationResponse with extracted fields including TTFT
         """
-        input_tokens = None
-        output_tokens = None
-        cached_tokens = None
-        response_text = ""
-        response_id = None
-        time_to_first_token = None
-
         for event in raw_response:
+            now = time.perf_counter()
             if event.type == "response.created":
-                response_id = event.response.id
+                response.id = event.response.id
 
             elif event.type == "response.output_text.delta":
-                if time_to_first_token is None:
-                    time_to_first_token = time.perf_counter() - start_t
-                response_text += event.delta
+                if response.response_text is None:
+                    response.response_text = event.delta
+                    response.time_to_first_token = now - start_t
+                else:
+                    response.response_text += event.delta
+                response.time_to_last_token = now - start_t
 
             elif event.type == "response.completed":
                 usage = event.response.usage
                 if usage is not None:
-                    input_tokens = usage.input_tokens
-                    output_tokens = usage.output_tokens
+                    response.num_tokens_input = usage.input_tokens
+                    response.num_tokens_output = usage.output_tokens
                     details = getattr(usage, "input_tokens_details", None)
                     if details:
-                        cached_tokens = getattr(details, "cached_tokens", None)
-
-        time_to_last_token = time.perf_counter() - start_t
-
-        if time_to_first_token is None:
-            time_to_first_token = time_to_last_token
-
-        return InvocationResponse(
-            id=response_id,
-            response_text=response_text,
-            num_tokens_input=input_tokens,
-            num_tokens_output=output_tokens,
-            num_tokens_input_cached=cached_tokens,
-            time_to_first_token=time_to_first_token,
-            time_to_last_token=time_to_last_token,
-        )
+                        response.num_tokens_input_cached = getattr(
+                            details, "cached_tokens", None
+                        )

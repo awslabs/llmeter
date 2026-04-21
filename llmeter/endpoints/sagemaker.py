@@ -5,10 +5,23 @@ import io
 import json
 import logging
 import time
+from typing import Generic, TypeVar
 import warnings
 
 import boto3
 import jmespath
+
+try:
+    from mypy_boto3_sagemaker_runtime.type_defs import (
+        InvokeEndpointOutputTypeDef,
+        InvokeEndpointWithResponseStreamOutputTypeDef,
+    )
+except ImportError:
+    InvokeEndpointOutputTypeDef = TypeVar("InvokeEndpointOutputTypeDef")
+    InvokeEndpointWithResponseStreamOutputTypeDef = TypeVar(
+        "InvokeEndpointWithResponseStreamOutputTypeDef"
+    )
+
 
 from ..prompt_utils import (
     AudioContent,
@@ -18,9 +31,15 @@ from ..prompt_utils import (
     MediaContent,
     VideoContent,
 )
-from .base import Endpoint, InvocationResponse, llmeter_invoke
+from .base import Endpoint, InvocationResponse
 
 logger = logging.getLogger(__name__)
+
+
+TSageMakerResponseBase = TypeVar(
+    "TSageMakerResponseBase",
+    bound=InvokeEndpointOutputTypeDef | InvokeEndpointWithResponseStreamOutputTypeDef,
+)
 
 
 def _mime_to_sagemaker_format(mime_type: str) -> str | None:
@@ -72,11 +91,12 @@ def _build_content_blocks_sagemaker(items: list[ContentItem]) -> list[dict]:
     return blocks
 
 
-class SageMakerBase(Endpoint):
+class SageMakerBase(Endpoint[TSageMakerResponseBase], Generic[TSageMakerResponseBase]):
     def __init__(
         self,
         endpoint_name: str,
         model_id: str,
+        # TODO: generated & token count jmespaths not actually used by streaming yet
         generated_text_jmespath: str = "generated_text",
         input_text_jmespath: str = "inputs",
         token_count_jmespath: str | None = "details.generated_tokens",
@@ -106,6 +126,15 @@ class SageMakerBase(Endpoint):
             return jmespath.search(self.input_text_jmespath, payload)
         except Exception:
             return None
+
+
+class SageMakerEndpoint(SageMakerBase[InvokeEndpointOutputTypeDef]):
+    """
+    A class for handling invocations to a SageMaker endpoint.
+
+    This class extends SageMakerBase to provide functionality for invoking
+    a SageMaker endpoint and parsing its response.
+    """
 
     @staticmethod
     def create_payload(
@@ -163,49 +192,8 @@ class SageMakerBase(Endpoint):
         payload.update(kwargs)
         return payload
 
-
-class SageMakerEndpoint(SageMakerBase):
-    """
-    A class for handling invocations to a SageMaker endpoint.
-
-    This class extends SageMakerBase to provide functionality for invoking
-    a SageMaker endpoint and parsing its response.
-    """
-
-    def parse_response(self, raw_response, start_t: float) -> InvocationResponse:
-        """Parse the response from the SageMaker endpoint.
-
-        Args:
-            client_response: The raw response from the SageMaker endpoint.
-            start_t: The timestamp when the request was initiated.
-
-        Returns:
-            InvocationResponse with the generated text and metadata.
-        """
-        if raw_response is None:
-            return InvocationResponse(response_text=None)
-
-        client_response_body_json = raw_response["Body"].read().decode("utf-8")
-        client_response_body = json.loads(client_response_body_json)
-
-        response_text = jmespath.search(
-            self.generated_text_jmespath, client_response_body
-        )
-        num_tokens_output = None
-        if self.token_count_jmespath:
-            num_tokens_output = jmespath.search(
-                self.token_count_jmespath, client_response_body
-            )
-
-        return InvocationResponse(
-            id=raw_response.get("ResponseMetadata", {}).get("RequestId"),
-            response_text=response_text or "",
-            num_tokens_output=num_tokens_output if num_tokens_output else None,
-            retries=raw_response.get("ResponseMetadata", {}).get("RetryAttempts"),
-        )
-
-    @llmeter_invoke
-    def invoke(self, payload: dict) -> InvocationResponse:
+    @SageMakerBase.llmeter_invoke
+    def invoke(self, payload: dict) -> InvokeEndpointOutputTypeDef:
         """Invoke the SageMaker endpoint with the given payload."""
         json_payload = json.dumps(payload)
 
@@ -216,8 +204,36 @@ class SageMakerEndpoint(SageMakerBase):
         )
         return client_response
 
+    def process_raw_response(
+        self,
+        raw_response: InvokeEndpointOutputTypeDef,
+        start_t: float,
+        response: InvocationResponse,
+    ) -> None:
+        response.time_to_last_token = time.perf_counter()
 
-class SageMakerStreamEndpoint(SageMakerBase):
+        if raw_response is None:
+            response.error = "Null response from SageMaker endpoint"
+            return
+
+        raw_response_body_json = raw_response["Body"].read().decode("utf-8")
+        raw_response_body = json.loads(raw_response_body_json)
+        raw_response_meta = raw_response_body.get("ResponseMetadata", {})
+
+        response.id = raw_response_meta.get("RequestId")
+        response.retries = raw_response_meta.get("RetryAttempts")
+        response.response_text = jmespath.search(
+            self.generated_text_jmespath, raw_response_body
+        )
+        if self.token_count_jmespath:
+            response.num_tokens_output = jmespath.search(
+                self.token_count_jmespath, raw_response_body
+            )
+
+
+class SageMakerStreamEndpoint(
+    SageMakerBase[InvokeEndpointWithResponseStreamOutputTypeDef]
+):
     """
     A class for handling streaming invocations to a SageMaker endpoint.
 
@@ -225,39 +241,8 @@ class SageMakerStreamEndpoint(SageMakerBase):
     streaming responses from a SageMaker endpoint.
     """
 
-    def parse_response(self, raw_response, start_t: float) -> InvocationResponse:
-        """
-        Parse the streaming response from the SageMaker endpoint.
-
-        This method processes the streaming response, extracting tokens and
-        calculating various timing metrics.
-
-        Args:
-            client_response (dict): The raw response from the SageMaker endpoint.
-            start_t (float): The timestamp when the invocation started.
-
-        Returns:
-            InvocationResponse: An object containing the parsed response and metrics.
-        """
-        token_iterator = TokenIterator(raw_response["Body"])
-        first_token = next(token_iterator)
-        time_to_first_token = time.perf_counter() - start_t
-
-        response_text_tokens = [first_token] + [k for k in token_iterator]
-        time_to_last_token = time.perf_counter() - start_t
-        num_tokens_output = len(response_text_tokens)
-
-        return InvocationResponse(
-            id=raw_response.get("ResponseMetadata", {}).get("RequestId"),
-            response_text="".join(response_text_tokens),
-            time_to_first_token=time_to_first_token,
-            time_to_last_token=time_to_last_token,
-            num_tokens_output=num_tokens_output,
-            retries=raw_response.get("ResponseMetadata", {}).get("RetryAttempts"),
-        )
-
-    @llmeter_invoke
-    def invoke(self, payload: dict) -> InvocationResponse:
+    @SageMakerBase.llmeter_invoke
+    def invoke(self, payload: dict) -> InvokeEndpointWithResponseStreamOutputTypeDef:
         """Invoke a SageMaker streaming endpoint with the given payload."""
         json_payload = json.dumps(payload)
 
@@ -268,13 +253,38 @@ class SageMakerStreamEndpoint(SageMakerBase):
         )
         return client_response
 
-    def prepare_payload(self, payload, **kwargs):
+    def prepare_payload(self, payload):
         if "parameters" in payload:
             payload["parameters"].pop("decoder_input_details", None)
         if "stream" not in payload:
             warnings.warn("stream not specified in payload, defaulting to True")
             payload["stream"] = True
         return payload
+
+    def process_raw_response(
+        self,
+        raw_response: InvokeEndpointWithResponseStreamOutputTypeDef,
+        start_t: float,
+        response: InvocationResponse,
+    ) -> None:
+        response_meta = raw_response.get("ResponseMetadata", {})
+        response.id = response_meta.get("RequestId")
+        response.retries = response_meta.get("RetryAttempts")
+
+        token_iterator = TokenIterator(raw_response["Body"])
+        first_token = next(token_iterator)
+        response.time_to_first_token = time.perf_counter() - start_t
+
+        response_text_tokens = [first_token] + [k for k in token_iterator]
+        response.time_to_last_token = time.perf_counter() - start_t
+        response.response_text = "".join(response_text_tokens)
+
+        if token_iterator.details:
+            response.num_tokens_output = token_iterator.details.get(
+                "generated_tokens", 0
+            )
+        if response.num_tokens_output is None:
+            response.num_tokens_output = len(response_text_tokens)
 
     @staticmethod
     def create_payload(

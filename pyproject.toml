@@ -34,7 +34,7 @@ build-backend = "hatchling.build"
 
 [dependency-groups]
 dev = [
-    "boto3-stubs[bedrock,bedrock-runtime,essential,sagemaker]>=1.35.24",
+    "boto3-stubs[bedrock,bedrock-runtime,essential,sagemaker,sagemaker-runtime]>=1.35.24",
     "ipykernel>=6.29.0",
     "ipywidgets>=8.1.3",
     "transformers>=4.40.2",

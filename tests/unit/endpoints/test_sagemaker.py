@@ -18,11 +18,12 @@ from llmeter.endpoints.sagemaker import (
 
 
 class ConcreteClass(SageMakerBase):
-    def invoke(self, payload) -> InvocationResponse:
+    @SageMakerBase.llmeter_invoke
+    def invoke(self, payload):
         return None
 
-    def parse_response(self, raw_response, start_t: float) -> InvocationResponse:
-        return InvocationResponse(response_text="test response")
+    def process_raw_response(self, raw_response, start_t, response):
+        response.response_text = "test response"
 
 
 @pytest.fixture
@@ -59,8 +60,8 @@ def test_sagemaker_base_parse_input(sagemaker_base: ConcreteClass):
     assert sagemaker_base._parse_input(payload) == "Test input"
 
 
-def test_sagemaker_base_create_payload():
-    payload = SageMakerBase.create_payload("Test input", max_tokens=100)
+def test_sagemaker_sync_create_payload():
+    payload = SageMakerEndpoint.create_payload("Test input", max_tokens=100)
     assert payload == {
         "inputs": "Test input",
         "parameters": {

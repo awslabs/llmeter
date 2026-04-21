@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from llmeter.endpoints.sagemaker import SageMakerBase
+from llmeter.endpoints.sagemaker import SageMakerEndpoint
 from llmeter.prompt_utils import DocumentContent, ImageContent
 
 
@@ -19,7 +19,7 @@ class TestSageMakerMultiModal:
             temp_path = f.name
 
         try:
-            payload = SageMakerBase.create_payload(
+            payload = SageMakerEndpoint.create_payload(
                 [ImageContent.from_path(temp_path), "What's in this image?"],
                 max_tokens=256,
             )
@@ -42,7 +42,7 @@ class TestSageMakerMultiModal:
             doc_path = doc_file.name
 
         try:
-            payload = SageMakerBase.create_payload(
+            payload = SageMakerEndpoint.create_payload(
                 [
                     ImageContent.from_path(img_path),
                     "Analyze this",
@@ -61,7 +61,7 @@ class TestSageMakerMultiModal:
             Path(doc_path).unlink()
 
     def test_create_payload_text_only(self):
-        payload = SageMakerBase.create_payload("Hello, world!", max_tokens=256)
+        payload = SageMakerEndpoint.create_payload("Hello, world!", max_tokens=256)
         assert payload["inputs"] == "Hello, world!"
 
     def test_create_payload_ordering_preserved(self):
@@ -70,7 +70,7 @@ class TestSageMakerMultiModal:
             img_path = f.name
 
         try:
-            payload = SageMakerBase.create_payload(
+            payload = SageMakerEndpoint.create_payload(
                 [
                     "Before",
                     ImageContent.from_path(img_path),
@@ -87,8 +87,8 @@ class TestSageMakerMultiModal:
 
     def test_create_payload_empty_list_raises(self):
         with pytest.raises(ValueError, match="must not be empty"):
-            SageMakerBase.create_payload([])
+            SageMakerEndpoint.create_payload([])
 
     def test_create_payload_invalid_type_raises(self):
         with pytest.raises(TypeError, match="must be str or MediaContent"):
-            SageMakerBase.create_payload([123])  # type: ignore
+            SageMakerEndpoint.create_payload([123])  # type: ignore

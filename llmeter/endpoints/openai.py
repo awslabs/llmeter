@@ -6,7 +6,7 @@ import base64
 import logging
 import os
 import time
-from typing import Any, Literal, cast
+from typing import Any, Literal, Generic, Iterable, TypeVar, cast
 
 from openai import OpenAI
 from openai.types.chat import (
@@ -14,6 +14,10 @@ from openai.types.chat import (
     ChatCompletionChunk,
     ChatCompletionContentPartParam,
     CompletionCreateParams,
+)
+from openai.types.chat.completion_create_params import (
+    CompletionCreateParamsNonStreaming,
+    CompletionCreateParamsStreaming,
 )
 from openai.types.chat.chat_completion_content_part_param import (
     File as ChatCompletionFile,
@@ -24,7 +28,7 @@ from ..prompt_utils import (
     MediaContent,
     VideoContent,
 )
-from .base import Endpoint, InvocationResponse, llmeter_invoke
+from .base import Endpoint, InvocationResponse
 
 logger = logging.getLogger(__name__)
 
@@ -38,6 +42,10 @@ _MIME_TO_OPENAI_AUDIO_FMT: dict[str, Literal["mp3", "wav"]] = {
     "audio/mpeg": "mp3",
     "audio/wav": "wav",
 }
+
+TOpenAICompletionBase = TypeVar(
+    "TOpenAICompletionBase", bound=ChatCompletion | Iterable[ChatCompletionChunk]
+)
 
 
 def _make_openai_content_block(item: MediaContent) -> ChatCompletionContentPartParam:
@@ -106,7 +114,7 @@ def _build_content_blocks_openai(
     return blocks
 
 
-class OpenAIEndpoint(Endpoint):
+class OpenAIEndpoint(Endpoint[TOpenAICompletionBase], Generic[TOpenAICompletionBase]):
     """Base class for OpenAI API endpoints."""
 
     def __init__(
@@ -221,101 +229,92 @@ class OpenAIEndpoint(Endpoint):
         return cast(CompletionCreateParams, payload)
 
 
-class OpenAICompletionEndpoint(OpenAIEndpoint):
+class OpenAICompletionEndpoint(OpenAIEndpoint[ChatCompletion]):
     """Endpoint for OpenAI-compatible Chat Completion APIs (non-streaming mode)"""
 
-    @llmeter_invoke
-    def invoke(self, payload: CompletionCreateParams):
+    @OpenAIEndpoint.llmeter_invoke
+    def invoke(self, payload: CompletionCreateParamsNonStreaming) -> ChatCompletion:
         """Invoke the OpenAI chat completion API."""
         client_response: ChatCompletion = self._client.chat.completions.create(
             **payload
         )
         return client_response
 
-    def prepare_payload(self, payload, **kwargs):
-        payload = {**kwargs, **payload}
-        payload["model"] = self.model_id
-        return payload
+    def prepare_payload(self, payload):
+        """Ensure payload specifies correct model ID and streaming disabled"""
+        return {
+            **payload,
+            "model": self.model_id,
+            "stream": False,
+        }
 
-    def parse_response(self, raw_response: ChatCompletion, start_t: float):
+    def process_raw_response(
+        self, raw_response: ChatCompletion, start_t: float, response: InvocationResponse
+    ) -> None:
+        response.time_to_last_token = time.perf_counter() - start_t
+        response.id = raw_response.id
+
+        response.response_text = raw_response.choices[0].message.content
+
         usage = raw_response.usage
-        cached_tokens = None
-        if usage and usage.prompt_tokens_details:
-            cached_tokens = getattr(usage.prompt_tokens_details, "cached_tokens", None)
-        return InvocationResponse(
-            id=raw_response.id,
-            response_text=raw_response.choices[0].message.content,
-            num_tokens_input=usage and usage.prompt_tokens,
-            num_tokens_output=usage and usage.completion_tokens,
-            num_tokens_input_cached=cached_tokens,
-        )
+        if usage:
+            response.num_tokens_input = usage.prompt_tokens
+            response.num_tokens_output = usage.completion_tokens
+            if usage.prompt_tokens_details:
+                response.num_tokens_input_cached = getattr(
+                    usage.prompt_tokens_details, "cached_tokens", None
+                )
 
 
-class OpenAICompletionStreamEndpoint(OpenAIEndpoint):
+class OpenAICompletionStreamEndpoint(OpenAIEndpoint[Iterable[ChatCompletionChunk]]):
     """Endpoint for OpenAI-compatible Chat Completion APIs (streaming mode)"""
 
-    @llmeter_invoke
-    def invoke(self, payload: CompletionCreateParams):
+    @OpenAIEndpoint.llmeter_invoke
+    def invoke(self, payload: CompletionCreateParamsStreaming):
         """Invoke the OpenAI streaming chat completion API."""
         client_response = self._client.chat.completions.create(**payload)
         return client_response
 
-    def prepare_payload(self, payload, **kwargs):
-        payload = {**kwargs, **payload}
-        payload["model"] = self.model_id
-        if not payload.get("stream"):
-            payload["stream"] = True
+    def prepare_payload(self, payload):
+        """Ensure payload specifies correct model ID and streaming settings"""
+        payload = {
+            **payload,
+            "model": self.model_id,
+            "stream": True,
+        }
+        if not payload.get("stream_options"):
             payload["stream_options"] = {"include_usage": True}
         return payload
 
-    def parse_response(self, raw_response, start_t: float) -> InvocationResponse:
-        """Parse the streaming API response from OpenAI chat completion API.
-
-        Args:
-            client_response: Stream of ``ChatCompletionChunk`` objects
-            start_t: Start time of the API call in seconds
-
-        Returns:
-            InvocationResponse with concatenated text, token counts, TTFT and TTLT
-        """
-        prompt_tokens = None
-        completion_tokens = None
-        cached_tokens = None
-        response_text = ""
-        response_id = None
-        time_to_first_token = None
-
+    def process_raw_response(
+        self,
+        raw_response: Iterable[ChatCompletionChunk],
+        start_t: float,
+        response: InvocationResponse,
+    ) -> None:
+        """Parse the streaming API response from OpenAI chat completion API."""
+        got_chunk_id = False
         for chunk in raw_response:
-            chunk: ChatCompletionChunk
-            if response_id is None:
-                response_id = chunk.id
+            now = time.perf_counter()
+
+            if not got_chunk_id and chunk.id is not None:
+                response.id = chunk.id
+                got_chunk_id = True
 
             if chunk.choices:
                 content = chunk.choices[0].delta.content
                 if content:
-                    if time_to_first_token is None:
-                        time_to_first_token = time.perf_counter() - start_t
-                    response_text += content
+                    if response.response_text is None:
+                        response.time_to_first_token = now - start_t
+                        response.response_text = content
+                    else:
+                        response.response_text += content
+                    response.time_to_last_token = now - start_t
 
             if chunk.usage is not None:
-                prompt_tokens = chunk.usage.prompt_tokens
-                completion_tokens = chunk.usage.completion_tokens
+                response.num_tokens_input = chunk.usage.prompt_tokens
+                response.num_tokens_output = chunk.usage.completion_tokens
                 if chunk.usage.prompt_tokens_details:
-                    cached_tokens = getattr(
+                    response.num_tokens_input_cached = getattr(
                         chunk.usage.prompt_tokens_details, "cached_tokens", None
                     )
-
-        time_to_last_token = time.perf_counter() - start_t
-
-        if time_to_first_token is None:
-            time_to_first_token = time_to_last_token
-
-        return InvocationResponse(
-            id=response_id,
-            response_text=response_text,
-            num_tokens_input=prompt_tokens,
-            num_tokens_output=completion_tokens,
-            num_tokens_input_cached=cached_tokens,
-            time_to_first_token=time_to_first_token,
-            time_to_last_token=time_to_last_token,
-        )

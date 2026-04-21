@@ -60,7 +60,14 @@ def llmeter_default_serializer(obj: Any) -> Any:
         '{"ts": "2024-01-01T00:00:00"}'
     """
     if hasattr(obj, "to_dict") and callable(obj.to_dict):
-        return obj.to_dict()
+        result = obj.to_dict()
+        if not isinstance(result, dict):
+            # This check guards against infinite recursion in case something tries to serialize a
+            # MagicMock object with this function (in which to_dict returns another mock)
+            raise TypeError(
+                f"{type(obj).__name__}.to_dict() returned {type(result).__name__}, expected dict"
+            )
+        return result
     if isinstance(obj, bytes):
         return {"__llmeter_bytes__": base64.b64encode(obj).decode("utf-8")}
     if isinstance(obj, datetime):

@@ -478,18 +478,17 @@ def test_property_parameter_forwarding(
     endpoint = OpenAIResponseEndpoint(model_id="gpt-4-test")
     payload = {"input": "Test", "max_tokens": 256}
 
-    # Build kwargs with non-None parameters
-    kwargs = {}
+    # Add non-None parameters to payload
     if temperature is not None:
-        kwargs["temperature"] = temperature
+        payload["temperature"] = temperature
     if top_p is not None:
-        kwargs["top_p"] = top_p
+        payload["top_p"] = top_p
     if frequency_penalty is not None:
-        kwargs["frequency_penalty"] = frequency_penalty
+        payload["frequency_penalty"] = frequency_penalty
     if presence_penalty is not None:
-        kwargs["presence_penalty"] = presence_penalty
+        payload["presence_penalty"] = presence_penalty
 
-    endpoint.invoke(payload, **kwargs)
+    endpoint.invoke(payload)
 
     # Verify the call was made
     assert mock_client.responses.create.called
