@@ -45,6 +45,7 @@ jobs:
       uses: actions/upload-pages-artifact@v4
       with:
         path: site
+        overwrite: true
 
     - name: Deploy
       id: deploy
