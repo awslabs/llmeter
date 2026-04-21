@@ -8,11 +8,11 @@ or via the `llmeter[plotting]` extra.
 
 from .plotting import (
     boxplot_by_dimension,
-    plot_heatmap,
-    scatter_histogram_2d,
-    plot_load_test_results,
-    histogram_by_dimension,
     color_sequences,
+    histogram_by_dimension,
+    plot_heatmap,
+    plot_load_test_results,
+    scatter_histogram_2d,
 )
 
 __all__ = [

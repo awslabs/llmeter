@@ -20,7 +20,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 from hypothesis.strategies import composite
 
-from llmeter.json_utils import llmeter_default_serializer, llmeter_bytes_decoder
+from llmeter.json_utils import llmeter_bytes_decoder, llmeter_default_serializer
 
 # Test infrastructure is set up and ready for property test implementation
 # This file will contain property-based tests for:

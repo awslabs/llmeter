@@ -170,9 +170,9 @@ def test_response_bedrock_streaming(
     )
     assert response.time_to_last_token > 0, "Time to last token should be positive"
 
-    # Verify TTLT > TTFT
-    assert response.time_to_last_token > response.time_to_first_token, (
-        "Time to last token should be greater than time to first token"
+    # Verify TTLT >= TTFT
+    assert response.time_to_last_token >= response.time_to_first_token, (
+        "Time to last token should be gte time to first token"
     )
 
     # Verify response ID

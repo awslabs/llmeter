@@ -5,7 +5,6 @@ import json
 import logging
 from dataclasses import asdict, dataclass
 from datetime import datetime
-from functools import cached_property
 from numbers import Number
 from typing import Any, Sequence
 
@@ -24,9 +23,9 @@ class Result:
     """Results of a test run."""
 
     responses: list[InvocationResponse]
-    total_requests: int
-    clients: int
-    n_requests: int
+    total_requests: int | None = None
+    clients: int = 1
+    n_requests: int | None = None
     total_test_time: float | None = None
     model_id: str | None = None
     output_path: WritablePathLike | None = None
@@ -35,6 +34,8 @@ class Result:
     run_name: str | None = None
     run_description: str | None = None
     start_time: datetime | None = None
+    first_request_time: datetime | None = None
+    last_request_time: datetime | None = None
     end_time: datetime | None = None
 
     def __str__(self):
@@ -129,7 +130,12 @@ class Result:
         """Return the results as a dictionary with JSON-serializable values."""
         data = asdict(self)
         # Serialize datetime objects so stats dict is always JSON-safe
-        for key in ("start_time", "end_time"):
+        for key in (
+            "start_time",
+            "end_time",
+            "first_request_time",
+            "last_request_time",
+        ):
             if key in data and isinstance(data[key], datetime):
                 data[key] = llmeter_default_serializer(data[key])
         if include_responses:
@@ -162,8 +168,8 @@ class Result:
                 InvocationResponse(**json.loads(line)) for line in f if line
             ]
         logger.info("Loaded %d responses from %s", len(self.responses), responses_path)
-        # Invalidate cached stats so they are recomputed with the loaded responses
-        self.__dict__.pop("_builtin_stats", None)
+        # Recompute stats from the freshly loaded responses
+        self._preloaded_stats = self._compute_stats(self)
         return self.responses
 
     @classmethod
@@ -205,7 +211,12 @@ class Result:
             summary = json.load(g)
 
         # Convert datetime strings back to datetime objects
-        for key in ["start_time", "end_time"]:
+        for key in [
+            "start_time",
+            "end_time",
+            "first_request_time",
+            "last_request_time",
+        ]:
             if key in summary and summary[key] and isinstance(summary[key], str):
                 try:
                     summary[key] = datetime.fromisoformat(summary[key])
@@ -234,15 +245,20 @@ class Result:
 
         result = cls(responses=responses, **summary)
 
-        # When skipping responses, load pre-computed stats from stats.json if available
-        # so that result.stats works without needing the responses
+        # Load or compute stats
         if not load_responses:
+            # Use pre-computed stats from disk when responses aren't loaded
             stats_path = result_path / "stats.json"
             if stats_path.exists():
                 with stats_path.open("r") as s:
                     result._preloaded_stats = json.loads(s.read())
                     # Convert datetime strings in stats
-                    for key in ["start_time", "end_time"]:
+                    for key in [
+                        "start_time",
+                        "end_time",
+                        "first_request_time",
+                        "last_request_time",
+                    ]:
                         val = result._preloaded_stats.get(key)
                         if val and isinstance(val, str):
                             try:
@@ -253,78 +269,98 @@ class Result:
                                 pass
             else:
                 result._preloaded_stats = None
+        else:
+            # Compute stats from the loaded responses, but also merge any
+            # contributed stats that were persisted in stats.json so they
+            # survive a save/load round-trip.
+            result._preloaded_stats = cls._compute_stats(result)
+            stats_path = result_path / "stats.json"
+            if stats_path.exists():
+                with stats_path.open("r") as s:
+                    saved_stats = json.loads(s.read())
+                # Contributed stats are any keys in the saved file that are
+                # not produced by _compute_stats (i.e. they came from callbacks).
+                for key, value in saved_stats.items():
+                    if key not in result._preloaded_stats:
+                        result._preloaded_stats[key] = value
 
         return result
 
-    @cached_property
-    def _builtin_stats(self) -> dict:
-        """
-        Default run metrics and aggregated statistics provided by LLMeter core
+    @classmethod
+    def _compute_stats(cls, result: "Result") -> dict:
+        """Compute stats from in-memory responses.
 
-        Users should generally refer to the `.stats` property instead, which combines this data
-        with any additional values contributed by callbacks or other extensions.
+        This is the fallback used when ``_preloaded_stats`` is not available — for
+        example when a ``Result`` is constructed manually or after
+        :meth:`load_responses` reloads data from disk.
 
-        This is a read-only and `@cached_property`, which means the result is computed once and
-        then cached for subsequent accesses - improving performance.
+        Args:
+            result: A ``Result`` instance whose ``responses`` list is populated.
 
         Returns:
-            stats: A dictionary containing all computed statistics. The keys are:
-                - All key-value pairs from the Result's dictionary representation
-                - Test-specific statistics
-                - Aggregated statistics with keys in the format "{stat_name}-{aggregation_type}"
-                  where stat_name is one of the four metrics listed above, and
-                  aggregation_type includes measures like mean, median, etc.
-        """
+            A flat dictionary matching the ``Result.stats`` schema, containing
+            run-level metrics (``failed_requests``, ``requests_per_minute``, …)
+            and per-metric aggregations (``time_to_first_token-p50``, …).
 
+        Example::
+
+            result = Result(responses=my_responses, total_requests=100, ...)
+            stats = Result._compute_stats(result)
+            stats["time_to_first_token-p90"]  # 0.485
+        """
         aggregation_metrics = [
             "time_to_last_token",
             "time_to_first_token",
             "num_tokens_output",
             "num_tokens_input",
+            "num_tokens_input_cached",
         ]
-
-        results_stats = _get_stats_from_results(
-            self,
-            aggregation_metrics,
-        )
+        results_stats = _get_stats_from_results(result, aggregation_metrics)
         return {
-            **self.to_dict(),
-            **_get_run_stats(self),
+            **result.to_dict(),
+            **_get_run_stats(result),
             **{f"{k}-{j}": v for k, o in results_stats.items() for j, v in o.items()},
         }
 
     @property
     def stats(self) -> dict:
+        """Run metrics and aggregated statistics over the individual requests.
+
+        Returns a flat dictionary combining:
+
+        * Basic run information (from ``to_dict()``).
+        * Aggregated statistics (``average``, ``p50``, ``p90``, ``p99``) for
+          ``time_to_last_token``, ``time_to_first_token``, ``num_tokens_output``,
+          and ``num_tokens_input``.  Keys use the format
+          ``"{metric}-{aggregation}"``.
+        * Run-level throughput metrics (``requests_per_minute``,
+          ``total_input_tokens``, etc.).
+        * Any additional stats contributed by callbacks via
+          :meth:`_update_contributed_stats`.
+
+        During a live run, stats are computed incrementally by
+        :class:`~llmeter.utils.RunningStats` and stored in ``_preloaded_stats``.
+        When loading from disk with ``load_responses=False``, pre-computed stats
+        from ``stats.json`` are used.  As a fallback (e.g. manually constructed
+        ``Result``), stats are computed on the fly from ``self.responses``.
+
+        Returns:
+            A new shallow copy of the stats dictionary on each access.
+
+        Example::
+
+            result = await runner.run(payload=my_payload, clients=5)
+            result.stats["time_to_first_token-p50"]   # 0.312
+            result.stats["requests_per_minute"]        # 141.2
+            result.stats["failed_requests"]            # 0
         """
-        Run metrics and aggregated statistics over the individual requests
-
-        This combined view includes:
-        - Basic information about the run (from the Result's dictionary representation)
-        - Aggregated statistics ('average', 'p50', 'p90', 'p99') for:
-            - Time to last token
-            - Time to first token
-            - Number of tokens output
-            - Number of tokens input
-
-        Aggregated statistics are keyed in the format "{stat_name}-{aggregation_type}"
-
-        This property is read-only and returns a new shallow copy of the data on each access.
-        Default stats provided by LLMeter are calculated on first access and then cached. Callbacks
-        Callbacks or other mechanisms needing to augment stats should use the
-        `_update_contributed_stats()` method.
-
-        When the Result was loaded with ``load_responses=False``, pre-computed stats from
-        ``stats.json`` are returned if available. Call ``load_responses()`` to load the
-        individual responses and recompute stats from the raw data.
-        """
-        # Use preloaded stats when responses were not loaded
-        if not self.responses and self._preloaded_stats is not None:
+        if self._preloaded_stats is not None:
             stats = self._preloaded_stats.copy()
-            if self._contributed_stats:
-                stats.update(self._contributed_stats)
-            return stats
-
-        stats = self._builtin_stats.copy()
+        else:
+            # Fallback: compute from responses (e.g. Result constructed manually)
+            # Cache so subsequent accesses don't recompute.
+            self._preloaded_stats = self._compute_stats(self)
+            stats = self._preloaded_stats.copy()
 
         if self._contributed_stats:
             stats.update(self._contributed_stats)
@@ -442,6 +478,9 @@ def _get_run_stats(results: Result):
     )
     stats["total_output_tokens"] = sum(
         jmespath.search("[:].num_tokens_output", data=data)
+    )
+    stats["total_cached_input_tokens"] = sum(
+        v for v in jmespath.search("[:].num_tokens_input_cached", data=data) if v
     )
     stats["average_input_tokens_per_minute"] = (
         results.total_test_time

@@ -148,6 +148,7 @@ def test_image_bytes():
         tuple: (image1_bytes, image2_bytes) - Two JPEG images as bytes
     """
     import io
+
     from PIL import Image
 
     # 32x32 red square JPEG - binary format

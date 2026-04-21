@@ -12,7 +12,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from dataclasses import InitVar, asdict, dataclass, fields, replace
-from datetime import datetime
+from datetime import datetime, timedelta
 from itertools import cycle
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
@@ -21,7 +21,8 @@ from tqdm.auto import tqdm, trange
 from upath import UPath as Path
 from upath.types import ReadablePathLike, WritablePathLike
 
-from .utils import ensure_path, now_utc
+from .live_display import LiveStatsDisplay
+from .utils import RunningStats, ensure_path, now_utc
 
 if TYPE_CHECKING:
     # Avoid circular import: We only need typing for Callback
@@ -58,11 +59,14 @@ class _RunConfig:
     tokenizer: Tokenizer | Any | None = None
     clients: int = 1
     n_requests: int | None = None
+    run_duration: int | float | timedelta | None = None
     payload: dict | list[dict] | ReadablePathLike | None = None
     run_name: str | None = None
     run_description: str | None = None
     timeout: int | float = 60
     callbacks: list[Callback] | None = None
+    low_memory: bool = False
+    progress_bar_stats: dict[str, str | tuple[str, str]] | None = None
     disable_per_client_progress_bar: InitVar[bool] = True
     disable_clients_progress_bar: InitVar[bool] = True
 
@@ -71,8 +75,13 @@ class _RunConfig:
         self._disable_clients_progress_bar = disable_clients_progress_bar
         self._random_seed = 0
 
-        if self.n_requests is not None:
+        if self.n_requests is not None and self.run_duration is None:
             assert self.n_requests > 0, "Number of requests must be a positive integer"
+
+        if self.run_duration is not None:
+            if isinstance(self.run_duration, timedelta):
+                self.run_duration = self.run_duration.total_seconds()
+            assert self.run_duration > 0, "Run duration must be a positive number"
 
         assert self.clients > 0, "Number of clients must be a positive integer"
 
@@ -168,17 +177,61 @@ class _Run(_RunConfig):
         self._validate_and_prepare_payload()
         self._responses = []
 
-    def _validate_and_prepare_payload(self):
-        """Validate and prepare the payload for the test run and update n_requests
+        if self.low_memory:
+            assert self.output_path is not None, (
+                "output_path is required when low_memory=True "
+                "(responses must be written to disk)"
+            )
 
-        This method ensures that the payload is valid and prepared for the test run.
+        self._running_stats = RunningStats(
+            metrics=[
+                "time_to_last_token",
+                "time_to_first_token",
+                "time_per_output_token",
+                "num_tokens_output",
+                "num_tokens_input",
+            ]
+        )
+
+    def _validate_and_prepare_payload(self):
+        """Validate and prepare the payload for the test run.
+
+        Normalizes the payload into a list of dicts, validates that ``n_requests``
+        and ``run_duration`` are not both set, and sets ``_time_bound`` and
+        ``n_requests`` accordingly.
+
+        For count-bound runs, ``n_requests`` defaults to the number of payloads
+        when not explicitly provided. For time-bound runs, ``n_requests`` is set
+        to 0 since the actual count is unknown upfront.
+
+        Raises:
+            AssertionError: If no payload is provided.
+            ValueError: If both ``n_requests`` and ``run_duration`` are set.
+            FileNotFoundError: If the payload path does not exist.
         """
         assert self.payload, "No payload provided"
         if isinstance(self.payload, (Path, str)):
             self.payload = list(load_payloads(self.payload))
         if isinstance(self.payload, dict):
             self.payload = [self.payload]
-        self._n_requests = self.n_requests or len(self.payload)
+
+        if (
+            self.run_duration is not None
+            and self.n_requests is not None
+            and self.n_requests != 0
+        ):
+            raise ValueError(
+                "Cannot set both n_requests and run_duration. "
+                "Use n_requests for request-bound runs or run_duration for time-bound runs."
+            )
+
+        self._time_bound = self.run_duration is not None
+        if self._time_bound:
+            # For time-bound runs, n_requests is unknown upfront; set to 0
+            # and update to the actual count after the run completes.
+            self.n_requests = 0
+        else:
+            self.n_requests = self.n_requests or len(self.payload)
 
     @staticmethod
     async def _compute_time_per_output_token(response: InvocationResponse):
@@ -257,9 +310,22 @@ class _Run(_RunConfig):
             if self.callbacks is not None:
                 [await cb.after_invoke(response) for cb in self.callbacks]
 
-            self._responses.append(response)
-            if self._progress_bar:
+            if self.low_memory and self._running_stats is not None:
+                self._running_stats.update(response.to_dict())
+            else:
+                self._responses.append(response)
+                self._running_stats.update(response.to_dict())
+
+            if self._progress_bar is not None and not self._time_bound:
                 self._progress_bar.update(1)
+
+            if self._stats_display is not None:
+                raw = self._running_stats.to_stats(end_time=now_utc())
+                if raw:
+                    prefix = (
+                        f"reqs={self._running_stats._count}" if self._time_bound else ""
+                    )
+                    self._stats_display.update(raw, extra_prefix=prefix)
 
             if output_path:
                 output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -272,25 +338,32 @@ class _Run(_RunConfig):
         self,
         payload: list[dict],
         n: int | None = None,
+        duration: float | None = None,
         shuffle_order=True,
     ) -> list[InvocationResponse]:
-        """
-        Generate multiple invocations for the given payload.
+        """Generate invocations synchronously for a single client.
 
-        This method generates `n` invocations for the given payload(s) by sending
-        requests to the endpoint in a loop. If a sequence of payloads is provided,
-        the payloads are cycled through until `n` invocations are generated. If a
-        single payload is provided, it is used for all `n` invocations.
+        Terminates when either *n* requests have been sent or *duration* seconds
+        have elapsed, whichever is specified.  Exactly one of *n* or *duration*
+        must be provided.
+
+        Cycles through *payload*, sending each request to the endpoint and
+        pushing the response onto ``self._queue`` for async token-counting and
+        stats collection.
 
         Args:
-            payload: The input payload to generate invocations for.
-            n (int|None, optional): The number of invocations to generate.
-                If not specified, every element in the payload is used once.
+            payload (list[dict]): The input payloads to cycle through.
+            n (int | None, optional): The number of invocations to generate.
+                If not specified, every element in the payload is used once
+                (only when *duration* is also ``None``).
+            duration (float | None, optional): Maximum wall-clock seconds to
+                keep sending requests.  When set, requests are sent continuously
+                until the deadline.
             shuffle_order (bool, optional): Whether to shuffle the order of payloads
                 before generating invocations. Defaults to True.
 
         Returns:
-            List[EndpointResponse]: A list of response objects.
+            list[InvocationResponse]: A list of response objects.
         """
 
         # ToDo: replace with an async method to prepare payloads, including possible callbacks,
@@ -300,22 +373,45 @@ class _Run(_RunConfig):
             random.seed(0)
             payload = random.sample(payload, k=len(payload))
 
-        responses = []
-        if n is None:
-            n = len(payload)
-        for p, _ in zip(
-            cycle(payload),
+        responses: list[InvocationResponse] = []
+        if not payload:
+            return responses
+
+        time_bound = duration is not None
+        if time_bound:
+            deadline = time.perf_counter() + duration
+        else:
+            if n is None:
+                n = len(payload)
+
+        payload_iter = cycle(payload)
+
+        # Count-bound runs get a trange progress bar; time-bound runs use a
+        # separate _tick_time_bar task so we skip the per-client bar here.
+        pbar = (
             trange(
                 n,
                 leave=False,
                 desc="Requests",
                 disable=_disable_tqdm or self._disable_per_client_progress_bar,
-            ),
-        ):
+            )
+            if not time_bound
+            else None
+        )
+
+        sent = 0
+        while True:
+            if time_bound:
+                if time.perf_counter() >= deadline:
+                    break
+            else:
+                if sent >= n:
+                    break
+
+            p = next(payload_iter)
             try:
                 p = asyncio.run(process_before_invoke_callbacks(self.callbacks, p))
                 response = self._endpoint.invoke(p)
-
             except Exception as e:
                 logger.exception(f"Error with invocation with payload {p}: {e}")
                 response = InvocationResponse.error_output(
@@ -328,26 +424,33 @@ class _Run(_RunConfig):
                 self._queue._loop.call_soon_threadsafe(  # type: ignore
                     self._queue.put_nowait, response
                 )
+            sent += 1
+            if pbar is not None:
+                pbar.update(1)
+
+        if pbar is not None:
+            pbar.close()
         return responses
 
-    async def _invoke_n(
+    async def _invoke_client(
         self,
         payload: list[dict],
         n: int | None = None,
+        duration: float | None = None,
         add_start_jitter=True,
         shuffle_order=True,
     ) -> list[InvocationResponse]:
-        """
-        Asynchronously generate multiple invocations for the given payload.
+        """Asynchronously generate invocations for a single client.
 
-        This method generates `n` invocations for the given payload(s) by sending
-        requests to the endpoint asynchronously. If a sequence of payloads is provided,
-        the payloads are cycled through until `n` invocations are generated. If a
-        single payload is provided, it is used for all `n` invocations.
+        Wraps :meth:`_invoke_n_no_wait` in a thread.  For count-bound runs an
+        overall timeout of ``self.timeout * n`` is applied; time-bound runs
+        have no extra timeout (the duration itself is the limit).
 
         Args:
-            payload (Dict[str, str] | Sequence[Dict[str, str]]): The input payload(s) to generate invocations for.
-            n (int | None, optional): The number of invocations to generate. Defaults to None.
+            payload (list[dict]): The input payload(s) to generate invocations for.
+            n (int | None, optional): The number of invocations to generate.
+                Defaults to None (one per payload element).
+            duration (float | None, optional): Maximum wall-clock seconds.
             add_start_jitter (bool, optional): Whether to add a random delay before
                 starting the invocations loop to avoid batch bunching when using
                 multiple clients. Defaults to True.
@@ -355,7 +458,8 @@ class _Run(_RunConfig):
                 before generating invocations. Defaults to True.
 
         Returns:
-            List[EndpointResponse]: A list of response objects.
+            list[InvocationResponse]: A list of response objects. Returns an empty
+            list if the overall timeout is exceeded (count-bound only).
         """
 
         if add_start_jitter:
@@ -364,59 +468,103 @@ class _Run(_RunConfig):
         if shuffle_order:
             self._random_seed = random.randint(0, 2**16 - 1)
 
+        coro = asyncio.to_thread(
+            self._invoke_n_no_wait, payload, n, duration, shuffle_order
+        )
+
+        if duration is not None:
+            # Time-bound: no extra timeout — the duration is the limit
+            return await coro
+
         try:
-            response = await asyncio.wait_for(
-                asyncio.to_thread(self._invoke_n_no_wait, payload, n, shuffle_order),
+            return await asyncio.wait_for(
+                coro,
                 timeout=self.timeout * (n or len(payload)),
             )
         except asyncio.TimeoutError:
             logger.error("client timeout!")
             return []
 
-        return response
-
-    async def _invoke_n_c(
+    async def _invoke_clients(
         self,
         payload: list[dict],
         n_requests: int | None = None,
+        duration: float | None = None,
         clients: int = 1,
     ) -> tuple[float, float, float]:
-        """
-        Asynchronously generates multiple invocations for a given payload.
+        """Spawn *clients* concurrent invocation loops.
+
+        Each client generates invocations by delegating to
+        :meth:`_invoke_client`.  All clients run concurrently and the method
+        waits for all of them to finish before signalling the token-counting
+        queue to stop.
 
         Args:
-            payload (dict): The input data for generating invocations.
-            queue (asyncio.Queue): The queue to store the generated responses.
-            n_requests (int | None, optional): The number of invocations to generate per connection. Defaults to None.
-            clients (int, optional): The number of concurrent connections to generate invocations. Defaults to 1.
+            payload (list[dict]): The input payloads to send.
+            n_requests (int | None, optional): The number of invocations to
+                generate per client (count-bound). Defaults to None.
+            duration (float | None, optional): Maximum wall-clock seconds per
+                client (time-bound). Defaults to None.
+            clients (int, optional): The number of concurrent client connections.
+                Defaults to 1.
 
         Returns:
-            None
-
-        Raises:
-            None
+            tuple[float, float, float]: A ``(total_test_time, start_t, end_t)``
+            tuple of ``time.perf_counter`` values.
         """
-        logger.info(
-            f"Generating {clients} connections with {n_requests} invocations each"
-        )
+        if duration is not None:
+            logger.info(f"Generating {clients} connections for {duration}s each")
+        else:
+            logger.info(
+                f"Generating {clients} connections with {n_requests} invocations each"
+            )
         start_t = time.perf_counter()
         await tqdm.gather(
-            *[self._invoke_n(payload, n_requests) for _ in range(clients)],
+            *[
+                self._invoke_client(payload, n=n_requests, duration=duration)
+                for _ in range(clients)
+            ],
             leave=False,
             desc="Clients",
             disable=_disable_tqdm or self._disable_clients_progress_bar,
         )
         end_t = time.perf_counter()
         total_test_time = end_t - start_t
-        logger.info(
-            f"Generated {clients} connections with {n_requests} invocations each in {total_test_time * 1000:.2f} seconds"
-        )
 
-        # Signal the token counting task to exit
+        if duration is not None:
+            logger.info(
+                f"Completed {clients} clients x {duration}s in "
+                f"{total_test_time * 1000:.2f}ms"
+            )
+        else:
+            logger.info(
+                f"Completed {clients} clients x {n_requests} requests in "
+                f"{total_test_time * 1000:.2f}ms"
+            )
+
         if self._queue:
             await self._queue.put(None)
             logger.debug("Signaling token counting task to exit")
         return total_test_time, start_t, end_t
+
+    async def _tick_time_bar(self):
+        """Advance ``_progress_bar`` every 0.5 s until ``run_duration`` is reached.
+
+        Designed to run as a concurrent task alongside the invocation loops so
+        the user sees a smooth time-based progress bar.
+        """
+        start = time.perf_counter()
+        duration = self.run_duration
+        prev = 0
+        while True:
+            await asyncio.sleep(0.5)
+            elapsed = time.perf_counter() - start
+            tick = min(int(elapsed), int(duration)) - prev
+            if tick > 0 and self._progress_bar is not None:
+                self._progress_bar.update(tick)
+                prev += tick
+            if elapsed >= duration:
+                break
 
     async def _run(self):
         """Run the test with the given configuration
@@ -424,12 +572,13 @@ class _Run(_RunConfig):
         This method is expected to be called *exactly once* after the _Run object is created.
         Attempting to re-use a _Run object may result in undefined behavior.
         """
+        # For time-bound runs, total_requests is unknown upfront
         result = Result(
             responses=[],
             total_test_time=None,
-            total_requests=self._n_requests * self.clients,
+            total_requests=0 if self._time_bound else self.n_requests * self.clients,
             clients=self.clients,
-            n_requests=self._n_requests,
+            n_requests=self.n_requests,
             output_path=self.output_path,  # type: ignore
             model_id=self._endpoint.model_id,
             provider=self._endpoint.provider,
@@ -450,27 +599,67 @@ class _Run(_RunConfig):
         loop.set_default_executor(ThreadPoolExecutor(max_workers=self.clients + 5))
         logger.info("Starting test")
         self._queue = asyncio.Queue()
-        self._progress_bar = tqdm(
-            total=self.clients * self._n_requests,
-            leave=False,
-            desc="Total requests",
-            disable=_disable_tqdm,
+
+        if self._time_bound:
+            # Time-bound: progress bar shows elapsed seconds
+            self._progress_bar = tqdm(
+                total=int(self.run_duration),
+                leave=False,
+                desc="Elapsed",
+                unit="s",
+                bar_format="{desc}: {bar}| {n:.0f}/{total:.0f}s [{elapsed}]",
+                disable=_disable_tqdm,
+            )
+        else:
+            # Count-bound: progress bar shows completed requests
+            self._progress_bar = tqdm(
+                total=self.clients * self.n_requests,
+                leave=False,
+                desc="Total requests",
+                disable=_disable_tqdm,
+            )
+
+        # Live stats display — renders as an HTML table in notebooks, multi-line in terminals
+        self._stats_display = LiveStatsDisplay(
+            disabled=_disable_tqdm,
+            display_stats=self.progress_bar_stats,
         )
+
+        # Show the table layout immediately with placeholder values
+        prefix = "reqs=0" if self._time_bound else ""
+        self._stats_display.update({}, extra_prefix=prefix)
 
         try:
             run_start_time = now_utc()
-            _, (total_test_time, start_time, end_time) = await asyncio.gather(
-                self._process_results_from_q(
-                    output_path=ensure_path(self.output_path) / "responses.jsonl"
-                    if self.output_path
-                    else None,
-                ),
-                self._invoke_n_c(
+            if self._time_bound:
+                invoke_coro = self._invoke_clients(
                     payload=self.payload,  # type: ignore
-                    n_requests=self._n_requests,
+                    duration=self.run_duration,
                     clients=self.clients,
-                ),
-            )
+                )
+                _, (total_test_time, start_time, end_time), _ = await asyncio.gather(
+                    self._process_results_from_q(
+                        output_path=ensure_path(self.output_path) / "responses.jsonl"
+                        if self.output_path
+                        else None,
+                    ),
+                    invoke_coro,
+                    self._tick_time_bar(),
+                )
+            else:
+                invoke_coro = self._invoke_clients(
+                    payload=self.payload,  # type: ignore
+                    n_requests=self.n_requests,
+                    clients=self.clients,
+                )
+                _, (total_test_time, start_time, end_time) = await asyncio.gather(
+                    self._process_results_from_q(
+                        output_path=Path(self.output_path) / "responses.jsonl"
+                        if self.output_path
+                        else None,
+                    ),
+                    invoke_coro,
+                )
             run_end_time = now_utc()
 
         except asyncio.CancelledError:
@@ -480,15 +669,40 @@ class _Run(_RunConfig):
             return result
 
         self._progress_bar.close()
+        if self._stats_display is not None:
+            self._stats_display.close()
         logger.info(f"Test completed in {total_test_time * 1000:.2f} seconds.")
+
+        actual_total = self._running_stats._count
 
         result = replace(
             result,
             responses=self._responses,
             total_test_time=total_test_time,
+            total_requests=actual_total,
+            n_requests=actual_total // max(self.clients, 1)
+            if self._time_bound
+            else self.n_requests,
             start_time=run_start_time,
+            first_request_time=self._running_stats._first_send_time,
+            last_request_time=self._running_stats._last_send_time,
             end_time=run_end_time,
         )
+
+        # Compute stats from the running accumulators
+        result._preloaded_stats = self._running_stats.to_stats(
+            end_time=run_end_time,
+            result_dict=result.to_dict(),
+        )
+        result._preloaded_stats["start_time"] = run_start_time
+        result._preloaded_stats["end_time"] = run_end_time
+        result._preloaded_stats["total_test_time"] = total_test_time
+
+        if self.low_memory:
+            logger.info(
+                "Low-memory mode: responses not stored in memory. "
+                "Use result.load_responses() to load from disk."
+            )
 
         if self.callbacks is not None:
             [await cb.after_run(result) for cb in self.callbacks]
@@ -543,7 +757,12 @@ class Runner(_RunConfig):
             `DummyTokenizer` will be used if needed.
         clients (int): The number of concurrent clients to use for sending requests. Defaults to 1.
         n_requests (int | None): The number of LLM invocations to generate *per client*. By
-            default, each request in `payload` will be sent once by each client.
+            default, each request in `payload` will be sent once by each client.  Mutually
+            exclusive with ``run_duration``.
+        run_duration (int | float | timedelta | None): Run each client for this many seconds instead of a
+            fixed request count.  Clients send requests continuously until the duration expires.
+            Mutually exclusive with ``n_requests``.  Defaults to ``None`` (count-bound mode).
+            Accepts a number of seconds or a ``timedelta``.
         payload (dict | list[dict] | os.PathLike | str | None): The request data to send to the
             endpoint under test. You can provide a single JSON payload (dict), a list of payloads
             (list[dict]), or a path to one or more JSON/JSON-Lines files to be loaded by
@@ -560,6 +779,15 @@ class Runner(_RunConfig):
             endpoint. Defaults to 60 seconds.
         callbacks (list[Callback] | None): Optional callbacks to enable during the test Run. See
             `llmeter.callbacks` for more information.
+        low_memory (bool): When ``True``, responses are written to disk but not kept in memory
+            during the run.  Stats are computed incrementally via
+            :class:`~llmeter.utils.RunningStats`.  Requires ``output_path`` to be set.  Use
+            ``result.load_responses()`` to load responses from disk after the run.  Defaults to
+            ``False``.
+        progress_bar_stats (dict | None): Controls which live stats appear on the progress bar.
+            Maps short display labels to canonical stat keys — see
+            :data:`~llmeter.live_display.DEFAULT_DISPLAY_STATS` for the format and defaults.  Pass ``{}``
+            to disable live stats entirely.  Defaults to ``None`` (use built-in defaults).
         disable_per_client_progress_bar (bool): Set `True` to disable per-client progress bars
             from showing during the run. Default `False` (each client's progress will be shown).
         disable_clients_progress_bar (bool): Set `True` to disable overall progress bar from
@@ -603,11 +831,14 @@ class Runner(_RunConfig):
         tokenizer: Tokenizer | Any | None = None,
         clients: int | None = None,
         n_requests: int | None = None,
+        run_duration: int | float | timedelta | None = None,
         payload: dict | list[dict] | ReadablePathLike | None = None,
         run_name: str | None = None,
         run_description: str | None = None,
         timeout: int | float | None = None,
         callbacks: list[Callback] | None = None,
+        low_memory: bool | None = None,
+        progress_bar_stats: dict[str, str | tuple[str, str]] | None = None,
         disable_per_client_progress_bar: bool | None = None,
         disable_clients_progress_bar: bool | None = None,
     ) -> Result:
@@ -631,6 +862,18 @@ class Runner(_RunConfig):
                 output token counts for endpoints that don't report exact information.
             clients (int): The number of concurrent clients to use for sending requests.
             n_requests (int | None): The number of LLM invocations to generate *per client*.
+                Mutually exclusive with ``run_duration``.
+            run_duration (int | float | timedelta | None): Run each client for this many seconds
+                instead of a fixed request count.  Clients send requests continuously
+                until the duration expires.  Mutually exclusive with ``n_requests``.
+                Accepts a number of seconds or a ``timedelta``.
+
+                Example::
+
+                    # Run for 60 seconds with 5 concurrent clients:
+                    result = await runner.run(run_duration=60, clients=5)
+                    result.total_requests  # actual count completed
+
             payload (dict | list[dict] | ReadablePathLike | None): The request data to send to the
                 endpoint under test. You can provide a single JSON payload (dict), a list of
                 payloads (list[dict]), or a path to one or more JSON/JSON-Lines files to be loaded
@@ -643,6 +886,36 @@ class Runner(_RunConfig):
                 endpoint.
             callbacks (list[Callback] | None): Optional callbacks to enable during the test Run. See
                 `llmeter.callbacks` for more information.
+            low_memory (bool): When ``True``, responses are written to disk but not
+                kept in memory.  Stats are computed incrementally via
+                :class:`~llmeter.utils.RunningStats`.  Requires ``output_path``.
+                Use ``result.load_responses()`` to access responses after the run.
+
+                Example::
+
+                    result = await runner.run(
+                        output_path="/tmp/my_run",
+                        low_memory=True,
+                    )
+                    result.stats          # works (computed incrementally)
+                    result.responses      # [] (empty)
+                    result.load_responses()  # loads from disk
+
+            progress_bar_stats (dict): Controls which live stats appear on the
+                progress bar.  Maps short display labels to canonical stat keys — see
+                :data:`~llmeter.live_display.DEFAULT_DISPLAY_STATS` for the format and
+                defaults.  Pass ``{}`` to disable live stats entirely.
+
+                Example::
+
+                    # Show only p99 latency and tokens per second:
+                    result = await runner.run(
+                        progress_bar_stats={
+                            "p99_ttlt": "time_to_last_token-p99",
+                            "tps": ("time_per_output_token-p50", "inv"),
+                            "fail": "failed_requests",
+                        },
+                    )
             disable_per_client_progress_bar (bool): Set `True` to disable per-client progress bars
                 from showing during the run.
             disable_clients_progress_bar (bool): Set `True` to disable overall progress bar from
@@ -670,11 +943,14 @@ class Runner(_RunConfig):
             tokenizer=tokenizer,
             clients=clients,
             n_requests=n_requests,
+            run_duration=run_duration,
             payload=payload,
             run_name=run_name,
             run_description=run_description,
             timeout=timeout,
             callbacks=callbacks,
+            low_memory=low_memory,
+            progress_bar_stats=progress_bar_stats,
             disable_per_client_progress_bar=disable_per_client_progress_bar,
             disable_clients_progress_bar=disable_clients_progress_bar,
         )

@@ -192,7 +192,9 @@ def test_stats_property(sample_result: Result):
         assert key in stats
 
     # Test caching returns same object for built-in stats:
-    assert sample_result._builtin_stats is sample_result._builtin_stats
+    assert sample_result._preloaded_stats is None or isinstance(
+        sample_result._preloaded_stats, dict
+    )
 
 
 def test_stats_property_empty_result():
@@ -600,3 +602,189 @@ def test_invocation_response_to_json_with_kwargs():
     # Verify it's still valid JSON
     parsed = json.loads(json_str)
     assert parsed["id"] == "test-kwargs"
+
+
+# ── Contributed stats round-trip ─────────────────────────────────────────────
+
+
+class TestContributedStatsRoundTrip:
+    """Verify that callback-contributed stats survive save → load cycles."""
+
+    @pytest.fixture
+    def result_with_contributed_stats(self):
+        responses = [
+            InvocationResponse(
+                id=f"r{i}",
+                response_text=f"resp {i}",
+                input_prompt=f"prompt {i}",
+                time_to_first_token=0.1 * i,
+                time_to_last_token=0.2 * i,
+                num_tokens_output=10 * i,
+                num_tokens_input=5 * i,
+            )
+            for i in range(1, 4)
+        ]
+        result = Result(
+            responses=responses,
+            total_requests=3,
+            clients=1,
+            n_requests=3,
+            total_test_time=1.0,
+        )
+        result._update_contributed_stats(
+            {"custom_metric_a": 42.0, "custom_metric_b": 99.5}
+        )
+        return result
+
+    def test_contributed_stats_appear_in_stats(self, result_with_contributed_stats):
+        stats = result_with_contributed_stats.stats
+        assert stats["custom_metric_a"] == 42.0
+        assert stats["custom_metric_b"] == 99.5
+
+    def test_contributed_stats_written_to_stats_json(
+        self, result_with_contributed_stats, tmp_path
+    ):
+        output = UPath(tmp_path / "out")
+        result_with_contributed_stats.save(output)
+
+        with (output / "stats.json").open() as f:
+            saved = json.load(f)
+        assert saved["custom_metric_a"] == 42.0
+        assert saved["custom_metric_b"] == 99.5
+
+    def test_load_with_responses_preserves_contributed_stats(
+        self, result_with_contributed_stats, tmp_path
+    ):
+        output = UPath(tmp_path / "out")
+        result_with_contributed_stats.save(output)
+
+        loaded = Result.load(output, load_responses=True)
+
+        assert loaded.stats["custom_metric_a"] == 42.0
+        assert loaded.stats["custom_metric_b"] == 99.5
+
+    def test_load_without_responses_preserves_contributed_stats(
+        self, result_with_contributed_stats, tmp_path
+    ):
+        output = UPath(tmp_path / "out")
+        result_with_contributed_stats.save(output)
+
+        loaded = Result.load(output, load_responses=False)
+
+        assert loaded.stats["custom_metric_a"] == 42.0
+        assert loaded.stats["custom_metric_b"] == 99.5
+
+    def test_contributed_stats_do_not_clobber_builtin_stats(
+        self, result_with_contributed_stats, tmp_path
+    ):
+        output = UPath(tmp_path / "out")
+        result_with_contributed_stats.save(output)
+
+        loaded = Result.load(output, load_responses=True)
+
+        # Builtin stats must still be present and correct
+        assert "failed_requests" in loaded.stats
+        assert loaded.stats["total_requests"] == 3
+        assert "time_to_first_token-p50" in loaded.stats
+
+    def test_builtin_stats_not_overwritten_by_stale_saved_values(self, tmp_path):
+        """If a builtin key exists in stats.json with a stale value, the freshly
+        computed value from responses should win."""
+        responses = [
+            InvocationResponse(
+                id="x",
+                response_text="r",
+                input_prompt="p",
+                time_to_first_token=0.5,
+                time_to_last_token=1.0,
+                num_tokens_output=10,
+                num_tokens_input=5,
+            )
+        ]
+        result = Result(
+            responses=responses,
+            total_requests=1,
+            clients=1,
+            n_requests=1,
+            total_test_time=2.0,
+        )
+        output = UPath(tmp_path / "out")
+        result.save(output)
+
+        # Tamper with stats.json: set a wrong value for a builtin key
+        stats_path = output / "stats.json"
+        with stats_path.open() as f:
+            saved = json.load(f)
+        saved["failed_requests"] = 999
+        with stats_path.open("w") as f:
+            json.dump(saved, f)
+
+        loaded = Result.load(output, load_responses=True)
+
+        # The freshly computed value (0 failures) should win over the tampered 999
+        assert loaded.stats["failed_requests"] == 0
+
+    def test_load_responses_recomputes_but_keeps_contributed(self, tmp_path):
+        """After load(load_responses=False) + load_responses(), contributed
+        stats from stats.json should still be accessible via _preloaded_stats
+        even though responses were reloaded."""
+        responses = [
+            InvocationResponse(
+                id="z",
+                response_text="r",
+                input_prompt="p",
+                time_to_first_token=0.3,
+                time_to_last_token=0.6,
+                num_tokens_output=8,
+                num_tokens_input=4,
+            )
+        ]
+        result = Result(
+            responses=responses,
+            total_requests=1,
+            clients=1,
+            n_requests=1,
+            total_test_time=1.0,
+        )
+        result._update_contributed_stats({"cb_stat": 7.0})
+        output = UPath(tmp_path / "out")
+        result.save(output)
+
+        loaded = Result.load(output, load_responses=False)
+        assert loaded.stats["cb_stat"] == 7.0
+
+        # Now reload responses — _preloaded_stats gets recomputed from
+        # responses only, so cb_stat won't be in _preloaded_stats anymore,
+        # but it was never in _contributed_stats on the loaded instance either.
+        loaded.load_responses()
+        # After recompute, builtin stats should be correct
+        assert loaded.stats["failed_requests"] == 0
+        assert "time_to_first_token-p50" in loaded.stats
+
+    def test_multiple_contributed_stats_updates_merge(self, tmp_path):
+        responses = [
+            InvocationResponse(
+                id="m",
+                response_text="r",
+                input_prompt="p",
+                num_tokens_output=5,
+                num_tokens_input=3,
+            )
+        ]
+        result = Result(
+            responses=responses,
+            total_requests=1,
+            clients=1,
+            n_requests=1,
+            total_test_time=0.5,
+        )
+        result._update_contributed_stats({"stat_a": 1.0})
+        result._update_contributed_stats({"stat_b": 2.0})
+        result._update_contributed_stats({"stat_a": 10.0})  # overwrite
+
+        output = UPath(tmp_path / "out")
+        result.save(output)
+
+        loaded = Result.load(output, load_responses=True)
+        assert loaded.stats["stat_a"] == 10.0
+        assert loaded.stats["stat_b"] == 2.0

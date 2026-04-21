@@ -10,7 +10,6 @@ correctly and that structured outputs are parsed properly.
 
 from unittest.mock import Mock, patch
 
-
 from llmeter.endpoints.openai_response import (
     OpenAIResponseEndpoint,
     OpenAIResponseStreamEndpoint,

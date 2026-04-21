@@ -9,16 +9,16 @@ from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
-
-from hypothesis import given, strategies as st, settings
+from hypothesis import given, settings
+from hypothesis import strategies as st
 from hypothesis.strategies import composite
 
-from llmeter.tokenizers import DummyTokenizer, Tokenizer, save_tokenizer
-from llmeter.prompt_utils import save_payloads, load_payloads
 from llmeter.endpoints.base import Endpoint, InvocationResponse
 from llmeter.endpoints.openai import OpenAICompletionEndpoint
+from llmeter.prompt_utils import load_payloads, save_payloads
 from llmeter.results import Result
 from llmeter.runner import _RunConfig
+from llmeter.tokenizers import DummyTokenizer, Tokenizer, save_tokenizer
 
 
 # Custom strategies

@@ -248,8 +248,9 @@ def test_save_load_openai_payload_with_image_url(tmp_path):
     Args:
         tmp_path: Temporary directory for test files (from pytest).
     """
-    from llmeter.prompt_utils import save_payloads, load_payloads
     import base64
+
+    from llmeter.prompt_utils import load_payloads, save_payloads
 
     # Create a small test image (1x1 red pixel PNG)
     test_image_bytes = base64.b64decode(
@@ -335,8 +336,9 @@ def test_save_load_openai_complete_structure(
     Estimated Cost:
         ~$0.0002 per test run (using Qwen3-VL with minimal tokens)
     """
-    from llmeter.prompt_utils import save_payloads, load_payloads
     import base64
+
+    from llmeter.prompt_utils import load_payloads, save_payloads
 
     # Get test images as binary data
     image1_binary, image2_binary = test_image_bytes

@@ -14,6 +14,51 @@ The [endpoints](../reference/endpoints/index.md) section of the API reference li
 
 You can also **create your own integrations** by extending the [`Endpoint`](../reference/endpoints/base.md#llmeter.endpoints.base.Endpoint) class interface, if your target isn't already supported by the built-in endpoints or through the [LiteLLM Endpoint](../reference/endpoints/litellm.md) and [LiteLLM Python SDK](https://docs.litellm.ai/#basic-usage).
 
+### Custom endpoint example
+
+To create a custom endpoint, implement three methods:
+
+- **`invoke(payload)`** — call the API and pass the raw response to `parse_response()`
+- **`parse_response(raw_response, start_t)`** — extract text, token counts, and metadata into an `InvocationResponse`
+- **`prepare_payload(payload, **kwargs)`** *(optional)* — transform the caller's payload before invocation (merge kwargs, inject model ID, etc.)
+
+The `@llmeter_invoke` decorator wraps `invoke` with error handling, timing, and metadata back-fill, so your implementation only needs the happy path:
+
+```python
+from llmeter.endpoints.base import Endpoint, InvocationResponse, llmeter_invoke
+
+class MyEndpoint(Endpoint):
+    def __init__(self, model_id: str, api_key: str):
+        super().__init__(
+            endpoint_name="my-service",
+            model_id=model_id,
+            provider="my-provider",
+        )
+        self._api_key = api_key
+
+    @llmeter_invoke
+    def invoke(self, payload: dict) -> InvocationResponse:
+        start_t = time.perf_counter()
+        raw_response = my_api_call(payload, api_key=self._api_key)
+        return self.parse_response(raw_response, start_t)
+
+    def parse_response(self, raw_response, start_t: float) -> InvocationResponse:
+        return InvocationResponse(
+            response_text=raw_response["text"],
+            num_tokens_input=raw_response.get("input_tokens"),
+            num_tokens_output=raw_response.get("output_tokens"),
+        )
+
+    def prepare_payload(self, payload, **kwargs):
+        return {**payload, **kwargs, "model": self.model_id}
+
+    @staticmethod
+    def create_payload(user_message: str, max_tokens: int = 256) -> dict:
+        return {"prompt": user_message, "max_tokens": max_tokens}
+```
+
+You don't need to handle errors, set `time_to_last_token`, `input_payload`, `input_prompt`, or `id` — the decorator does all of that. If your `invoke` or `parse_response` raises an exception, it's caught and converted to an error `InvocationResponse` with the prepared payload attached.
+
 Note that [Amazon Bedrock](https://aws.amazon.com/bedrock/) supports several different APIs for accessing Foundation Models. Depending on your target API, you can use LLMeter's:
 
 - [`bedrock`](../reference/endpoints/bedrock.md) endpoints for connecting to Bedrock's [Converse](https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_Converse.html) or [ConverseStream](https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_ConverseStream.html) APIs

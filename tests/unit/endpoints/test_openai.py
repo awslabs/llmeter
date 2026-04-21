@@ -222,25 +222,6 @@ class TestOpenAICompletionEndpoint:
             assert response.error is None
             assert response.input_payload["model"] == "gpt-3.5-turbo"
 
-    def test_invoke_with_kwargs(self, endpoint, mock_chat_completion):
-        """Test invoke with additional kwargs."""
-        with patch.object(endpoint._client.chat.completions, "create") as mock_create:
-            mock_create.return_value = mock_chat_completion
-
-            payload = {"messages": [{"role": "user", "content": "Hello"}]}
-
-            endpoint.invoke(payload, temperature=0.7, top_p=0.9)
-
-            # Verify the call was made with the correct parameters
-            mock_create.assert_called_once()
-            call_args = mock_create.call_args
-            if call_args and call_args[1]:
-                kwargs = call_args[1]
-                assert kwargs["model"] == "gpt-3.5-turbo"
-                assert kwargs["temperature"] == 0.7
-                assert kwargs["top_p"] == 0.9
-                assert kwargs["messages"] == [{"role": "user", "content": "Hello"}]
-
     def test_invoke_api_connection_error(self, endpoint):
         """Test invoke with APIConnectionError."""
         with patch.object(endpoint._client.chat.completions, "create") as mock_create:
@@ -268,21 +249,21 @@ class TestOpenAICompletionEndpoint:
             assert response.error == "Unexpected error"
             assert response.response_text is None
 
-    def test_parse_converse_response(self, endpoint, mock_chat_completion):
-        """Test _parse_converse_response method."""
+    def test_process_raw_response(self, endpoint, mock_chat_completion):
+        """Test process_raw_response method."""
         start_time = time.perf_counter()
+        response = InvocationResponse(id=None, response_text=None)
 
-        response = endpoint._parse_converse_response(mock_chat_completion, start_time)
+        endpoint.process_raw_response(mock_chat_completion, start_time, response)
 
         assert isinstance(response, InvocationResponse)
         assert response.id == "chatcmpl-test123"
         assert response.response_text == "Hello! How can I help you today?"
         assert response.num_tokens_input == 10
         assert response.num_tokens_output == 8
-        assert response.time_to_last_token is not None
 
-    def test_parse_converse_response_no_usage(self, endpoint):
-        """Test _parse_converse_response with no usage information."""
+    def test_process_raw_response_no_usage(self, endpoint):
+        """Test process_raw_response with no usage information."""
         completion = ChatCompletion(
             id="chatcmpl-test123",
             choices=[
@@ -299,7 +280,8 @@ class TestOpenAICompletionEndpoint:
         )
 
         start_time = time.perf_counter()
-        response = endpoint._parse_converse_response(completion, start_time)
+        response = InvocationResponse(id=None, response_text=None)
+        endpoint.process_raw_response(completion, start_time, response)
 
         assert response.num_tokens_input is None
         assert response.num_tokens_output is None
@@ -443,15 +425,13 @@ class TestOpenAICompletionStreamEndpoint:
             assert response.error == "Unexpected error"
             assert response.response_text is None
 
-    def test_parse_converse_stream_response(self, endpoint, mock_stream_response):
-        """Test _parse_converse_stream_response method."""
+    def test_process_raw_response(self, endpoint, mock_stream_response):
+        """Test process_raw_response method."""
         start_time = time.perf_counter()
+        response = InvocationResponse(id=None, response_text=None)
 
-        response = endpoint._parse_converse_stream_response(
-            iter(mock_stream_response), start_time
-        )
+        endpoint.process_raw_response(iter(mock_stream_response), start_time, response)
 
-        assert isinstance(response, InvocationResponse)
         assert response.id == "chatcmpl-test123"
         assert response.response_text == "Hello there!"
         assert response.num_tokens_input == 10
@@ -459,18 +439,19 @@ class TestOpenAICompletionStreamEndpoint:
         assert response.time_to_first_token is not None
         assert response.time_to_last_token is not None
 
-    def test_parse_converse_stream_response_empty_stream(self, endpoint):
-        """Test _parse_converse_stream_response with empty stream."""
+    def test_process_raw_response_empty_stream(self, endpoint):
+        """Test process_raw_response with empty stream."""
         start_time = time.perf_counter()
+        response = InvocationResponse(id=None, response_text=None)
 
-        response = endpoint._parse_converse_stream_response(iter([]), start_time)
+        endpoint.process_raw_response(iter([]), start_time, response)
 
-        assert response.response_text == ""
+        assert response.response_text is None
         assert response.num_tokens_input is None
         assert response.num_tokens_output is None
 
-    def test_parse_converse_stream_response_no_usage(self, endpoint):
-        """Test _parse_converse_stream_response without usage information."""
+    def test_process_raw_response_no_usage(self, endpoint):
+        """Test process_raw_response without usage information."""
         chunk1 = MagicMock()
         chunk1.id = "chatcmpl-test123"
         chunk1.choices = [MagicMock()]
@@ -484,16 +465,16 @@ class TestOpenAICompletionStreamEndpoint:
         chunk2.usage = None
 
         start_time = time.perf_counter()
-        response = endpoint._parse_converse_stream_response(
-            iter([chunk1, chunk2]), start_time
-        )
+        response = InvocationResponse(id=None, response_text=None)
+
+        endpoint.process_raw_response(iter([chunk1, chunk2]), start_time, response)
 
         assert response.response_text == "Hello"
         assert response.num_tokens_input is None
         assert response.num_tokens_output is None
 
-    def test_parse_converse_stream_response_none_content(self, endpoint):
-        """Test _parse_converse_stream_response with None content in first chunk."""
+    def test_process_raw_response_none_content(self, endpoint):
+        """Test process_raw_response with None content in first chunk."""
         chunk1 = MagicMock()
         chunk1.id = "chatcmpl-test123"
         chunk1.choices = [MagicMock()]
@@ -505,9 +486,9 @@ class TestOpenAICompletionStreamEndpoint:
         chunk2.choices[0].delta.content = "Hello"
 
         start_time = time.perf_counter()
-        response = endpoint._parse_converse_stream_response(
-            iter([chunk1, chunk2]), start_time
-        )
+        response = InvocationResponse(id=None, response_text=None)
+
+        endpoint.process_raw_response(iter([chunk1, chunk2]), start_time, response)
 
         assert response.response_text == "Hello"
 
@@ -664,9 +645,12 @@ class TestOpenAIEndpointEdgeCases:
 
             payload = {"messages": [{"role": "user", "content": "Hello"}]}
 
-            # This should raise AttributeError when trying to access choices
-            with pytest.raises(AttributeError):
-                endpoint.invoke(payload)
+            # Malformed chunks are caught by the base invoke wrapper and
+            # returned as an error InvocationResponse instead of propagating.
+            response = endpoint.invoke(payload)
+            assert isinstance(response, InvocationResponse)
+            assert response.error is not None
+            assert response.input_payload is not None
 
     def test_response_timing_accuracy(self):
         """Test that response timing measurements are accurate."""
@@ -772,3 +756,59 @@ class TestOpenAIEndpointEdgeCases:
             assert response.response_text == "Hello world"
             assert response.num_tokens_input is None
             assert response.num_tokens_output is None
+
+
+class TestStreamMidStreamErrors:
+    """Verify that errors during stream consumption are caught by the invoke wrapper."""
+
+    def test_timeout_during_stream_consumption(self):
+        """A timeout while iterating chunks should be caught, not raised."""
+        endpoint = OpenAICompletionStreamEndpoint(
+            model_id="gpt-3.5-turbo", api_key="test_key"
+        )
+
+        def exploding_stream():
+            chunk = MagicMock()
+            chunk.id = "test-id"
+            chunk.choices = [MagicMock()]
+            chunk.choices[0].delta.content = "Hello"
+            chunk.usage = None
+            yield chunk
+            raise TimeoutError("Read timed out")
+
+        with patch.object(endpoint._client.chat.completions, "create") as mock_create:
+            mock_create.return_value = exploding_stream()
+            response = endpoint.invoke(
+                {"messages": [{"role": "user", "content": "Hi"}]}
+            )
+
+        assert isinstance(response, InvocationResponse)
+        assert response.error is not None
+        assert "timed out" in response.error.lower()
+        assert response.input_payload is not None
+
+    def test_connection_error_during_stream_consumption(self):
+        """A connection drop mid-stream should be caught, not raised."""
+        endpoint = OpenAICompletionStreamEndpoint(
+            model_id="gpt-3.5-turbo", api_key="test_key"
+        )
+
+        def dropping_stream():
+            chunk = MagicMock()
+            chunk.id = "test-id"
+            chunk.choices = [MagicMock()]
+            chunk.choices[0].delta.content = "Partial"
+            chunk.usage = None
+            yield chunk
+            raise ConnectionError("Connection reset")
+
+        with patch.object(endpoint._client.chat.completions, "create") as mock_create:
+            mock_create.return_value = dropping_stream()
+            response = endpoint.invoke(
+                {"messages": [{"role": "user", "content": "Hi"}]}
+            )
+
+        assert isinstance(response, InvocationResponse)
+        assert response.error is not None
+        assert "connection" in response.error.lower()
+        assert response.input_payload is not None

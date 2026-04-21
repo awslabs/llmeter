@@ -99,9 +99,10 @@ class TestModelSpecificParameters:
         payload = {
             "input": "Write a story",
             "max_tokens": 256,
+            "temperature": 0.8,
         }
 
-        response = endpoint.invoke(payload, temperature=0.8)
+        response = endpoint.invoke(payload)
 
         # Verify the API was called with temperature parameter
         call_args = mock_client.responses.create.call_args
@@ -140,9 +141,10 @@ class TestModelSpecificParameters:
         payload = {
             "input": "Generate text",
             "max_tokens": 256,
+            "top_p": 0.9,
         }
 
-        response = endpoint.invoke(payload, top_p=0.9)
+        response = endpoint.invoke(payload)
 
         # Verify the API was called with top_p parameter
         call_args = mock_client.responses.create.call_args
@@ -181,15 +183,13 @@ class TestModelSpecificParameters:
         payload = {
             "input": "Generate text",
             "max_tokens": 512,
+            "temperature": 0.7,
+            "top_p": 0.95,
+            "frequency_penalty": 0.5,
+            "presence_penalty": 0.3,
         }
 
-        response = endpoint.invoke(
-            payload,
-            temperature=0.7,
-            top_p=0.95,
-            frequency_penalty=0.5,
-            presence_penalty=0.3,
-        )
+        response = endpoint.invoke(payload)
 
         # Verify the API was called with all parameters
         call_args = mock_client.responses.create.call_args
@@ -229,29 +229,22 @@ class TestModelSpecificParameters:
         # Create endpoint
         endpoint = OpenAIResponseEndpoint(model_id="gpt-4")
 
-        # Create payload with some parameters
+        # Create payload with parameters
         payload = {
             "input": "Test message",
             "max_tokens": 256,
-            "temperature": 0.5,  # This should be overridden by kwargs
+            "temperature": 0.5,
+            "top_p": 0.8,
         }
 
-        # Invoke with additional parameters (temperature should override)
-        response = endpoint.invoke(
-            payload,
-            temperature=0.9,  # Override payload temperature
-            top_p=0.8,  # Add new parameter
-        )
+        response = endpoint.invoke(payload)
 
-        # Verify the API was called with merged parameters
+        # Verify the API was called with payload parameters
         call_args = mock_client.responses.create.call_args
         assert call_args is not None
         kwargs = call_args[1]
 
-        # kwargs should override payload values
-        assert (
-            kwargs["temperature"] == 0.5
-        )  # Payload value takes precedence (kwargs merged first, then payload)
+        assert kwargs["temperature"] == 0.5
         assert kwargs["top_p"] == 0.8
         assert kwargs["model"] == "gpt-4"
         assert kwargs["input"] == "Test message"
@@ -301,9 +294,10 @@ class TestModelSpecificParameters:
         payload = {
             "input": "Generate text",
             "max_tokens": 256,
+            "temperature": 0.8,
         }
 
-        response = endpoint.invoke(payload, temperature=0.8)
+        response = endpoint.invoke(payload)
 
         # Verify the API was called with temperature parameter
         call_args = mock_client.responses.create.call_args
@@ -359,14 +353,12 @@ class TestModelSpecificParameters:
         payload = {
             "input": "Generate text",
             "max_tokens": 512,
+            "temperature": 0.7,
+            "top_p": 0.95,
+            "frequency_penalty": 0.2,
         }
 
-        response = endpoint.invoke(
-            payload,
-            temperature=0.7,
-            top_p=0.95,
-            frequency_penalty=0.2,
-        )
+        response = endpoint.invoke(payload)
 
         # Verify the API was called with all parameters
         call_args = mock_client.responses.create.call_args

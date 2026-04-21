@@ -67,18 +67,22 @@ def test_invocation_response_repr_and_str():
 # Tests for BaseEndpoint
 
 
-class ConcreteEndpoint(Endpoint):
+class ConcreteEndpoint(Endpoint[dict]):
     def __init__(self, endpoint_name: str, model_id: str, provider: str):
         super().__init__(
             endpoint_name=endpoint_name, model_id=model_id, provider=provider
         )
 
-    def invoke(self, payload: dict) -> InvocationResponse:
-        return InvocationResponse(
-            id="test_id",
-            response_text=f"Invoked with payload: {payload}",
-            input_prompt=payload.get("prompt", ""),
-        )
+    @Endpoint.llmeter_invoke
+    def invoke(self, payload: dict) -> dict:
+        return payload
+
+    def process_raw_response(
+        self, raw_response: dict, start_t: float, response: InvocationResponse
+    ) -> None:
+        response.id = "test_id"
+        response.response_text = f"Invoked with payload: {raw_response}"
+        response.input_prompt = raw_response.get("prompt", "")
 
     @classmethod
     def create_payload(cls, prompt: str):
@@ -105,6 +109,38 @@ def test_base_endpoint_invoke(concrete_endpoint):
     assert response.id == "test_id"
     assert response.response_text == "Invoked with payload: {'prompt': 'Hello'}"
     assert response.input_prompt == "Hello"
+
+
+def test_invoke_sets_request_time(concrete_endpoint):
+    """The invoke wrapper should always set request_time on the response."""
+    from datetime import datetime, timezone
+
+    before = datetime.now(timezone.utc)
+    response = concrete_endpoint.invoke({"prompt": "Hello"})
+    after = datetime.now(timezone.utc)
+
+    assert response.request_time is not None
+    assert before <= response.request_time <= after
+
+
+def test_invoke_error_sets_request_time(concrete_endpoint):
+    """request_time should be set even when invoke raises an exception."""
+    from datetime import datetime, timezone
+    from unittest.mock import patch
+
+    # Make parse_response raise to trigger the error path
+    with patch.object(
+        type(concrete_endpoint),
+        "process_raw_response",
+        side_effect=RuntimeError("boom"),
+    ):
+        before = datetime.now(timezone.utc)
+        response = concrete_endpoint.invoke({"prompt": "Hello"})
+        after = datetime.now(timezone.utc)
+
+    assert response.error is not None
+    assert response.request_time is not None
+    assert before <= response.request_time <= after
 
 
 def test_base_endpoint_create_payload():

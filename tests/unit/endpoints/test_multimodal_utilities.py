@@ -8,10 +8,10 @@ from unittest.mock import patch
 import pytest
 
 from llmeter.prompt_utils import (
-    read_file,
-    detect_format_from_extension,
     detect_format_from_bytes,
+    detect_format_from_extension,
     detect_format_from_file,
+    read_file,
 )
 
 

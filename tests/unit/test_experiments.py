@@ -531,3 +531,122 @@ def test_get_n_requests_parametrized(
     )
     result = runner._get_n_requests(clients)
     assert result == expected, f"Expected {expected}, but got {result}"
+
+
+# ── LoadTest with run_duration, low_memory, progress_bar_stats ───────────────
+
+
+class TestLoadTestTimeBound:
+    def test_load_test_with_run_duration(self, mock_endpoint):
+        """run_duration should be stored on the LoadTest instance."""
+        lt = LoadTest(
+            endpoint=mock_endpoint,
+            payload={"input": "test"},
+            sequence_of_clients=[1, 2],
+            run_duration=30,
+        )
+        assert lt.run_duration == 30
+
+    def test_load_test_with_low_memory(self, mock_endpoint):
+        """low_memory should be stored on the LoadTest instance."""
+        lt = LoadTest(
+            endpoint=mock_endpoint,
+            payload={"input": "test"},
+            sequence_of_clients=[1],
+            low_memory=True,
+        )
+        assert lt.low_memory is True
+
+    def test_load_test_with_progress_bar_stats(self, mock_endpoint):
+        """progress_bar_stats should be stored on the LoadTest instance."""
+        custom_stats = {"rpm": "requests_per_minute", "fail": "failed_requests"}
+        lt = LoadTest(
+            endpoint=mock_endpoint,
+            payload={"input": "test"},
+            sequence_of_clients=[1],
+            progress_bar_stats=custom_stats,
+        )
+        assert lt.progress_bar_stats == custom_stats
+
+    @pytest.mark.asyncio
+    async def test_run_duration_passed_to_runner(self, mock_endpoint):
+        """When run_duration is set, runner.run() should receive it."""
+        mock_runner_instance = AsyncMock(spec=Runner)
+        mock_runner_instance.run.return_value = MagicMock(
+            spec=Result, clients=1, total_requests=10
+        )
+
+        with patch("llmeter.experiments.Runner", return_value=mock_runner_instance):
+            lt = LoadTest(
+                endpoint=mock_endpoint,
+                payload={"input": "test"},
+                sequence_of_clients=[1, 3],
+                run_duration=15,
+            )
+            await lt.run()
+
+        # Check that run_duration was passed in each call
+        for call in mock_runner_instance.run.call_args_list:
+            assert call.kwargs["run_duration"] == 15
+            assert "n_requests" not in call.kwargs
+
+    @pytest.mark.asyncio
+    async def test_count_bound_does_not_pass_run_duration(self, mock_endpoint):
+        """When run_duration is None, runner.run() should receive n_requests."""
+        mock_runner_instance = AsyncMock(spec=Runner)
+        mock_runner_instance.run.return_value = MagicMock(
+            spec=Result, clients=1, total_requests=10
+        )
+
+        with patch("llmeter.experiments.Runner", return_value=mock_runner_instance):
+            lt = LoadTest(
+                endpoint=mock_endpoint,
+                payload={"input": "test"},
+                sequence_of_clients=[1],
+            )
+            await lt.run()
+
+        call_kwargs = mock_runner_instance.run.call_args_list[0].kwargs
+        assert "n_requests" in call_kwargs
+        assert "run_duration" not in call_kwargs
+
+    @pytest.mark.asyncio
+    async def test_low_memory_passed_to_runner(self, mock_endpoint):
+        """low_memory should be forwarded to each runner.run() call."""
+        mock_runner_instance = AsyncMock(spec=Runner)
+        mock_runner_instance.run.return_value = MagicMock(
+            spec=Result, clients=1, total_requests=10
+        )
+
+        with patch("llmeter.experiments.Runner", return_value=mock_runner_instance):
+            lt = LoadTest(
+                endpoint=mock_endpoint,
+                payload={"input": "test"},
+                sequence_of_clients=[1, 2],
+                low_memory=True,
+            )
+            await lt.run()
+
+        for call in mock_runner_instance.run.call_args_list:
+            assert call.kwargs["low_memory"] is True
+
+    @pytest.mark.asyncio
+    async def test_progress_bar_stats_passed_to_runner(self, mock_endpoint):
+        """progress_bar_stats should be forwarded to each runner.run() call."""
+        custom_stats = {"rpm": "requests_per_minute"}
+        mock_runner_instance = AsyncMock(spec=Runner)
+        mock_runner_instance.run.return_value = MagicMock(
+            spec=Result, clients=1, total_requests=10
+        )
+
+        with patch("llmeter.experiments.Runner", return_value=mock_runner_instance):
+            lt = LoadTest(
+                endpoint=mock_endpoint,
+                payload={"input": "test"},
+                sequence_of_clients=[1],
+                progress_bar_stats=custom_stats,
+            )
+            await lt.run()
+
+        call_kwargs = mock_runner_instance.run.call_args_list[0].kwargs
+        assert call_kwargs["progress_bar_stats"] == custom_stats

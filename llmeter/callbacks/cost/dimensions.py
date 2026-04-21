@@ -12,7 +12,7 @@ use to bring customized cost dimensions for your own cost models.
 """
 
 # Python Built-Ins:
-from abc import abstractmethod, ABC
+from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from math import ceil
 from typing import Optional
