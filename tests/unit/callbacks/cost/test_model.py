@@ -25,6 +25,7 @@ def test_cost_model_serialization():
     assert model.run_dims["ComputeSeconds"].price_per_hour == 50
     assert model.to_dict() == {
         "_type": "CostModel",
+        "__llmeter_class__": "llmeter.callbacks.cost.model:CostModel",
         "request_dims": {
             "TokensIn": {
                 "_type": "InputTokens",

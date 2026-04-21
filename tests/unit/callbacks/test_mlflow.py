@@ -143,15 +143,127 @@ def test_initialization_with_mlflow():
         assert callback.nested is True
 
 
-# @pytest.mark.asyncio
-# async def test_load_from_file():
-#     # Test the placeholder method
-#     result = await MlflowCallback._load_from_file("test/path")
-#     assert result is None
+class TestMlflowCallbackSerialization:
+    """Tests for MlflowCallback serialization and deserialization."""
 
+    def _make_callback(self, **kwargs):
+        """Create an MlflowCallback with mlflow mocked out."""
+        with patch("llmeter.callbacks.mlflow.mlflow") as mock_mlflow:
+            mock_mlflow.__version__ = "2.0.0"
+            return MlflowCallback(**kwargs)
 
-# def test_save_to_file():
-#     # Test the placeholder method
-#     callback = MlflowCallback()
-#     result = callback.save_to_file()
-#     assert result is None
+    def test_to_dict_includes_class_marker(self):
+        """to_dict() includes __llmeter_class__ with the correct module:ClassName."""
+        cb = self._make_callback(step=3, nested=True)
+        d = cb.to_dict()
+        assert d["__llmeter_class__"] == "llmeter.callbacks.mlflow:MlflowCallback"
+        assert d["step"] == 3
+        assert d["nested"] is True
+
+    def test_to_dict_default_values(self):
+        """to_dict() correctly serializes default parameter values."""
+        cb = self._make_callback()
+        d = cb.to_dict()
+        assert d["__llmeter_class__"] == "llmeter.callbacks.mlflow:MlflowCallback"
+        assert d["step"] is None
+        assert d["nested"] is False
+
+    def test_to_dict_only_has_expected_keys(self):
+        """to_dict() produces exactly the keys we expect — no extras leak in."""
+        cb = self._make_callback(step=1, nested=False)
+        d = cb.to_dict()
+        assert set(d.keys()) == {"__llmeter_class__", "step", "nested"}
+
+    def test_from_dict_round_trip(self):
+        """from_dict() reconstructs an MlflowCallback from to_dict() output."""
+        cb = self._make_callback(step=5, nested=True)
+        d = cb.to_dict()
+        with patch("llmeter.callbacks.mlflow.mlflow") as mock_mlflow:
+            mock_mlflow.__version__ = "2.0.0"
+            restored = MlflowCallback.from_dict(d)
+        assert isinstance(restored, MlflowCallback)
+        assert restored.step == 5
+        assert restored.nested is True
+
+    def test_from_dict_without_class_marker(self):
+        """from_dict() on the concrete class works without __llmeter_class__."""
+        with patch("llmeter.callbacks.mlflow.mlflow") as mock_mlflow:
+            mock_mlflow.__version__ = "2.0.0"
+            restored = MlflowCallback.from_dict({"step": 2, "nested": False})
+        assert isinstance(restored, MlflowCallback)
+        assert restored.step == 2
+        assert restored.nested is False
+
+    def test_from_dict_via_base_class(self):
+        """Callback.from_dict() dispatches to MlflowCallback via __llmeter_class__."""
+        from llmeter.callbacks.base import Callback
+
+        d = {
+            "__llmeter_class__": "llmeter.callbacks.mlflow:MlflowCallback",
+            "step": 7,
+            "nested": True,
+        }
+        with patch("llmeter.callbacks.mlflow.mlflow") as mock_mlflow:
+            mock_mlflow.__version__ = "2.0.0"
+            restored = Callback.from_dict(d)
+        assert isinstance(restored, MlflowCallback)
+        assert restored.step == 7
+        assert restored.nested is True
+
+    def test_json_round_trip(self):
+        """Round-trip through JSON string serialization."""
+        import json
+
+        from llmeter.json_utils import (
+            llmeter_default_deserializer,
+            llmeter_default_serializer,
+        )
+
+        cb = self._make_callback(step=10, nested=True)
+        encoded = json.dumps(cb.to_dict(), default=llmeter_default_serializer)
+        with patch("llmeter.callbacks.mlflow.mlflow") as mock_mlflow:
+            mock_mlflow.__version__ = "2.0.0"
+            decoded = json.loads(encoded, object_hook=llmeter_default_deserializer)
+        assert isinstance(decoded, MlflowCallback)
+        assert decoded.step == 10
+        assert decoded.nested is True
+
+    def test_save_and_load_from_file(self, tmp_path):
+        """Round-trip through save_to_file / load_from_file."""
+        from llmeter.callbacks.base import Callback
+
+        cb = self._make_callback(step=4, nested=False)
+        path = tmp_path / "mlflow_cb.json"
+        cb.save_to_file(path)
+
+        # Verify the JSON on disk
+        import json
+
+        with open(path) as f:
+            raw = json.load(f)
+        assert raw["__llmeter_class__"] == "llmeter.callbacks.mlflow:MlflowCallback"
+        assert raw["step"] == 4
+        assert raw["nested"] is False
+
+        # Load it back
+        with patch("llmeter.callbacks.mlflow.mlflow") as mock_mlflow:
+            mock_mlflow.__version__ = "2.0.0"
+            restored = Callback.load_from_file(path)
+        assert isinstance(restored, MlflowCallback)
+        assert restored.step == 4
+        assert restored.nested is False
+
+    def test_save_and_load_with_none_step(self, tmp_path):
+        """Round-trip preserves step=None correctly."""
+        from llmeter.callbacks.base import Callback
+
+        cb = self._make_callback(step=None, nested=True)
+        path = tmp_path / "mlflow_cb_none_step.json"
+        cb.save_to_file(path)
+
+        with patch("llmeter.callbacks.mlflow.mlflow") as mock_mlflow:
+            mock_mlflow.__version__ = "2.0.0"
+            restored = Callback.load_from_file(path)
+        assert isinstance(restored, MlflowCallback)
+        assert restored.step is None
+        assert restored.nested is True
