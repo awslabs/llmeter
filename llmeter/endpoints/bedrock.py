@@ -353,26 +353,23 @@ class BedrockConverse(BedrockBase[ConverseResponseTypeDef]):
 class BedrockConverseStream(BedrockBase[ConverseStreamResponseTypeDef]):
     """Streaming endpoint for the Bedrock Converse API.
 
-    When extended thinking is enabled, the stream contains
-    ``reasoningContent`` deltas before the visible ``text`` deltas.  The
-    ``ttft_visible_tokens_only`` parameter controls which delta sets
-    ``time_to_first_token``:
+    When extended thinking is enabled, the stream contains `reasoningContent` deltas before the
+    visible `text` deltas.  The `ttft_visible_tokens_only` parameter controls which delta sets
+    `time_to_first_token`:
 
-    * ``True`` (default) -- TTFT is set on the first ``text`` delta.
-      Reasoning deltas are ignored for timing.
-    * ``False`` -- TTFT is set on the first delta of any kind, including
-      reasoning content.
+    * `True` (default) - TTFT is set on the first `text` delta. Reasoning deltas are ignored for
+      timing.
+    * `False` - TTFT is set on the first delta of any kind, including reasoning content.
 
     Args:
         model_id: Bedrock model identifier.
-        endpoint_name: Display name.  Defaults to ``None``.
-        region: AWS region.  Defaults to ``None``.
+        endpoint_name: Display name.  Defaults to `None`.
+        region: AWS region.  Defaults to `None`.
         inference_config: Default inference configuration.
         bedrock_boto3_client: Pre-configured boto3 client.
         max_attempts: Maximum retry attempts.  Defaults to 3.
-        ttft_visible_tokens_only: When ``True`` (default), TTFT measures
-            time to first visible text token.  When ``False``, TTFT
-            includes reasoning content deltas.
+        ttft_visible_tokens_only: When `True` (default), TTFT measures time to first visible text
+            token.  When `False`, TTFT includes reasoning content deltas.
     """
 
     def __init__(
@@ -405,13 +402,13 @@ class BedrockConverseStream(BedrockBase[ConverseStreamResponseTypeDef]):
     ) -> None:
         """Parse the streaming response from a Bedrock ConverseStream API call.
 
-        Only ``text`` deltas contribute to ``response_text``.
-        ``reasoningContent`` deltas are used solely for TTFT measurement
-        when ``ttft_visible_tokens_only`` is ``False``.
+        Only `text` deltas contribute to `response_text`. `reasoningContent` deltas are used solely
+        for TTFT measurement when `ttft_visible_tokens_only` is `False`.
 
         Args:
             raw_response: The raw response from the Bedrock API.
             start_t: The timestamp when the request was initiated.
+            response: The output response object to be updated in-place.
         """
         response.id = raw_response["ResponseMetadata"].get("RequestId")
         response.retries = raw_response["ResponseMetadata"]["RetryAttempts"]

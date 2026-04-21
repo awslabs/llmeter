@@ -197,17 +197,16 @@ class OpenAIResponseEndpoint(OpenAIEndpointBase[Response]):
 class OpenAIResponseStreamEndpoint(OpenAIEndpointBase[Iterable[ResponseStreamEvent]]):
     """Endpoint for OpenAI Responses API (streaming).
 
-    This endpoint provides streaming access to OpenAI's Responses API, enabling
-    time-to-first-token measurements and incremental response processing.
+    This endpoint provides streaming access to OpenAI's Responses API, enabling time-to-first-token
+    measurements and incremental response processing.
 
     Args:
-        ttft_visible_tokens_only: Controls how ``time_to_first_token`` is measured
-            for reasoning models. When ``True`` (default), TTFT records the time
-            to the first *visible* text token (``response.output_text.delta``),
-            ignoring reasoning events. When ``False``, TTFT records the time to
-            the first token of any kind — including reasoning summary or reasoning
-            text deltas — giving a measure of when the model first started
-            producing output. Has no effect for non-reasoning models.
+        ttft_visible_tokens_only: Controls how `time_to_first_token` is measured for reasoning
+            models. When `True` (default), TTFT records the time to the first *visible* text token
+            (`response.output_text.delta`), ignoring reasoning events. When `False`, TTFT records
+            the time to the first token of any kind — including reasoning summary or reasoning text
+            deltas — giving a measure of when the model first started producing output. Has no
+            effect for non-reasoning models.
     """
 
     def __init__(
@@ -226,9 +225,8 @@ class OpenAIResponseStreamEndpoint(OpenAIEndpointBase[Iterable[ResponseStreamEve
             endpoint_name: Name of the endpoint (default: "openai-response-stream")
             api_key: OpenAI API key (optional, uses OPENAI_API_KEY env var if not provided)
             provider: Provider name (default: "openai")
-            ttft_visible_tokens_only: When True (default), TTFT measures time to
-                first visible text token. When False, TTFT includes reasoning
-                token events.
+            ttft_visible_tokens_only: When True (default), TTFT measures time to first visible text
+                token. When False, TTFT includes reasoning token events.
             **kwargs: Additional arguments passed to OpenAI client
         """
         super().__init__(
@@ -264,13 +262,13 @@ class OpenAIResponseStreamEndpoint(OpenAIEndpointBase[Iterable[ResponseStreamEve
 
         Processes typed events from the stream:
 
-        - ``ResponseCreatedEvent``: captures ``response.id``
-        - ``ResponseTextDeltaEvent``: accumulates text deltas, records TTFT
-        - ``ResponseCompletedEvent``: extracts usage from ``response.usage``
-        - ``ResponseFailedEvent``: captures API-level errors
-        - Reasoning events (``response.reasoning_summary_text.delta``,
-          ``response.reasoning_text.delta``): when ``ttft_visible_tokens_only``
-          is ``False``, these set TTFT on the first reasoning token.
+        - `ResponseCreatedEvent`: captures `response.id`
+        - `ResponseTextDeltaEvent`: accumulates text deltas, records TTFT
+        - `ResponseCompletedEvent`: extracts usage from `response.usage`
+        - `ResponseFailedEvent`: captures API-level errors
+        - Reasoning events (`response.reasoning_summary_text.delta`,
+          `response.reasoning_text.delta`): when `ttft_visible_tokens_only` is ``False``, these set
+          TTFT on the first reasoning token.
         """
         _REASONING_DELTA_TYPES = frozenset((
             "response.reasoning_summary_text.delta",

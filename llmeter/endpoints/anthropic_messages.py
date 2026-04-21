@@ -2,12 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0
 """LLMeter endpoints for the Anthropic Messages API.
 
-Supports any client provided by the ``anthropic`` Python SDK:
+Supports any client provided by the `anthropic` Python SDK:
 
-* ``"anthropic"`` -- direct API at ``api.anthropic.com``
-* ``"bedrock-mantle"`` -- Amazon Bedrock Mantle (requires ``anthropic[bedrock]``)
-* ``"vertex"`` -- Google Vertex AI (requires ``anthropic[vertex]``)
-* ``"foundry"`` -- Azure Foundry
+* `"anthropic"` - Direct API at `api.anthropic.com`
+* `"bedrock-mantle"` - Amazon Bedrock Mantle (requires `anthropic[bedrock]`)
+* `"vertex"` - Google Vertex AI (requires `anthropic[vertex]`)
+* `"foundry"` - Azure Foundry
 
 Install the base dependency::
 
@@ -17,63 +17,57 @@ For Bedrock Mantle support::
 
     pip install 'llmeter[anthropic-bedrock]'
 
-Extended thinking
------------------
+### Extended thinking
 
-Claude models can perform internal reasoning ("thinking") before producing a
-visible answer.  The thinking configuration is controlled via the ``thinking``
-parameter on
-:meth:`~AnthropicMessagesEndpoint.create_payload` or passed directly in the
-request payload.
+Claude models can perform internal reasoning ("thinking") before producing a visible answer. The
+configuration for this is controlled via the `thinking` parameter on the request payload (also
+available in the
+[`create_payload`][llmeter.endpoints.anthropic_messages.AnthropicMessagesEndpoint.create_payload]
+utility function).
 
-Token accounting
-~~~~~~~~~~~~~~~~
+It's important to understand how these extra thinking/reasoning tokens that *aren't* part of the
+"final" output will be treated for response timing and token counting.
 
-The Anthropic API reports a single ``output_tokens`` count that **includes**
-both thinking and visible text tokens.  There is no separate
-``reasoning_tokens`` field.  As a result:
+#### Token accounting
 
-* :attr:`~llmeter.endpoints.base.InvocationResponse.num_tokens_output` reflects
-  the total billed output tokens (thinking + text).
-* :attr:`~llmeter.endpoints.base.InvocationResponse.num_tokens_output_reasoning`
-  is always ``None`` for Anthropic endpoints because the API does not provide a
-  breakdown.
+The Anthropic API reports a single `output_tokens` count that **includes** both thinking and
+visible text tokens.  There is no separate `reasoning_tokens` field. As a result:
 
-This differs from OpenAI, which reports ``reasoning_tokens`` separately.  When
-comparing across providers, keep in mind that ``num_tokens_output`` is
-semantically consistent (total billed output) but the reasoning breakdown is
-only available where the provider exposes it.
+* [`InvocationResponse.num_tokens_output`][llmeter.endpoints.base.InvocationResponse] reflects the
+  total billed output tokens (thinking and output).
+* [`InvocationResponse.num_tokens_output_reasoning`][llmeter.endpoints.base.InvocationResponse] is
+  always ``None`` for Anthropic endpoints because the API does not provide this breakdown.
 
-Time to first token (TTFT) and the ``display`` setting
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+This differs from OpenAI, which reports `reasoning_tokens` separately.  When comparing across
+providers, keep in mind that LLMeter's `num_tokens_output` is semantically consistent (total billed
+output) but the reasoning breakdown is only available where the provider exposes it.
 
-The ``display`` field on the thinking configuration controls whether thinking
-content is streamed back:
+#### Time to first token (TTFT) and the ``display`` setting
 
-* ``"summarized"`` (default on most models) -- ``thinking_delta`` events stream
-  before the visible text.
-* ``"omitted"`` (default on Claude Opus 4.7 and Mythos) -- no
-  ``thinking_delta`` events are emitted; only a ``signature_delta`` signals
-  that the thinking block completed.
+The `display` field on the thinking configuration controls whether thinking content is streamed
+back to the client:
 
-The ``ttft_visible_tokens_only`` parameter on
-:class:`AnthropicMessagesStream` controls how
-:attr:`~llmeter.endpoints.base.InvocationResponse.time_to_first_token` is
-measured:
+* `"summarized"` (default on most models) - `thinking_delta` events stream before the visible text.
+* `"omitted"` (default on Claude Opus 4.7 and Mythos) - no `thinking_delta` events are emitted;
+  only a `signature_delta` signals that the thinking block completed.
 
-* ``True`` (default) -- TTFT records the first **visible** ``text_delta``.
-  Thinking events (``thinking_delta``, ``signature_delta``) are ignored.  This
-  measures the latency the end user experiences before seeing output.
-* ``False`` -- TTFT records the first token of **any** kind, including
-  ``thinking_delta`` (summarized mode) or ``signature_delta`` (omitted mode).
-  This measures when the model first started producing output.
+The
+[`AnthropicMessagesStream.ttft_visible_tokens_only`][llmeter.endpoints.anthropic_messages.AnthropicMessagesStream]
+parameter controls how
+[`InvocationResponse.time_to_first_token`][llmeter.endpoints.base.InvocationResponse] is measured:
 
-Because ``display: "omitted"`` suppresses ``thinking_delta`` events entirely,
-the ``signature_delta`` is the earliest signal available.  With
-``ttft_visible_tokens_only=False``, the measured TTFT will therefore differ
-between summarized and omitted modes for the same model and prompt:
-summarized mode captures the first thinking token, while omitted mode captures
-the signature that arrives after all thinking is complete.
+* `True` (default) - TTFT records the first **visible** `text_delta`. Thinking events
+  (`thinking_delta`, `signature_delta`) are ignored.  This measures the latency the end user
+  experiences before seeing output.
+* `False` -- TTFT records the first token of **any** kind, including `thinking_delta` (summarized
+  mode) or `signature_delta` (omitted mode). This measures when the model first started producing
+  output.
+
+Because `display: "omitted"` suppresses `thinking_delta` events entirely, the `signature_delta` is
+the earliest signal available.  With `ttft_visible_tokens_only=False`, the measured TTFT will
+therefore differ between summarized and omitted modes for the same model and prompt: summarized
+mode captures the first thinking token, while omitted mode captures the signature that arrives
+after all thinking is complete.
 """
 
 import logging
@@ -190,9 +184,8 @@ class AnthropicMessagesEndpoint(
     ) -> MessageCreateParams:
         """Create a payload for the Anthropic Messages API.
 
-        This is a convenience helper.  You can also build the payload dict
-        directly following the `Anthropic Messages API reference
-        <https://docs.anthropic.com/en/api/messages>`_.
+        This is a convenience helper.  You can also build the payload dict directly following the
+        [Anthropic Messages API reference](https://docs.anthropic.com/en/api/messages)
 
         Args:
             user_message: The user message text.
@@ -220,17 +213,19 @@ class AnthropicMessagesEndpoint(
                   ``signature_delta``.  This reduces time-to-first-text-token
                   when streaming.
 
-                Example with display::
+                Example with display:
 
-                    create_payload(
-                        "Solve this problem",
-                        max_tokens=16000,
-                        thinking={
-                            "type": "enabled",
-                            "budget_tokens": 10000,
-                            "display": "omitted",
-                        },
-                    )
+                ```python
+                create_payload(
+                    "Solve this problem",
+                    max_tokens=16000,
+                    thinking={
+                        "type": "enabled",
+                        "budget_tokens": 10000,
+                        "display": "omitted",
+                    },
+                )
+                ```
 
             **kwargs: Additional payload parameters (``system``,
                 ``temperature``, ``top_p``, ``top_k``, ``stop_sequences``,
@@ -244,32 +239,40 @@ class AnthropicMessagesEndpoint(
             TypeError: If ``user_message`` is not a string.
 
         Examples:
-            Text only::
+            Text only:
 
-                create_payload("Hello, Claude!")
+            ```python
+            create_payload("Hello, Claude!")
+            ```
 
-            With system prompt::
+            With system prompt:
 
-                create_payload(
-                    "Explain quantum computing",
-                    system="You are a physics professor.",
-                    max_tokens=1024,
-                )
+            ```python
+            create_payload(
+                "Explain quantum computing",
+                system="You are a physics professor.",
+                max_tokens=1024,
+            )
+            ```
 
-            With adaptive thinking::
+            With adaptive thinking:
 
-                create_payload(
-                    "Prove that there are infinitely many primes.",
-                    max_tokens=16000,
-                    thinking={"type": "adaptive"},
-                )
+            ```python
+            create_payload(
+                "Prove that there are infinitely many primes.",
+                max_tokens=16000,
+                thinking={"type": "adaptive"},
+            )
+            ```
 
-            With thinking explicitly disabled::
+            With thinking explicitly disabled:
 
-                create_payload(
-                    "Hello!",
-                    thinking={"type": "disabled"},
-                )
+            ```python
+            create_payload(
+                "Hello!",
+                thinking={"type": "disabled"},
+            )
+            ```
         """
         if not isinstance(user_message, str):
             raise TypeError(
@@ -291,25 +294,29 @@ class AnthropicMessagesEndpoint(
 class AnthropicMessages(AnthropicMessagesEndpoint[Message]):
     """Endpoint for the Anthropic Messages API (non-streaming).
 
-    When extended thinking is enabled, the response may contain ``thinking``
-    content blocks alongside ``text`` blocks.  Only ``text`` blocks contribute
-    to :attr:`~llmeter.endpoints.base.InvocationResponse.response_text`.
-    The reported ``num_tokens_output`` is the total billed count (thinking +
-    text); ``num_tokens_output_reasoning`` is ``None`` because the Anthropic
-    API does not provide a separate thinking token count.
+    When extended thinking is enabled, the response may contain `thinking` content blocks
+    alongside `text` blocks.  Only `text` blocks contribute to
+    [`InvocationResponse.response_text`][llmeter.endpoints.base.InvocationResponse].
+    The reported `num_tokens_output` is the total billed count (thinking + text);
+    `num_tokens_output_reasoning` is `None` because the Anthropic API does not provide a separate
+    thinking token count.
 
     Examples:
-        Direct Anthropic API::
+        Direct Anthropic API:
 
-            endpoint = AnthropicMessages(model_id="claude-opus-4-7")
+        ```python
+        endpoint = AnthropicMessages(model_id="claude-opus-4-7")
+        ```
 
-        Amazon Bedrock Mantle::
+        Amazon Bedrock Mantle:
 
-            endpoint = AnthropicMessages(
-                model_id="anthropic.claude-opus-4-7",
-                provider="bedrock-mantle",
-                aws_region="us-east-1",
-            )
+        ```python
+        endpoint = AnthropicMessages(
+            model_id="anthropic.claude-opus-4-7",
+            provider="bedrock-mantle",
+            aws_region="us-east-1",
+        )
+        ```
     """
 
     @AnthropicMessagesEndpoint.llmeter_invoke
@@ -331,11 +338,11 @@ class AnthropicMessages(AnthropicMessagesEndpoint[Message]):
     ) -> None:
         """Parse a non-streaming Anthropic Messages API response.
 
-        Only ``text`` content blocks are extracted into ``response_text``.
-        ``thinking`` and ``redacted_thinking`` blocks are skipped.
+        Only `text` content blocks are extracted into `response_text`. `thinking` and
+        `redacted_thinking` blocks are skipped.
 
         Args:
-            raw_response: The ``Message`` object returned by the API.
+            raw_response: The `Message` object returned by the API.
             start_t: Start time of the API call.
             response: The LLMeter response object to be populated in-place.
         """
@@ -363,71 +370,69 @@ class AnthropicMessagesStream(
 ):
     """Endpoint for the Anthropic Messages API (streaming).
 
-    Uses ``client.messages.create(..., stream=True)`` to stream SSE events,
-    enabling time-to-first-token and time-to-last-token measurements.
+    Uses `client.messages.create(..., stream=True)` to stream SSE events, enabling
+    time-to-first-token and time-to-last-token measurements.
 
-    Extended thinking and TTFT
-    ~~~~~~~~~~~~~~~~~~~~~~~~~~
+    #### Extended thinking and TTFT
 
-    When extended thinking is enabled, the stream contains thinking-related
-    events before the visible text.  The ``ttft_visible_tokens_only``
-    parameter controls which event sets ``time_to_first_token``:
+    When extended thinking is enabled, the stream contains thinking-related events before the
+    visible text.  The `ttft_visible_tokens_only` parameter controls which event sets
+    `time_to_first_token`:
 
-    * ``True`` (default) -- TTFT is set on the first ``text_delta``.
-      Thinking events are ignored.  Use this to measure the latency an end
-      user experiences before seeing output.
-    * ``False`` -- TTFT is set on the first event of any kind, including
-      ``thinking_delta`` (when ``display`` is ``"summarized"``) or
-      ``signature_delta`` (when ``display`` is ``"omitted"``).  Use this to
-      measure when the model first started producing output.
+    * `True` (default) - TTFT is set on the first `text_delta`. Thinking events are ignored. Use
+      this to measure the latency an end user experiences before seeing output.
+    * `False` - TTFT is set on the first event of any kind, including `thinking_delta` (when
+      `display` is `"summarized"`) or`signature_delta` (when `display` is `"omitted"`).  Use this
+      to measure when the model first started producing output.
 
-    The ``display`` setting on the thinking configuration affects which
-    events are emitted:
+    The `display` setting on the thinking configuration affects which events are emitted:
 
-    * ``"summarized"`` -- ``thinking_delta`` events stream before the text.
-      With ``ttft_visible_tokens_only=False``, TTFT captures the first
-      thinking token.
-    * ``"omitted"`` -- no ``thinking_delta`` events; only a
-      ``signature_delta`` signals the end of the thinking block.  With
-      ``ttft_visible_tokens_only=False``, TTFT captures the signature,
-      which arrives later than a thinking delta would.
+    * `"summarized"` - `thinking_delta` events stream before the text. With
+      `ttft_visible_tokens_only=False`, TTFT captures the first thinking token.
+    * `"omitted"` - no `thinking_delta` events; only a `signature_delta` signals the end of the
+      thinking block.  With `ttft_visible_tokens_only=False`, TTFT captures the signature, which
+      arrives later than a thinking delta would.
 
     This means that for the same model and prompt, measured TTFT with
-    ``ttft_visible_tokens_only=False`` will differ between summarized and
-    omitted modes.  Summarized mode captures the first thinking token;
-    omitted mode captures the signature that arrives after all thinking is
-    complete.
+    `ttft_visible_tokens_only=False` will differ between summarized and omitted modes.  Summarized
+    mode captures the first thinking token; omitted mode captures the signature that arrives after
+    all thinking is complete.
 
     Args:
         model_id: Model identifier.
-        endpoint_name: Display name.  Defaults to ``"anthropic-messages"``.
-        provider: Backend to use.  Defaults to ``"anthropic"``.
+        endpoint_name: Display name.  Defaults to `"anthropic-messages"`.
+        provider: Backend to use.  Defaults to `"anthropic"`.
         api_key: API key for the direct Anthropic API.
         aws_region: AWS region for Bedrock Mantle.
-        ttft_visible_tokens_only: When ``True`` (default), TTFT measures
-            time to first visible text token.  When ``False``, TTFT
-            includes thinking/signature events.  See above for details.
+        ttft_visible_tokens_only: When `True` (default), TTFT measures time to first visible text
+            token.  When `False`, TTFT includes thinking/signature events.  See above for details.
         **kwargs: Additional arguments forwarded to the client constructor.
 
     Examples:
-        Direct Anthropic API::
+        Direct Anthropic API:
 
-            endpoint = AnthropicMessagesStream(model_id="claude-opus-4-7")
+        ```python
+        endpoint = AnthropicMessagesStream(model_id="claude-opus-4-7")
+        ```
 
-        Measure TTFT including thinking::
+        Measure TTFT including thinking:
 
-            endpoint = AnthropicMessagesStream(
-                model_id="claude-sonnet-4-6",
-                ttft_visible_tokens_only=False,
-            )
+        ```python
+        endpoint = AnthropicMessagesStream(
+            model_id="claude-sonnet-4-6",
+            ttft_visible_tokens_only=False,
+        )
+        ```
 
-        Amazon Bedrock Mantle::
+        Amazon Bedrock Mantle:
 
-            endpoint = AnthropicMessagesStream(
-                model_id="anthropic.claude-opus-4-7",
-                provider="bedrock-mantle",
-                aws_region="us-east-1",
-            )
+        ```python
+        endpoint = AnthropicMessagesStream(
+            model_id="anthropic.claude-opus-4-7",
+            provider="bedrock-mantle",
+            aws_region="us-east-1",
+        )
+        ```
     """
 
     def __init__(
@@ -472,9 +477,9 @@ class AnthropicMessagesStream(
 
         Processes SSE events to extract text, token counts, and timing.
 
-        Only ``text_delta`` events contribute to ``response_text``.
-        ``thinking_delta`` and ``signature_delta`` events are used solely
-        for TTFT measurement when ``ttft_visible_tokens_only`` is ``False``.
+        Only `text_delta` events contribute to `response_text`. `thinking_delta` and
+        `signature_delta` events are used solely for TTFT measurement when
+        `ttft_visible_tokens_only` is `False`.
 
         Args:
             raw_response: The streaming iterator of SSE events.
