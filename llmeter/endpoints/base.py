@@ -41,6 +41,12 @@ class InvocationResponse:
         num_tokens_output (Optional[int]): The number of tokens in the response.
         num_tokens_input (Optional[int]): The number of tokens in the invocation payload.
         num_tokens_input_cached: The number of input tokens served from cache (prompt caching).
+        num_tokens_output_reasoning: The number of output tokens used for internal reasoning
+            (included in ``num_tokens_output``). Populated when the provider reports a
+            separate reasoning/thinking token count (e.g. OpenAI ``reasoning_tokens``).
+            ``None`` when the provider does not break out reasoning tokens — for
+            example, Anthropic includes thinking tokens in ``output_tokens`` without
+            a separate count.
         input_prompt (str): The input prompt used in the invocation.
         time_per_output_token (float): The average time taken to generate each token in the response.
         error (str): Any error that occurred during invocation.
@@ -56,6 +62,7 @@ class InvocationResponse:
     num_tokens_input: int | None = None
     num_tokens_output: int | None = None
     num_tokens_input_cached: int | None = None
+    num_tokens_output_reasoning: int | None = None
     time_per_output_token: float | None = None
     error: str | None = None
     retries: int | None = None

@@ -161,6 +161,19 @@ class OpenAIResponseEndpoint(OpenAIEndpointBase[Response]):
     def process_raw_response(
         self, raw_response: Response, start_t: float, response: InvocationResponse
     ) -> None:
+        # Check for API-level errors (e.g. status="failed" with an error object)
+        if getattr(raw_response, "status", None) == "failed":
+            error_obj = getattr(raw_response, "error", None)
+            if error_obj is not None:
+                error_msg = getattr(error_obj, "message", None) or str(error_obj)
+                error_code = getattr(error_obj, "code", None)
+                if error_code:
+                    error_msg = f"{error_code}: {error_msg}"
+            else:
+                error_msg = "Response API request failed"
+            response.error = error_msg
+            return
+
         response.time_to_last_token = time.perf_counter() - start_t
         response.id = raw_response.id
         response.response_text = raw_response.output_text
@@ -174,6 +187,11 @@ class OpenAIResponseEndpoint(OpenAIEndpointBase[Response]):
                 response.num_tokens_input_cached = getattr(
                     details, "cached_tokens", None
                 )
+            output_details = getattr(usage, "output_tokens_details", None)
+            if output_details:
+                response.num_tokens_output_reasoning = getattr(
+                    output_details, "reasoning_tokens", None
+                )
 
 
 class OpenAIResponseStreamEndpoint(OpenAIEndpointBase[Iterable[ResponseStreamEvent]]):
@@ -181,6 +199,15 @@ class OpenAIResponseStreamEndpoint(OpenAIEndpointBase[Iterable[ResponseStreamEve
 
     This endpoint provides streaming access to OpenAI's Responses API, enabling
     time-to-first-token measurements and incremental response processing.
+
+    Args:
+        ttft_visible_tokens_only: Controls how ``time_to_first_token`` is measured
+            for reasoning models. When ``True`` (default), TTFT records the time
+            to the first *visible* text token (``response.output_text.delta``),
+            ignoring reasoning events. When ``False``, TTFT records the time to
+            the first token of any kind — including reasoning summary or reasoning
+            text deltas — giving a measure of when the model first started
+            producing output. Has no effect for non-reasoning models.
     """
 
     def __init__(
@@ -189,6 +216,7 @@ class OpenAIResponseStreamEndpoint(OpenAIEndpointBase[Iterable[ResponseStreamEve
         endpoint_name: str = "openai-response-stream",
         api_key: str | None = None,
         provider: str = "openai",
+        ttft_visible_tokens_only: bool = True,
         **kwargs,
     ):
         """Initialize streaming Response API endpoint.
@@ -198,6 +226,9 @@ class OpenAIResponseStreamEndpoint(OpenAIEndpointBase[Iterable[ResponseStreamEve
             endpoint_name: Name of the endpoint (default: "openai-response-stream")
             api_key: OpenAI API key (optional, uses OPENAI_API_KEY env var if not provided)
             provider: Provider name (default: "openai")
+            ttft_visible_tokens_only: When True (default), TTFT measures time to
+                first visible text token. When False, TTFT includes reasoning
+                token events.
             **kwargs: Additional arguments passed to OpenAI client
         """
         super().__init__(
@@ -207,6 +238,7 @@ class OpenAIResponseStreamEndpoint(OpenAIEndpointBase[Iterable[ResponseStreamEve
             provider=provider,
             **kwargs,
         )
+        self.ttft_visible_tokens_only = ttft_visible_tokens_only
 
     @OpenAIEndpointBase.llmeter_invoke
     def invoke(self, payload: ResponseCreateParamsStreaming):
@@ -231,10 +263,20 @@ class OpenAIResponseStreamEndpoint(OpenAIEndpointBase[Iterable[ResponseStreamEve
         """Parse streaming Response API output into InvocationResponse.
 
         Processes typed events from the stream:
+
         - ``ResponseCreatedEvent``: captures ``response.id``
         - ``ResponseTextDeltaEvent``: accumulates text deltas, records TTFT
         - ``ResponseCompletedEvent``: extracts usage from ``response.usage``
+        - ``ResponseFailedEvent``: captures API-level errors
+        - Reasoning events (``response.reasoning_summary_text.delta``,
+          ``response.reasoning_text.delta``): when ``ttft_visible_tokens_only``
+          is ``False``, these set TTFT on the first reasoning token.
         """
+        _REASONING_DELTA_TYPES = frozenset((
+            "response.reasoning_summary_text.delta",
+            "response.reasoning_text.delta",
+        ))
+
         for event in raw_response:
             now = time.perf_counter()
             if event.type == "response.created":
@@ -243,10 +285,18 @@ class OpenAIResponseStreamEndpoint(OpenAIEndpointBase[Iterable[ResponseStreamEve
             elif event.type == "response.output_text.delta":
                 if response.response_text is None:
                     response.response_text = event.delta
-                    response.time_to_first_token = now - start_t
+                    if response.time_to_first_token is None:
+                        response.time_to_first_token = now - start_t
                 else:
                     response.response_text += event.delta
                 response.time_to_last_token = now - start_t
+
+            elif (
+                not self.ttft_visible_tokens_only
+                and event.type in _REASONING_DELTA_TYPES
+            ):
+                if response.time_to_first_token is None:
+                    response.time_to_first_token = now - start_t
 
             elif event.type == "response.completed":
                 usage = event.response.usage
@@ -258,3 +308,22 @@ class OpenAIResponseStreamEndpoint(OpenAIEndpointBase[Iterable[ResponseStreamEve
                         response.num_tokens_input_cached = getattr(
                             details, "cached_tokens", None
                         )
+                    output_details = getattr(usage, "output_tokens_details", None)
+                    if output_details:
+                        response.num_tokens_output_reasoning = getattr(
+                            output_details, "reasoning_tokens", None
+                        )
+
+            elif event.type == "response.failed":
+                error_obj = getattr(event.response, "error", None)
+                if error_obj is not None:
+                    error_msg = (
+                        getattr(error_obj, "message", None) or str(error_obj)
+                    )
+                    error_code = getattr(error_obj, "code", None)
+                    if error_code:
+                        error_msg = f"{error_code}: {error_msg}"
+                else:
+                    error_msg = "Response API request failed"
+                response.error = error_msg
+                response.time_to_last_token = now - start_t
