@@ -203,6 +203,18 @@ class CostModel(JSONableBase, Callback):
             result, recalculate_request_costs=False, save=True
         )
 
+    def to_dict(self, **kwargs) -> dict:
+        """Serialize the cost model to a JSON-compatible dictionary.
+
+        Includes both the ``_type`` key (for the existing ``JSONableBase`` / cost-dimension
+        class-map pattern) and ``__llmeter_class__`` (for the unified Callback serialization
+        mechanism).
+        """
+        result = super().to_dict(**kwargs)
+        cls = type(self)
+        result["__llmeter_class__"] = f"{cls.__module__}:{cls.__name__}"
+        return result
+
     def save_to_file(self, path: WritablePathLike) -> None:
         """Save the cost model (including all dimensions) to a JSON file"""
         path = ensure_path(path)
@@ -217,6 +229,8 @@ class CostModel(JSONableBase, Callback):
             **alt_classes,
         }
         raw_args = {**raw}
+        # Strip the class marker — it's only used for dispatch, not construction
+        raw_args.pop("__llmeter_class__", None)
         for key in ("request_dims", "run_dims"):
             if key in raw_args:
                 raw_args[key] = {

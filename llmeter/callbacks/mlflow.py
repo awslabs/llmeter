@@ -1,7 +1,8 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-from upath.types import ReadablePathLike, WritablePathLike
+from typing import Any
+
 
 from ..results import Result
 from ..utils import DeferredError
@@ -68,16 +69,19 @@ class MlflowCallback(Callback):
         # Check MLFlow is installed by polling any attribute on the module to trigger DeferredError
         mlflow.__version__
 
-    @classmethod
-    def _load_from_file(cls, path: ReadablePathLike):
-        raise NotImplementedError(
-            "TODO: MlflowCallback does not yet support loading from file"
-        )
+    def to_dict(self) -> dict:
+        """Serialize this MlflowCallback to a JSON-compatible dictionary."""
+        result = super().to_dict()
+        result["step"] = self.step
+        result["nested"] = self.nested
+        return result
 
-    def save_to_file(self, path: WritablePathLike) -> None:
-        raise NotImplementedError(
-            "TODO: MlflowCallback does not yet support saving to file"
-        )
+    @classmethod
+    def from_dict(cls, raw: dict, **kwargs: Any) -> "MlflowCallback":
+        """Reconstruct an MlflowCallback from a dictionary."""
+        data = {**raw}
+        data.pop("__llmeter_class__", None)
+        return cls(**data, **kwargs)
 
     async def _log_llmeter_run(self, result: Result):
         """Log parameters and metrics from an LLMeter run to MLflow.
