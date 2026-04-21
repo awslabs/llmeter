@@ -395,19 +395,19 @@ class BedrockConverseStream(BedrockBase[ConverseStreamResponseTypeDef]):
             if "metadata" in chunk:
                 usage = chunk["metadata"].get("usage", {})
                 input_tokens = usage.get("inputTokens")
-                if input_tokens:
+                if input_tokens is not None:
                     if response.num_tokens_input is None:
                         response.num_tokens_input = input_tokens
                     else:
                         response.num_tokens_input += input_tokens
                 output_tokens = usage.get("outputTokens")
-                if output_tokens:
+                if output_tokens is not None:
                     if response.num_tokens_output is None:
                         response.num_tokens_output = output_tokens
                     else:
                         response.num_tokens_output += output_tokens
                 cache_read_input_tokens = usage.get("cacheReadInputTokens")
-                if cache_read_input_tokens:
+                if cache_read_input_tokens is not None:
                     if response.num_tokens_input_cached is None:
                         response.num_tokens_input_cached = cache_read_input_tokens
                     else:
