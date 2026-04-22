@@ -54,7 +54,6 @@ nav:
       - mlflow: reference/callbacks/mlflow.md
     - endpoints:
       - reference/endpoints/index.md
-      - anthropic_messages: reference/endpoints/anthropic_messages.md
       - base: reference/endpoints/base.md
       - bedrock: reference/endpoints/bedrock.md
       - bedrock_invoke: reference/endpoints/bedrock_invoke.md
