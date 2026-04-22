@@ -351,6 +351,47 @@ class BedrockConverse(BedrockBase[ConverseResponseTypeDef]):
 
 
 class BedrockConverseStream(BedrockBase[ConverseStreamResponseTypeDef]):
+    """Streaming endpoint for the Bedrock Converse API.
+
+    When extended thinking is enabled, the stream contains `reasoningContent` deltas before the
+    visible `text` deltas.  The `ttft_visible_tokens_only` parameter controls which delta sets
+    `time_to_first_token`:
+
+    * `True` (default) - TTFT is set on the first `text` delta. Reasoning deltas are ignored for
+      timing.
+    * `False` - TTFT is set on the first delta of any kind, including reasoning content.
+
+    Args:
+        model_id: Bedrock model identifier.
+        endpoint_name: Display name.  Defaults to `None`.
+        region: AWS region.  Defaults to `None`.
+        inference_config: Default inference configuration.
+        bedrock_boto3_client: Pre-configured boto3 client.
+        max_attempts: Maximum retry attempts.  Defaults to 3.
+        ttft_visible_tokens_only: When `True` (default), TTFT measures time to first visible text
+            token.  When `False`, TTFT includes reasoning content deltas.
+    """
+
+    def __init__(
+        self,
+        model_id: str,
+        endpoint_name: str | None = None,
+        region: str | None = None,
+        inference_config: dict | None = None,
+        bedrock_boto3_client=None,
+        max_attempts: int = 3,
+        ttft_visible_tokens_only: bool = True,
+    ):
+        super().__init__(
+            model_id=model_id,
+            endpoint_name=endpoint_name,
+            region=region,
+            inference_config=inference_config,
+            bedrock_boto3_client=bedrock_boto3_client,
+            max_attempts=max_attempts,
+        )
+        self.ttft_visible_tokens_only = ttft_visible_tokens_only
+
     @Endpoint.llmeter_invoke
     def invoke(self, payload: dict):
         client_response = self._bedrock_client.converse_stream(**payload)  # type: ignore
@@ -359,35 +400,46 @@ class BedrockConverseStream(BedrockBase[ConverseStreamResponseTypeDef]):
     def process_raw_response(
         self, raw_response, start_t: float, response: InvocationResponse
     ) -> None:
-        """Parse the streaming response from a Bedrock ConverseStream API call
+        """Parse the streaming response from a Bedrock ConverseStream API call.
+
+        Only `text` deltas contribute to `response_text`. `reasoningContent` deltas are used solely
+        for TTFT measurement when `ttft_visible_tokens_only` is `False`.
 
         Args:
-            client_response: The raw response from the Bedrock API.
+            raw_response: The raw response from the Bedrock API.
             start_t: The timestamp when the request was initiated.
-
-        Returns:
-            InvocationResponse with the generated text and metadata.
+            response: The output response object to be updated in-place.
         """
         response.id = raw_response["ResponseMetadata"].get("RequestId")
         response.retries = raw_response["ResponseMetadata"]["RetryAttempts"]
-
-        any_content_received = False
 
         for chunk in raw_response["stream"]:
             now = time.perf_counter()
 
             if "contentBlockDelta" in chunk:
-                delta_text = chunk["contentBlockDelta"]["delta"].get("text", "")
-                if not isinstance(delta_text, str):
-                    raise TypeError("Expected string for delta text")
-                if not any_content_received:
-                    response.time_to_first_token = now - start_t
-                    any_content_received = True
-                if delta_text:
-                    if response.response_text is None:
-                        response.response_text = delta_text
-                    else:
-                        response.response_text += delta_text
+                delta = chunk["contentBlockDelta"]["delta"]
+
+                if "reasoningContent" in delta:
+                    # Reasoning delta -- only counts for TTFT when
+                    # ttft_visible_tokens_only is False.
+                    if (
+                        not self.ttft_visible_tokens_only
+                        and response.time_to_first_token is None
+                    ):
+                        response.time_to_first_token = now - start_t
+
+                elif "text" in delta:
+                    delta_text = delta["text"]
+                    if not isinstance(delta_text, str):
+                        raise TypeError("Expected string for delta text")
+                    if delta_text:
+                        if response.time_to_first_token is None:
+                            response.time_to_first_token = now - start_t
+                        if response.response_text is None:
+                            response.response_text = delta_text
+                        else:
+                            response.response_text += delta_text
+                        response.time_to_last_token = now - start_t
 
             if "contentBlockStop" in chunk:
                 response.time_to_last_token = now - start_t

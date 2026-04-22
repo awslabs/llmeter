@@ -21,6 +21,13 @@ if spec:
         OpenAIResponseStreamEndpoint,
     )
 
+spec = importlib.util.find_spec("anthropic")
+if spec:
+    from .anthropic_messages import (  # noqa: F401
+        AnthropicMessages,
+        AnthropicMessagesStream,
+    )
+
 spec = importlib.util.find_spec("litellm")
 if spec:
     from .litellm import LiteLLM, LiteLLMStreaming  # noqa: F401
