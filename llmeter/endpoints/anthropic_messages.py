@@ -5,17 +5,13 @@
 Supports any client provided by the `anthropic` Python SDK:
 
 * `"anthropic"` - Direct API at `api.anthropic.com`
-* `"bedrock-mantle"` - Amazon Bedrock Mantle (requires `anthropic[bedrock]`)
+* `"bedrock-mantle"` - Amazon Bedrock Mantle
 * `"vertex"` - Google Vertex AI (requires `anthropic[vertex]`)
 * `"foundry"` - Azure Foundry
 
-Install the base dependency::
+Install the dependency::
 
     pip install 'llmeter[anthropic]'
-
-For Bedrock Mantle support::
-
-    pip install 'llmeter[anthropic-bedrock]'
 
 ### Extended thinking
 
