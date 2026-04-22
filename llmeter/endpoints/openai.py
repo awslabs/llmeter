@@ -264,6 +264,10 @@ class OpenAICompletionEndpoint(OpenAIEndpoint[ChatCompletion]):
                 response.num_tokens_input_cached = getattr(
                     usage.prompt_tokens_details, "cached_tokens", None
                 )
+            if usage.completion_tokens_details:
+                response.num_tokens_output_reasoning = getattr(
+                    usage.completion_tokens_details, "reasoning_tokens", None
+                )
 
 
 class OpenAICompletionStreamEndpoint(OpenAIEndpoint[Iterable[ChatCompletionChunk]]):
@@ -317,4 +321,10 @@ class OpenAICompletionStreamEndpoint(OpenAIEndpoint[Iterable[ChatCompletionChunk
                 if chunk.usage.prompt_tokens_details:
                     response.num_tokens_input_cached = getattr(
                         chunk.usage.prompt_tokens_details, "cached_tokens", None
+                    )
+                if chunk.usage.completion_tokens_details:
+                    response.num_tokens_output_reasoning = getattr(
+                        chunk.usage.completion_tokens_details,
+                        "reasoning_tokens",
+                        None,
                     )
