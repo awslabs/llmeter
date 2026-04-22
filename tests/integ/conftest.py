@@ -135,38 +135,6 @@ def bedrock_openai_multimodal_test_model():
     )
 
 
-@pytest.fixture(scope="session")
-def bedrock_anthropic_mantle_test_model():
-    """
-    Get test model ID for Anthropic Messages API tests via Bedrock Mantle.
-
-    The model ID can be overridden via the BEDROCK_ANTHROPIC_MANTLE_TEST_MODEL
-    environment variable.  Defaults to ``anthropic.claude-opus-4-7``.
-
-    Returns:
-        str: Anthropic model ID for Bedrock Mantle testing.
-    """
-    return os.environ.get(
-        "BEDROCK_ANTHROPIC_MANTLE_TEST_MODEL", "anthropic.claude-opus-4-7"
-    )
-
-
-@pytest.fixture(scope="session")
-def bedrock_anthropic_mantle_region():
-    """
-    Get AWS region for Anthropic Messages API tests via Bedrock Mantle.
-
-    The Bedrock Mantle Anthropic Messages endpoint may not be available in all
-    regions.  This fixture defaults to ``us-east-1`` (the first region where
-    the endpoint launched) and can be overridden via the
-    ``BEDROCK_ANTHROPIC_MANTLE_REGION`` environment variable.
-
-    Returns:
-        str: AWS region for Bedrock Mantle Anthropic testing.
-    """
-    return os.environ.get("BEDROCK_ANTHROPIC_MANTLE_REGION", "us-east-1")
-
-
 @pytest.fixture
 def test_image_bytes():
     """
