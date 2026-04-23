@@ -127,17 +127,27 @@ class Result:
         return json.dumps(summary, default=default, **kwargs)
 
     def to_dict(self, include_responses: bool = False):
-        """Return the results as a dictionary with JSON-serializable values."""
+        """Return a dictionary representation of this result.
+
+        Returns a plain ``dict`` produced by :func:`dataclasses.asdict`,
+        preserving native Python types (``datetime``, ``UPath``, etc.).
+        This is suitable for programmatic access and internal data
+        processing.
+
+        For JSON output, use :meth:`to_json` which delegates to
+        :func:`~llmeter.json_utils.llmeter_default_serializer` for
+        non-serializable types, or pass the dict through
+        ``json.dumps(result.to_dict(), default=llmeter_default_serializer)``.
+
+        Args:
+            include_responses: If ``True``, include the full list of
+                :class:`~llmeter.endpoints.base.InvocationResponse` dicts
+                and the ``stats`` key.  Defaults to ``False``.
+
+        Returns:
+            dict: A dictionary of result fields with native Python types.
+        """
         data = asdict(self)
-        # Serialize datetime objects so stats dict is always JSON-safe
-        for key in (
-            "start_time",
-            "end_time",
-            "first_request_time",
-            "last_request_time",
-        ):
-            if key in data and isinstance(data[key], datetime):
-                data[key] = llmeter_default_serializer(data[key])
         if include_responses:
             return data
         return {k: v for k, v in data.items() if k not in ["responses", "stats"]}

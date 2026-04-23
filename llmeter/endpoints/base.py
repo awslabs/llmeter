@@ -113,6 +113,22 @@ class InvocationResponse:
         )
 
     def to_dict(self):
+        """Return a dictionary representation of this response.
+
+        Returns a plain ``dict`` produced by :func:`dataclasses.asdict`,
+        preserving native Python types (e.g. ``datetime`` for
+        ``request_time``).  This is suitable for programmatic access —
+        for example :class:`~llmeter.utils.RunningStats` consumes this
+        output and relies on ``datetime`` comparisons and arithmetic.
+
+        For JSON output, use :meth:`to_json` which delegates to
+        :func:`~llmeter.json_utils.llmeter_default_serializer` for
+        non-serializable types, or pass the dict through
+        ``json.dumps(response.to_dict(), default=llmeter_default_serializer)``.
+
+        Returns:
+            dict: A dictionary of response fields with native Python types.
+        """
         return asdict(self)
 
 
