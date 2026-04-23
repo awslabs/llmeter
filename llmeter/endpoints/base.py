@@ -113,26 +113,7 @@ class InvocationResponse:
         )
 
     def to_dict(self):
-        """Return a JSON-serializable dictionary representation of this response.
-
-        Unlike :meth:`to_json`, which delegates serialization to
-        :func:`json.dumps` with a custom *default* handler, this method
-        returns a plain ``dict`` whose values are all natively
-        JSON-serializable.  This is important for code paths that call
-        ``json.dumps(response.to_dict())`` without a custom serializer —
-        for example AWS Lambda response marshaling.
-
-        The ``request_time`` field (a :class:`~datetime.datetime`) is
-        converted to an ISO-8601 string via
-        :func:`~llmeter.json_utils.llmeter_default_serializer`.
-
-        Returns:
-            dict: A dictionary with all values safe for ``json.dumps()``.
-        """
-        data = asdict(self)
-        if isinstance(data.get("request_time"), datetime):
-            data["request_time"] = llmeter_default_serializer(data["request_time"])
-        return data
+        return asdict(self)
 
 
 TRawResponse = TypeVar("TRawResponse", bound=Any)
