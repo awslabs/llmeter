@@ -175,6 +175,38 @@ class TestLoadResponsesOnDemand:
         with pytest.raises(FileNotFoundError):
             result.load_responses()
 
+    def test_load_responses_restores_request_time_as_datetime(self, tmp_path):
+        """load_responses() must parse request_time back to datetime, not leave as str."""
+        from datetime import datetime, timezone
+
+        dt = datetime(2025, 4, 10, 14, 30, 0, tzinfo=timezone.utc)
+        responses = [
+            InvocationResponse(
+                id="rt_lazy",
+                response_text="hello",
+                request_time=dt,
+                num_tokens_input=5,
+                num_tokens_output=3,
+            )
+        ]
+        result = Result(
+            responses=responses,
+            total_requests=1,
+            clients=1,
+            n_requests=1,
+            total_test_time=1.0,
+        )
+        output = UPath(tmp_path) / "rt_output"
+        result.save(output)
+
+        loaded = Result.load(output, load_responses=False)
+        assert loaded.responses == []
+
+        loaded.load_responses()
+        assert len(loaded.responses) == 1
+        assert isinstance(loaded.responses[0].request_time, datetime)
+        assert loaded.responses[0].request_time == dt
+
 
 # --- LoadTestResult.load with load_responses ---
 

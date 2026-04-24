@@ -174,9 +174,7 @@ class Result:
             )
         responses_path = ensure_path(self.output_path) / "responses.jsonl"
         with responses_path.open("r") as f:
-            self.responses = [
-                InvocationResponse(**json.loads(line)) for line in f if line
-            ]
+            self.responses = [InvocationResponse.from_json(line) for line in f if line]
         logger.info("Loaded %d responses from %s", len(self.responses), responses_path)
         # Recompute stats from the freshly loaded responses
         self._preloaded_stats = self._compute_stats(self)
@@ -229,7 +227,9 @@ class Result:
         ]:
             if key in summary and summary[key] and isinstance(summary[key], str):
                 try:
-                    summary[key] = datetime.fromisoformat(summary[key])
+                    summary[key] = datetime.fromisoformat(
+                        summary[key].replace("Z", "+00:00")
+                    )
                 except ValueError:
                     pass
 
@@ -240,9 +240,7 @@ class Result:
         if load_responses:
             responses_path = result_path / "responses.jsonl"
             with responses_path.open("r") as f:
-                responses = [
-                    InvocationResponse(**json.loads(line)) for line in f if line
-                ]
+                responses = [InvocationResponse.from_json(line) for line in f if line]
         else:
             responses = []
             responses_path = result_path / "responses.jsonl"
@@ -273,7 +271,7 @@ class Result:
                         if val and isinstance(val, str):
                             try:
                                 result._preloaded_stats[key] = datetime.fromisoformat(
-                                    val
+                                    val.replace("Z", "+00:00")
                                 )
                             except ValueError:
                                 pass
