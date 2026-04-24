@@ -313,6 +313,64 @@ def test_load_method(sample_result: Result, temp_dir: UPath):
         assert orig.num_tokens_input == loaded.num_tokens_input
 
 
+def test_load_restores_summary_datetimes(temp_dir: UPath):
+    """Result.load must parse Z-suffixed ISO-8601 strings back to datetime."""
+    from datetime import datetime, timezone
+
+    dt_start = datetime(2025, 6, 1, 10, 0, 0, tzinfo=timezone.utc)
+    dt_end = datetime(2025, 6, 1, 10, 5, 0, tzinfo=timezone.utc)
+    result = Result(
+        responses=sample_responses_successful[:2],
+        total_requests=2,
+        clients=1,
+        n_requests=2,
+        total_test_time=300.0,
+        start_time=dt_start,
+        end_time=dt_end,
+        first_request_time=dt_start,
+        last_request_time=dt_end,
+    )
+    output_path = temp_dir / "datetime_output"
+    result.save(output_path)
+
+    loaded = Result.load(output_path)
+    assert isinstance(loaded.start_time, datetime)
+    assert isinstance(loaded.end_time, datetime)
+    assert isinstance(loaded.first_request_time, datetime)
+    assert isinstance(loaded.last_request_time, datetime)
+    assert loaded.start_time == dt_start
+    assert loaded.end_time == dt_end
+
+
+def test_load_restores_response_request_time(temp_dir: UPath):
+    """Result.load must restore request_time on responses as datetime, not str."""
+    from datetime import datetime, timezone
+
+    dt = datetime(2025, 3, 15, 8, 30, 0, tzinfo=timezone.utc)
+    responses = [
+        InvocationResponse(
+            id="rt_test",
+            response_text="hello",
+            request_time=dt,
+            num_tokens_input=5,
+            num_tokens_output=3,
+        )
+    ]
+    result = Result(
+        responses=responses,
+        total_requests=1,
+        clients=1,
+        n_requests=1,
+        total_test_time=1.0,
+    )
+    output_path = temp_dir / "request_time_output"
+    result.save(output_path)
+
+    loaded = Result.load(output_path)
+    assert isinstance(loaded.responses[0].request_time, datetime)
+    assert loaded.responses[0].request_time == dt
+
+
 def test_save_method_no_output_path(sample_result: Result):
     with pytest.raises(ValueError, match="No output path provided"):
         sample_result.save()

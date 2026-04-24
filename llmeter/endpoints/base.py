@@ -21,7 +21,7 @@ from uuid import uuid4
 from upath import UPath as Path
 from upath.types import ReadablePathLike, WritablePathLike
 
-from ..json_utils import llmeter_default_serializer
+from ..json_utils import llmeter_bytes_decoder, llmeter_default_serializer
 from ..utils import ensure_path
 
 logger = logging.getLogger(__name__)
@@ -66,6 +66,38 @@ class InvocationResponse:
     error: str | None = None
     retries: int | None = None
     request_time: datetime | None = None
+
+    @classmethod
+    def from_json(cls, json_str: str) -> "InvocationResponse":
+        """Deserialize a JSON string into an `InvocationResponse`.
+
+        This is the inverse of [`to_json`][llmeter.endpoints.base.InvocationResponse.to_json]. It
+        correctly restores types that the default JSON round-trip would leave as strings or marker
+        objects:
+
+        * `request_time` is parsed from an ISO-8601 string back to a Python `datetime`
+        * `payload`s containing `bytes` (as `__llmeter_bytes__` markers) are correctly loaded back
+          as bytes.
+
+        Args:
+            json_str: A JSON string representation of an InvocationResponse (produced by `to_json`
+            or similar).
+
+        Returns:
+            InvocationResponse: The deserialized response.
+
+        Example:
+
+            ```python
+            original = InvocationResponse(response_text="hi", ...)
+            restored = InvocationResponse.from_json(original.to_json())
+            ```
+        """
+        data = json.loads(json_str, object_hook=llmeter_bytes_decoder)
+        rt = data.get("request_time")
+        if rt is not None and isinstance(rt, str):
+            data["request_time"] = datetime.fromisoformat(rt.replace("Z", "+00:00"))
+        return cls(**data)
 
     def to_json(self, default=llmeter_default_serializer, **kwargs) -> str:
         """Serialize this response to a JSON string.
