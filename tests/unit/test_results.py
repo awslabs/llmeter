@@ -220,8 +220,10 @@ def test_stats_property_empty_result():
 
 
 def test_stats_json_serializable_with_datetimes():
-    """stats dict should be directly JSON-serializable even with datetime fields."""
+    """stats dict should be JSON-serializable via llmeter_default_serializer."""
     from datetime import datetime, timezone
+
+    from llmeter.json_utils import llmeter_default_serializer
 
     result = Result(
         responses=sample_responses_successful[:2],
@@ -233,11 +235,26 @@ def test_stats_json_serializable_with_datetimes():
         end_time=datetime(2025, 1, 1, 12, 0, 1, tzinfo=timezone.utc),
     )
     stats = result.stats
-    # Should not raise TypeError
-    json_str = json.dumps(stats)
+    # stats contains raw datetime objects; serialization is handled at the
+    # boundary (e.g. save()) via llmeter_default_serializer.
+    json_str = json.dumps(stats, default=llmeter_default_serializer)
     parsed = json.loads(json_str)
     assert parsed["start_time"] == "2025-01-01T12:00:00Z"
     assert parsed["end_time"] == "2025-01-01T12:00:01Z"
+
+
+def test_to_dict_returns_native_types():
+    """to_dict() should return raw Python types, not serialized strings."""
+    from datetime import datetime, timezone
+
+    result = Result(
+        responses=[],
+        start_time=datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
+        output_path=UPath("/tmp/test-results"),
+    )
+    data = result.to_dict()
+    assert isinstance(data["start_time"], datetime)
+    assert isinstance(data["output_path"], UPath)
 
 
 @pytest.fixture
