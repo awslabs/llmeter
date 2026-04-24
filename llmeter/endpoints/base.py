@@ -155,7 +155,7 @@ class InvocationResponse:
         by default, for non-JSON-serializable data types).
 
         Returns:
-            dict: A dictionary of response fields native Python types.
+            dict: A dictionary of response fields with native Python types.
         """
         return asdict(self)
 
