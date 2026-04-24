@@ -5,7 +5,7 @@
 
 [![Latest Version](https://img.shields.io/pypi/v/llmeter.svg)](https://pypi.python.org/pypi/llmeter)
 [![Documentation: Online](https://img.shields.io/badge/Documentation-online-green)](https://awslabs.github.io/llmeter)
-[![Supported Python Versions](https://img.shields.io/pypi/pyversions/llmeter)](https://pypi.python.org/pypi/llmeter)
+[![Supported Python Versions](https://img.shields.io/badge/dynamic/json?query=info.requires_python&label=python&url=https%3A%2F%2Fpypi.org%2Fpypi%2Fllmeter%2Fjson)](https://pypi.python.org/pypi/llmeter)
 [![Code Style: Ruff](https://img.shields.io/badge/code_style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 
 </div>
