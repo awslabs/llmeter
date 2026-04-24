@@ -87,7 +87,7 @@ class InvocationResponse:
             InvocationResponse: The deserialized response.
 
         Example:
-
+            A round-trip can be run as follows:
             ```python
             original = InvocationResponse(response_text="hi", ...)
             restored = InvocationResponse.from_json(original.to_json())
@@ -102,15 +102,13 @@ class InvocationResponse:
     def to_json(self, default=llmeter_default_serializer, **kwargs) -> str:
         """Serialize this response to a JSON string.
 
-        Uses :func:`~llmeter.json_utils.llmeter_default_serializer` by default,
-        which handles ``bytes``, ``datetime``, ``PathLike``, and other common
-        non-serializable types.
+        Uses [`llmeter_default_serializer`][llmeter.json_utils.llmeter_default_serializer] by
+        default, which handles `bytes`, `datetime`, `PathLike`, and other common non-serializable
+        types.
 
         Args:
-            default: Fallback serializer passed to :func:`json.dumps`.
-                Defaults to :func:`~llmeter.json_utils.llmeter_default_serializer`.
-            **kwargs: Additional arguments passed to :func:`json.dumps`
-                (e.g., ``indent``, ``sort_keys``).
+            default: Fallback serializer passed to `json.dumps`.
+            **kwargs: Additional arguments passed to `json.dumps` (e.g., `indent`, `sort_keys`).
 
         Returns:
             str: JSON representation of the response.
@@ -144,22 +142,20 @@ class InvocationResponse:
             # default=str
         )
 
-    def to_dict(self):
+    def to_dict(self) -> dict:
         """Return a dictionary representation of this response.
 
-        Returns a plain ``dict`` produced by :func:`dataclasses.asdict`,
-        preserving native Python types (e.g. ``datetime`` for
-        ``request_time``).  This is suitable for programmatic access —
-        for example :class:`~llmeter.utils.RunningStats` consumes this
-        output and relies on ``datetime`` comparisons and arithmetic.
+        Returns a plain `dict` produced by `dataclasses.asdict`, preserving native Python types
+        (e.g. `datetime` for `request_time`).  This is suitable for programmatic access — for
+        example [`RunningStats`][llmeter.utils.RunningStats] consumes this output and relies on
+        `datetime` comparisons and arithmetic.
 
-        For JSON output, use :meth:`to_json` which delegates to
-        :func:`~llmeter.json_utils.llmeter_default_serializer` for
-        non-serializable types, or pass the dict through
-        ``json.dumps(response.to_dict(), default=llmeter_default_serializer)``.
+        For JSON output, use [`to_json`][llmeter.endpoints.base.InvocationResponse.to_json], (which
+        delegates to [`llmeter_default_serializer`][llmeter.json_utils.llmeter_default_serializer]
+        by default, for non-JSON-serializable data types).
 
         Returns:
-            dict: A dictionary of response fields with native Python types.
+            dict: A dictionary of response fields native Python types.
         """
         return asdict(self)
 
