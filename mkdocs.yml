@@ -37,6 +37,11 @@ nav:
     - Metrics and Statistics: user_guide/metrics.md
     - Connect to Endpoints: user_guide/connect_endpoints.md
     - Run Experiments: user_guide/run_experiments.md
+    - Callback-Powered Features:
+      - user_guide/callbacks/index.md
+      - user_guide/callbacks/cache_buster.md
+      - user_guide/callbacks/cost.md
+      - user_guide/callbacks/mlflow.md
   - API Reference:
     - reference/index.md
     - callbacks:
