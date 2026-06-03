@@ -629,6 +629,7 @@ class _Run(_RunConfig):
         prefix = "reqs=0" if self._time_bound else ""
         self._stats_display.update({}, extra_prefix=prefix)
 
+        interrupted = False
         try:
             run_start_time = now_utc()
             if self._time_bound:
@@ -668,9 +669,50 @@ class _Run(_RunConfig):
             )
             return result
 
-        self._progress_bar.close()
+        except KeyboardInterrupt:
+            interrupted = True
+            run_end_time = now_utc()
+            total_test_time = None
+            logger.warning(
+                "Run interrupted by user. Saving partial results "
+                f"({self._running_stats._count} responses collected)."
+            )
+
+        if self._progress_bar is not None:
+            self._progress_bar.close()
         if self._stats_display is not None:
             self._stats_display.close()
+
+        if interrupted:
+            actual_total = self._running_stats._count
+            result = replace(
+                result,
+                responses=self._responses,
+                total_test_time=total_test_time,
+                total_requests=actual_total,
+                n_requests=actual_total // max(self.clients, 1),
+                start_time=run_start_time,
+                first_request_time=self._running_stats._first_send_time,
+                last_request_time=self._running_stats._last_send_time,
+                end_time=run_end_time,
+            )
+            result._preloaded_stats = self._running_stats.to_stats(
+                end_time=run_end_time,
+                result_dict=result.to_dict(),
+            )
+            result._preloaded_stats["start_time"] = run_start_time
+            result._preloaded_stats["end_time"] = run_end_time
+            result._preloaded_stats["interrupted"] = True
+
+            if result.output_path:
+                result.save()
+                logger.info(
+                    f"Partial results saved to {result.output_path}. "
+                    "Use Result.load() to recover them."
+                )
+
+            return result
+
         logger.info(f"Test completed in {total_test_time * 1000:.2f} seconds.")
 
         actual_total = self._running_stats._count
