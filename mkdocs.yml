@@ -37,6 +37,7 @@ nav:
     - Metrics and Statistics: user_guide/metrics.md
     - Connect to Endpoints: user_guide/connect_endpoints.md
     - Run Experiments: user_guide/run_experiments.md
+    - S3 Storage: user_guide/s3_storage.md
   - API Reference:
     - reference/index.md
     - callbacks:
@@ -69,6 +70,7 @@ nav:
     - prompt_utils: reference/prompt_utils.md
     - results: reference/results.md
     - runner: reference/runner.md
+    - s3fs: reference/s3fs.md
     - tokenizers: reference/tokenizers.md
     - utils: reference/utils.md
 repo_url: https://github.com/awslabs/llmeter
