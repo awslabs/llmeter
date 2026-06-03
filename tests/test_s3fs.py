@@ -211,12 +211,12 @@ class TestRm:
         assert fs.exists(f"{BUCKET}/to_delete.txt") is False
 
     @mock_aws
-    def test_rm_file_nonexistent_raises(self):
-        """_rm_file raises FileNotFoundError for missing objects."""
+    def test_rm_file_nonexistent_is_noop(self):
+        """_rm_file on non-existent key is a no-op (S3 delete is idempotent)."""
         boto3.client("s3", region_name="us-east-1").create_bucket(Bucket=BUCKET)
         fs = Boto3S3FileSystem()
-        with pytest.raises(FileNotFoundError):
-            fs.rm_file(f"{BUCKET}/nope.txt")
+        # Should not raise — S3 delete_object is idempotent
+        fs.rm_file(f"{BUCKET}/nope.txt")
 
     @mock_aws
     def test_rm_recursive(self):
@@ -509,12 +509,12 @@ class TestErrorHandling:
             fs.info(f"{BUCKET}/no/such/path")
 
     @mock_aws
-    def test_rm_file_not_found(self):
-        """_rm_file raises FileNotFoundError for missing objects."""
+    def test_rm_file_not_found_is_noop(self):
+        """_rm_file is idempotent — no error on missing objects."""
         boto3.client("s3", region_name="us-east-1").create_bucket(Bucket=BUCKET)
         fs = Boto3S3FileSystem()
-        with pytest.raises(FileNotFoundError):
-            fs.rm_file(f"{BUCKET}/nope.txt")
+        # Should not raise
+        fs.rm_file(f"{BUCKET}/nope.txt")
 
     @mock_aws
     def test_permission_error_on_cat(self):

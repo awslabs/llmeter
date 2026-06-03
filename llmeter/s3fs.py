@@ -15,20 +15,22 @@ import asyncio
 import logging
 from typing import Any
 
-try:
-    import boto3
-    from botocore.exceptions import ClientError
-except ImportError as e:
-    raise ImportError(
-        "boto3 is required for the llmeter S3 filesystem backend. "
-        "Install it with: pip install boto3"
-    ) from e
-
-import fsspec
+import boto3
 import fsspec.spec
+from botocore.exceptions import ClientError
 from fsspec.asyn import AsyncFileSystem
 
 logger = logging.getLogger(__name__)
+
+
+def _translate_error(e: ClientError, path: str) -> OSError:
+    """Map a boto3 ClientError to the appropriate Python exception."""
+    code = e.response["Error"]["Code"]
+    if code in ("NoSuchKey", "404", "NoSuchBucket"):
+        return FileNotFoundError(path)
+    if code in ("403", "AccessDenied"):
+        return PermissionError(path)
+    return OSError(f"S3 error {code}: {e.response['Error'].get('Message', '')}")
 
 
 class S3File(fsspec.spec.AbstractBufferedFile):
@@ -39,22 +41,11 @@ class S3File(fsspec.spec.AbstractBufferedFile):
         bucket, key = self.fs._split_path(self.path)
         try:
             response = self.fs._s3_client.get_object(
-                Bucket=bucket,
-                Key=key,
-                Range=f"bytes={start}-{end - 1}",
+                Bucket=bucket, Key=key, Range=f"bytes={start}-{end - 1}"
             )
             return response["Body"].read()
-        except self.fs._s3_client.exceptions.NoSuchKey:
-            raise FileNotFoundError(self.path)
         except ClientError as e:
-            code = e.response["Error"]["Code"]
-            if code in ("403", "AccessDenied"):
-                raise PermissionError(self.path) from e
-            if code in ("404", "NoSuchBucket"):
-                raise FileNotFoundError(self.path) from e
-            raise OSError(
-                f"S3 error {code}: {e.response['Error'].get('Message', '')}"
-            ) from e
+            raise _translate_error(e, self.path) from e
 
     def _initiate_upload(self) -> None:
         """Initialize upload state. Buffer is already set by AbstractBufferedFile."""
@@ -69,10 +60,7 @@ class S3File(fsspec.spec.AbstractBufferedFile):
             try:
                 self.fs._s3_client.put_object(Bucket=bucket, Key=key, Body=data)
             except ClientError as e:
-                code = e.response["Error"]["Code"]
-                raise OSError(
-                    f"S3 upload error {code}: {e.response['Error'].get('Message', '')}"
-                ) from e
+                raise _translate_error(e, self.path) from e
 
 
 class Boto3S3FileSystem(AsyncFileSystem):
@@ -161,17 +149,8 @@ class Boto3S3FileSystem(AsyncFileSystem):
             try:
                 response = self._s3_client.get_object(**get_kwargs)
                 return response["Body"].read()
-            except self._s3_client.exceptions.NoSuchKey:
-                raise FileNotFoundError(path)
             except ClientError as e:
-                code = e.response["Error"]["Code"]
-                if code in ("403", "AccessDenied"):
-                    raise PermissionError(path) from e
-                if code in ("404", "NoSuchBucket"):
-                    raise FileNotFoundError(path) from e
-                raise OSError(
-                    f"S3 error {code}: {e.response['Error'].get('Message', '')}"
-                ) from e
+                raise _translate_error(e, path) from e
 
         return await asyncio.to_thread(_do_get)
 
@@ -183,10 +162,7 @@ class Boto3S3FileSystem(AsyncFileSystem):
             try:
                 self._s3_client.put_object(Bucket=bucket, Key=key, Body=value)
             except ClientError as e:
-                code = e.response["Error"]["Code"]
-                raise OSError(
-                    f"S3 upload error {code}: {e.response['Error'].get('Message', '')}"
-                ) from e
+                raise _translate_error(e, path) from e
 
         await asyncio.to_thread(_do_put)
 
@@ -207,13 +183,9 @@ class Boto3S3FileSystem(AsyncFileSystem):
                         "ETag": response.get("ETag"),
                     }
                 except ClientError as e:
-                    code = e.response["Error"]["Code"]
-                    if code in ("403", "AccessDenied"):
-                        raise PermissionError(path) from e
-                    if code not in ("404", "NoSuchKey"):
-                        raise OSError(
-                            f"S3 error {code}: {e.response['Error'].get('Message', '')}"
-                        ) from e
+                    err = _translate_error(e, path)
+                    if not isinstance(err, FileNotFoundError):
+                        raise err from e
 
             # Try as directory (prefix check)
             prefix = f"{key}/" if key else ""
@@ -267,7 +239,6 @@ class Boto3S3FileSystem(AsyncFileSystem):
                 # Objects (files)
                 for obj in response.get("Contents", []):
                     obj_key = obj["Key"]
-                    # Skip the prefix itself if it appears as an object
                     if obj_key == prefix:
                         continue
                     name = f"{bucket}/{obj_key}"
@@ -306,25 +277,11 @@ class Boto3S3FileSystem(AsyncFileSystem):
     async def _rm_file(self, path: str, **kwargs: Any) -> None:
         """Delete a single object from S3."""
         bucket, key = self._split_path(path)
-
         if not key:
-            # Cannot delete a bare bucket via rm_file
-            return
+            raise ValueError(f"Cannot delete a bare bucket: {path}")
 
         def _do_rm():
-            # Check existence first
-            try:
-                self._s3_client.head_object(Bucket=bucket, Key=key)
-            except ClientError as e:
-                code = e.response["Error"]["Code"]
-                if code in ("404", "NoSuchKey"):
-                    raise FileNotFoundError(path) from e
-                if code in ("403", "AccessDenied"):
-                    raise PermissionError(path) from e
-                raise OSError(
-                    f"S3 error {code}: {e.response['Error'].get('Message', '')}"
-                ) from e
-
+            # delete_object is idempotent on S3 — no existence check needed
             self._s3_client.delete_object(Bucket=bucket, Key=key)
 
         await asyncio.to_thread(_do_rm)
@@ -339,9 +296,8 @@ class Boto3S3FileSystem(AsyncFileSystem):
         async def _safe_rm(p):
             try:
                 await self._rm_file(p, **kwargs)
-            except FileNotFoundError:
-                # During recursive delete, expanded paths include directory
-                # prefixes that don't exist as objects — skip them silently.
+            except (FileNotFoundError, ValueError):
+                # Expanded paths may include directory prefixes or bare buckets
                 pass
 
         return await _run_coros_in_chunks(
@@ -363,12 +319,7 @@ class Boto3S3FileSystem(AsyncFileSystem):
                     CopySource={"Bucket": bucket1, "Key": key1},
                 )
             except ClientError as e:
-                code = e.response["Error"]["Code"]
-                if code in ("404", "NoSuchKey"):
-                    raise FileNotFoundError(path1) from e
-                raise OSError(
-                    f"S3 copy error {code}: {e.response['Error'].get('Message', '')}"
-                ) from e
+                raise _translate_error(e, path1) from e
 
         await asyncio.to_thread(_do_copy)
 
@@ -377,13 +328,7 @@ class Boto3S3FileSystem(AsyncFileSystem):
         bucket, key = self._split_path(rpath)
 
         def _do_upload():
-            try:
-                self._s3_client.upload_file(lpath, bucket, key)
-            except ClientError as e:
-                code = e.response["Error"]["Code"]
-                raise OSError(
-                    f"S3 upload error {code}: {e.response['Error'].get('Message', '')}"
-                ) from e
+            self._s3_client.upload_file(lpath, bucket, key)
 
         await asyncio.to_thread(_do_upload)
 
@@ -395,12 +340,7 @@ class Boto3S3FileSystem(AsyncFileSystem):
             try:
                 self._s3_client.download_file(bucket, key, lpath)
             except ClientError as e:
-                code = e.response["Error"]["Code"]
-                if code in ("404", "NoSuchKey"):
-                    raise FileNotFoundError(rpath) from e
-                raise OSError(
-                    f"S3 download error {code}: {e.response['Error'].get('Message', '')}"
-                ) from e
+                raise _translate_error(e, rpath) from e
 
         await asyncio.to_thread(_do_download)
 

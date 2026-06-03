@@ -282,15 +282,15 @@ class TestRemoval:
         assert await fs._exists(path) is False
 
     @pytest.mark.asyncio
-    async def test_rm_nonexistent_raises(
+    async def test_rm_nonexistent_is_noop(
         self, s3_test_bucket, s3_test_prefix, aws_credentials
     ):
-        """_rm_file on non-existent path raises FileNotFoundError."""
+        """_rm_file on non-existent path is a no-op (S3 delete is idempotent)."""
         fs = Boto3S3FileSystem(session=aws_credentials)
         path = s3_path(s3_test_bucket, s3_test_prefix, "rm/ghost.txt")
 
-        with pytest.raises(FileNotFoundError):
-            await fs._rm_file(path)
+        # Should not raise
+        await fs._rm_file(path)
 
     @pytest.mark.asyncio
     async def test_rm_recursive(self, s3_test_bucket, s3_test_prefix, aws_credentials):
