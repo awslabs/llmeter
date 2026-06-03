@@ -14,7 +14,7 @@ dependencies = [
     "jmespath>=0.7.1,<2.0.0",
     "boto3>=1.34.129",
     "universal-pathlib>=0.2.1",
-    "fsspec[http,s3]>=2023.6.0",
+    "fsspec[http]>=2023.6.0",
 ]
 
 [project.optional-dependencies]
@@ -35,6 +35,10 @@ Repository = "https://github.com/awslabs/llmeter"
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[project.entry-points."fsspec.specs"]
+s3 = "llmeter.s3fs:Boto3S3FileSystem"
+s3a = "llmeter.s3fs:Boto3S3FileSystem"
 
 [dependency-groups]
 dev = [

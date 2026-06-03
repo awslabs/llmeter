@@ -52,3 +52,19 @@ LLMeter measures **end-to-end latencies** and uses pure-Python ([asyncio](https:
 > If hosting LLMeter on [burstable](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/burstable-performance-instances.html) Cloud instance types (e.g. AWS `t3`, `t4g`, etc), be aware that sustained network and compute limits are lower than short-term burst resources.
 
 Because generative AI inference is a compute-intensive task, load testing LLMs has not typically required very high-powered (compute, network) resources from the client side. This led us to a deliberate decision to keep LLMeter simple to install and use by avoiding more complex distributed computing frameworks, in favour of plain Python+asyncio. If you have a use-case with such a fast LLM or large request volume that this approach is limiting to you - please share your feedback!
+
+## S3 Storage Support
+
+LLMeter includes built-in support for Amazon S3 paths (`s3://`) with no extra dependencies. The `boto3` package (already a core dependency) provides the S3 client, and LLMeter's built-in filesystem backend handles the rest.
+
+No additional installation is needed — just ensure your AWS credentials are configured (via environment variables, `~/.aws/credentials`, or an IAM role).
+
+```python
+from upath import UPath as Path
+
+# S3 paths work out of the box
+results = Path("s3://my-bucket/experiments/run-001/metrics.json")
+data = results.read_text()
+```
+
+See the [S3 Storage guide](s3_storage.md) for details on configuration, async usage, and fallback behavior.

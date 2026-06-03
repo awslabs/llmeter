@@ -4,6 +4,14 @@
 """
 Shared fixtures and configuration for integration tests.
 
+S3 Filesystem Integration Test Fixtures:
+- s3_test_bucket: Reads S3FS_TEST_BUCKET env var (skips if not set)
+- s3_test_prefix: Generates a unique prefix per test run for isolation
+- s3_cleanup: Deletes all objects under the test prefix after tests complete
+
+To run S3 integration tests:
+    S3FS_TEST_BUCKET=my-bucket uv run pytest -m integ tests/integ/test_s3fs_integ.py
+
 This module provides session-scoped fixtures for AWS credentials, configuration,
 and test utilities used across all integration tests.
 
@@ -306,3 +314,62 @@ def test_payload_with_image():
         ],
         "inferenceConfig": {"maxTokens": 100},
     }
+
+
+# --- S3 Filesystem Integration Test Fixtures ---
+
+
+@pytest.fixture(scope="session")
+def s3_test_bucket():
+    """
+    Read S3 test bucket name from S3FS_TEST_BUCKET environment variable.
+
+    Skips all S3 integration tests if the environment variable is not set.
+
+    Returns:
+        str: The S3 bucket name for integration testing.
+    """
+    bucket = os.environ.get("S3FS_TEST_BUCKET")
+    if not bucket:
+        pytest.skip(
+            "S3FS_TEST_BUCKET environment variable not set. "
+            "Set it to a writable S3 bucket to run S3 integration tests."
+        )
+    return bucket
+
+
+@pytest.fixture(scope="session")
+def s3_test_prefix():
+    """
+    Generate a unique prefix per test run for isolation.
+
+    Uses a UUID to ensure different test runs don't interfere with each other.
+
+    Returns:
+        str: A unique prefix like 'llmeter-test/{uuid}/'
+    """
+    import uuid
+
+    return f"llmeter-test/{uuid.uuid4()}/"
+
+
+@pytest.fixture(autouse=True, scope="session")
+def s3_cleanup(s3_test_bucket, s3_test_prefix, aws_credentials):
+    """
+    Delete all objects under the test prefix after tests complete.
+
+    This fixture runs automatically for the session and cleans up all
+    test objects after the integration tests finish.
+    """
+    yield
+
+    # Cleanup: delete all objects under the test prefix
+    s3 = aws_credentials.client("s3")
+    paginator = s3.get_paginator("list_objects_v2")
+    pages = paginator.paginate(Bucket=s3_test_bucket, Prefix=s3_test_prefix)
+
+    for page in pages:
+        objects = page.get("Contents", [])
+        if objects:
+            delete_keys = [{"Key": obj["Key"]} for obj in objects]
+            s3.delete_objects(Bucket=s3_test_bucket, Delete={"Objects": delete_keys})
