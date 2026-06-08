@@ -377,10 +377,25 @@ class Result:
                 responses_path,
             )
 
+        # Derive timing info from response request_time timestamps
+        first_request_time = None
+        last_request_time = None
+        if responses:
+            request_times = [
+                r.request_time for r in responses if r.request_time is not None
+            ]
+            if request_times:
+                first_request_time = min(request_times)
+                last_request_time = max(request_times)
+
         result = cls(
             responses=responses,
             total_requests=len(responses) if responses else None,
             output_path=str(result_path),
+            start_time=first_request_time,
+            first_request_time=first_request_time,
+            last_request_time=last_request_time,
+            end_time=last_request_time,
             **config_info,
         )
 
