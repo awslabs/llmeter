@@ -24,6 +24,31 @@ class Callback(ABC):
     A Callback object may implement multiple of the defined lifecycle hooks (such as
     `before_invoke`, `after_run`, etc). Callbacks must support serializing their configuration to
     a file (by implementing `save_to_file`), and loading back (via `load_from_file`).
+
+    Best practices for implementing callbacks:
+
+    - **Serializability**: The Runner calls ``dataclasses.asdict()`` on its run configuration
+      (which includes the callbacks list) when saving ``run_config.json``. This internally performs
+      a ``copy.deepcopy()`` on all field values. If your callback uses threading primitives (locks,
+      events, threads) or other non-picklable objects, you **must** implement ``__getstate__`` and
+      ``__setstate__`` to exclude them from serialization and reinitialize them on restore. Example::
+
+          def __getstate__(self):
+              return {"my_config": self.my_config}
+
+          def __setstate__(self, state):
+              self.my_config = state["my_config"]
+              self._lock = threading.Lock()  # Reinitialize non-picklable state
+
+    - **Reusability**: A callback instance may be reused across multiple ``Runner.run()`` calls.
+      Reset any accumulated state in ``before_run()`` so each run starts fresh.
+
+    - **Contributing stats**: Use ``result._update_contributed_stats(dict)`` in ``after_run()`` to
+      add custom metrics to ``result.stats``. These will be persisted in ``stats.json`` and survive
+      save/load round-trips automatically.
+
+    - **Thread safety**: If your callback spawns background threads (e.g. for monitoring), use
+      daemon threads and ensure they are joined in ``after_run()`` to avoid resource leaks.
     """
 
     async def before_invoke(self, payload: dict) -> None:
@@ -70,6 +95,20 @@ class Callback(ABC):
             None: If you'd like to modify the run `result`, edit the argument in-place.
         """
         pass
+
+    def live_stats(self) -> dict[str, float | int] | None:
+        """Optional hook returning live metrics for the progress display.
+
+        If implemented, the Runner will call this method on each display refresh cycle
+        and merge the returned values into the live stats table. This allows callbacks
+        to surface real-time information (e.g. CPU usage, memory) during a run.
+
+        Returns:
+            A dict of ``{display_key: numeric_value}`` to show in the live display,
+            or ``None``/empty dict if nothing to show. Keys should use short, descriptive
+            names (they appear as-is in the progress table).
+        """
+        return None
 
     def save_to_file(self, path: WritablePathLike) -> None:
         """Save this Callback to file
