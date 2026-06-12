@@ -52,6 +52,7 @@ nav:
         - results: reference/callbacks/cost/results.md
         - serde: reference/callbacks/cost/serde.md
       - mlflow: reference/callbacks/mlflow.md
+      - system_metrics: reference/callbacks/system_metrics.md
     - endpoints:
       - reference/endpoints/index.md
       - anthropic_messages: reference/endpoints/anthropic_messages.md
