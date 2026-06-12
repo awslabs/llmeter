@@ -319,6 +319,14 @@ class _Run(_RunConfig):
         self._last_stats_update = now
         raw = self._running_stats.to_stats(end_time=now_utc())
         if raw:
+            # Merge live stats from callbacks that provide them
+            if self.callbacks:
+                for cb in self.callbacks:
+                    live = getattr(cb, "live_stats", None)
+                    if callable(live):
+                        cb_stats = live()
+                        if cb_stats:
+                            raw.update(cb_stats)
             prefix = f"reqs={self._running_stats._count}" if self._time_bound else ""
             self._stats_display.update(raw, extra_prefix=prefix)
 

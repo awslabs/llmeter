@@ -8,6 +8,7 @@ include:
 
 - Logging run details to MLFlow, with `MlflowCallback`
 - Calculating cost estimates, with `CostModel`
+- Monitoring system resources (CPU, memory, network), with `SystemMetricsMonitor`
 
 For creating your own custom callbacks, see the `Callback` base class.
 """
@@ -20,3 +21,7 @@ from .cost import CostModel  # noqa: F401
 spec = importlib.util.find_spec("mlflow")
 if spec:
     from .mlflow import MlflowCallback  # noqa: F401
+
+spec = importlib.util.find_spec("psutil")
+if spec:
+    from .system_metrics import SystemMetricsMonitor  # noqa: F401
