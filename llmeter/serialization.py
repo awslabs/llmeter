@@ -13,13 +13,13 @@ For objects with runtime state (endpoints, tokenizers, callbacks), ``dump_object
 and ``load_object`` provide full round-trip persistence using the
 ``__getstate__``/``__setstate__`` protocol::
 
-    data = dump_object(endpoint)   # -> {"_class": "...", "_state": {...}}
+    data = dump_object(endpoint)   # -> {"__llmeter_class__": "...", "__llmeter_state__": {...}}
     restored = load_object(data)   # -> new Endpoint instance
 
 .. warning:: Security
 
     ``load_object`` will import and instantiate any class path found in the
-    ``_class`` field. Do not load configs from untrusted sources.
+    ``__llmeter_class__`` field. Do not load configs from untrusted sources.
 """
 
 import importlib
@@ -105,7 +105,7 @@ def serialize(obj: Any) -> dict:
 def dump_object(obj: Any) -> dict:
     """Serialize an object to a type-tagged dict for full round-trip persistence.
 
-    Returns ``{"_class": "module.ClassName", "_state": {...}}``.
+    Returns ``{"__llmeter_class__": "module.ClassName", "__llmeter_state__": {...}}``.
     """
     class_path = f"{obj.__class__.__module__}.{obj.__class__.__qualname__}"
     try:
@@ -116,7 +116,7 @@ def dump_object(obj: Any) -> dict:
             "dump_object: serialize(%s) returned non-serializable data", class_path
         )
         state = {}
-    return {"_class": class_path, "_state": state}
+    return {"__llmeter_class__": class_path, "__llmeter_state__": state}
 
 
 def load_object(data: dict) -> Any:
@@ -124,13 +124,13 @@ def load_object(data: dict) -> Any:
 
     WARNING: Do not call on data from untrusted sources.
     """
-    class_path = data["_class"]
+    class_path = data["__llmeter_class__"]
     module_path, class_name = class_path.rsplit(".", 1)
     module = importlib.import_module(module_path)
     cls = getattr(module, class_name)
 
     obj = cls.__new__(cls)
-    obj.__setstate__(data["_state"])
+    obj.__setstate__(data["__llmeter_state__"])
     return obj
 
 
@@ -162,7 +162,7 @@ def _serialize_value(val: Any) -> Any:
 def _deserialize_value(val: Any) -> Any:
     """Recursively deserialize a value from JSON persistence.
 
-    - Dicts with ``_class``/``_state`` → ``load_object(val)``
+    - Dicts with ``__llmeter_class__``/``__llmeter_state__`` → ``load_object(val)``
     - Other dicts → recurse into values
     - Lists → recurse into items
     - Scalars → pass through
@@ -170,7 +170,7 @@ def _deserialize_value(val: Any) -> Any:
     if val is None or isinstance(val, (str, int, float, bool)):
         return val
     if isinstance(val, dict):
-        if "_class" in val and "_state" in val:
+        if "__llmeter_class__" in val and "__llmeter_state__" in val:
             return load_object(val)
         return {k: _deserialize_value(v) for k, v in val.items()}
     if isinstance(val, (list, tuple)):
@@ -202,7 +202,7 @@ def default_getstate(obj: Any) -> dict:
 def default_setstate(obj: Any, state: dict) -> None:
     """Default __setstate__: deserializes nested objects then calls __init__.
 
-    Any dict with ``_class``/``_state`` keys is restored via ``load_object``.
+    Any dict with ``__llmeter_class__``/``__llmeter_state__`` keys is restored via ``load_object``.
     """
     deserialized = {k: _deserialize_value(v) for k, v in state.items()}
     obj.__init__(**deserialized)

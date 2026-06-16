@@ -9,7 +9,7 @@ from llmeter.callbacks.mlflow import MlflowCallback
 
 class TestBase:
     def test_save_to_file_creates_valid_json(self, tmp_path):
-        """save_to_file creates a valid JSON file with _class and _state."""
+        """save_to_file creates a valid JSON file with __llmeter_class__ and __llmeter_state__."""
         cb = MlflowCallback(step=5, nested=True)
         path = tmp_path / "callback.json"
         cb.save_to_file(path)
@@ -17,10 +17,10 @@ class TestBase:
         with open(path) as f:
             data = json.load(f)
 
-        assert "_class" in data
-        assert "_state" in data
-        assert data["_class"] == "llmeter.callbacks.mlflow.MlflowCallback"
-        assert data["_state"] == {"step": 5, "nested": True}
+        assert "__llmeter_class__" in data
+        assert "__llmeter_state__" in data
+        assert data["__llmeter_class__"] == "llmeter.callbacks.mlflow.MlflowCallback"
+        assert data["__llmeter_state__"] == {"step": 5, "nested": True}
 
     def test_load_from_file_restores_callback(self, tmp_path):
         """load_from_file correctly restores a callback instance."""
