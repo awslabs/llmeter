@@ -40,8 +40,8 @@ from llmeter.serialization import dump_object, load_object
 
 # Save an endpoint (including its config, but not the boto3 client)
 data = dump_object(endpoint)
-# → {"_class": "llmeter.endpoints.bedrock.BedrockConverse",
-#    "_state": {"model_id": "claude-3", "region": "us-west-2"}}
+# → {"__llmeter_class__": "llmeter.endpoints.bedrock.BedrockConverse",
+#    "__llmeter_state__": {"model_id": "claude-3", "region": "us-west-2"}}
 
 # Restore it (boto3 client is recreated automatically)
 restored = load_object(data)
@@ -117,9 +117,9 @@ runner = Runner(endpoint=BedrockConverse(...), callbacks=[MlflowCallback(step=1)
 runner.save(output_path="/tmp/run")
 
 # Saved JSON includes:
-# {"endpoint": {"_class": "...BedrockConverse", "_state": {...}},
-#  "tokenizer": {"_class": "...DummyTokenizer", "_state": {}},
-#  "callbacks": [{"_class": "...MlflowCallback", "_state": {"step": 1, "nested": false}}]}
+# {"endpoint": {"__llmeter_class__": "...BedrockConverse", "__llmeter_state__": {...}},
+#  "tokenizer": {"__llmeter_class__": "...DummyTokenizer", "__llmeter_state__": {}},
+#  "callbacks": [{"__llmeter_class__": "...MlflowCallback", "__llmeter_state__": {"step": 1, "nested": false}}]}
 
 # Full reconstruction:
 restored = Runner.load("/tmp/run")

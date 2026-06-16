@@ -95,7 +95,7 @@ class Callback(Serializable, ABC):
     def load_from_file(path: ReadablePathLike) -> Callback:
         """Load (any type of) Callback from a JSON file.
 
-        Detects the callback type from the ``_class`` field and reconstructs it.
+        Detects the callback type from the ``__llmeter_class__`` field and reconstructs it.
 
         Args:
             path: (Local or Cloud) path where the callback was saved.
