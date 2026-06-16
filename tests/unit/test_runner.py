@@ -473,7 +473,11 @@ async def test_count_tokens_from_q_timeout(run: _Run):
 
 
 def test_run_config_save_load(tmp_path: Path, mock_endpoint: Endpoint):
-    llmeter.endpoints.mock_endpoint = mock_endpoint  # type: ignore
+    """Runner config can be saved and loaded with real endpoints."""
+    from llmeter.endpoints import BedrockConverse
+
+    # Use a real (lightweight) endpoint instead of a mock for save/load round-trip
+    endpoint = BedrockConverse(model_id="test-model", region="us-east-1")
 
     config = Runner(
         payload={"prompt": "test"},
@@ -482,7 +486,7 @@ def test_run_config_save_load(tmp_path: Path, mock_endpoint: Endpoint):
         output_path=Path(tmp_path),
         run_name="test_run",
         run_description="Test run description",
-        endpoint=mock_endpoint,
+        endpoint=endpoint,
     )
 
     config.save(output_path=tmp_path)
@@ -498,6 +502,8 @@ def test_run_config_save_load(tmp_path: Path, mock_endpoint: Endpoint):
     assert loaded_config.output_path == config.output_path
     assert loaded_config.run_name == config.run_name
     assert loaded_config.run_description == config.run_description
+    assert loaded_config._endpoint.model_id == "test-model"
+    assert loaded_config._endpoint.region == "us-east-1"
 
 
 @pytest.mark.parametrize(
