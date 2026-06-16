@@ -17,7 +17,7 @@ from typing import Optional, Protocol
 from ...endpoints.base import InvocationResponse
 from ...results import Result
 from ...runner import _RunConfig
-from ...serialization import default_getstate, default_setstate
+from ...serialization import Serializable
 
 
 class IRequestCostDimension(Protocol):
@@ -33,58 +33,23 @@ class IRunCostDimension(Protocol):
     async def calculate(self, result: Result) -> Optional[float]: ...
 
 
-class RequestCostDimensionBase(ABC):
-    """Base class for implementing per-request cost model dimensions.
+class RequestCostDimensionBase(Serializable, ABC):
+    """Base class for per-request cost dimensions.
 
-    Provides ``__getstate__``/``__setstate__`` and ``to_dict``/``from_dict`` for
-    serialization. Subclasses just declare fields and implement ``calculate()``.
+    Inherits ``__getstate__``/``__setstate__`` from :class:`~llmeter.serialization.Serializable`.
+    Subclasses just declare fields and implement ``calculate()``.
     """
-
-    def __getstate__(self) -> dict:
-        return default_getstate(self)
-
-    def __setstate__(self, state: dict) -> None:
-        default_setstate(self, state)
-
-    @classmethod
-    def from_dict(cls, raw: dict):
-        """Create from a plain dict (strips _type if present)."""
-        return cls(**{k: v for k, v in raw.items() if k != "_type"})
-
-    def to_dict(self) -> dict:
-        """Serialize to dict with _type tag for polymorphic deserialization."""
-        state = self.__getstate__()
-        state["_type"] = self.__class__.__name__
-        return state
 
     @abstractmethod
     async def calculate(self, response: InvocationResponse) -> Optional[float]:
         raise NotImplementedError
 
 
-class RunCostDimensionBase(ABC):
-    """Base class for implementing per-run cost model dimensions.
+class RunCostDimensionBase(Serializable, ABC):
+    """Base class for per-run cost dimensions.
 
-    Provides ``__getstate__``/``__setstate__`` and ``to_dict``/``from_dict`` for
-    serialization.
+    Inherits ``__getstate__``/``__setstate__`` from :class:`~llmeter.serialization.Serializable`.
     """
-
-    def __getstate__(self) -> dict:
-        return default_getstate(self)
-
-    def __setstate__(self, state: dict) -> None:
-        default_setstate(self, state)
-
-    @classmethod
-    def from_dict(cls, raw: dict):
-        """Create from a plain dict (strips _type if present)."""
-        return cls(**{k: v for k, v in raw.items() if k != "_type"})
-
-    def to_dict(self) -> dict:
-        """Serialize to dict with _type tag for polymorphic deserialization."""
-        state = self.__getstate__()
-        state["_type"] = self.__class__.__name__
-        return state
 
     async def before_run_start(self, run_config: _RunConfig) -> None:
         """Called before a test run starts. Default is a no-op."""

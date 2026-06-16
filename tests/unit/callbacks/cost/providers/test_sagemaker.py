@@ -11,6 +11,7 @@ import pytest
 from moto import mock_aws
 
 # Local Dependencies:
+from llmeter.serialization import to_dict, dump_object, load_object
 from llmeter.callbacks.cost.providers.sagemaker import (
     SageMakerRTEndpointCompute,
     SageMakerRTEndpointStorage,
@@ -43,16 +44,15 @@ async def test_real_time_endpoint_compute_explicit_price():
     result.total_test_time = None
     assert await dim.calculate(result) is None
 
-    dim_ser = dim.to_dict()
+    dim_ser = to_dict(dim)
     assert dim_ser == {
-        "_type": "SageMakerRTEndpointCompute",
         "instance_count": 1,
         "instance_type": "ml.doesnotexist",
         "price_per_hour": 6,
         "region": "us-nope-0",
     }
 
-    dim = SageMakerRTEndpointCompute.from_dict(dim_ser)
+    dim = load_object(dump_object(dim))
     result.total_test_time = 90
     assert await dim.calculate(result) == 6 * 90 / 3600
 
@@ -237,15 +237,14 @@ async def test_real_time_endpoint_storage_explicit_price():
     result.total_test_time = None
     assert await dim.calculate(result) is None
 
-    dim_ser = dim.to_dict()
+    dim_ser = to_dict(dim)
     assert dim_ser == {
-        "_type": "SageMakerRTEndpointStorage",
         "gbs_provisioned": 5,
         "price_per_gb_hour": 9,
         "region": "us-nope-0",
     }
 
-    dim = SageMakerRTEndpointStorage.from_dict(dim_ser)
+    dim = load_object(dump_object(dim))
     result.total_test_time = 90
     assert await dim.calculate(result) == 9 * 5 * 90 / 3600
 
