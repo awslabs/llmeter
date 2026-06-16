@@ -4,14 +4,18 @@
 
 from __future__ import annotations
 
+import json
 from abc import ABC
 from typing import final
 
 from upath.types import ReadablePathLike, WritablePathLike
 
 from ..endpoints.base import InvocationResponse
+from ..json_utils import llmeter_default_serializer
 from ..results import Result
 from ..runner import _RunConfig
+from ..serialization import default_getstate, default_setstate, dump_object, load_object
+from ..utils import ensure_path
 
 
 class Callback(ABC):
@@ -71,46 +75,42 @@ class Callback(ABC):
         """
         pass
 
-    def save_to_file(self, path: WritablePathLike) -> None:
-        """Save this Callback to file
+    def __getstate__(self) -> dict:
+        """Serialize callback configuration for persistence."""
+        return default_getstate(self)
 
-        Individual Callbacks implement this method to save their configuration to a file that will
-        be re-loadable with the equivalent `_load_from_file()` method.
+    def __setstate__(self, state: dict) -> None:
+        """Restore callback from saved state."""
+        default_setstate(self, state)
+
+    def save_to_file(self, path: WritablePathLike) -> None:
+        """Save this Callback to a JSON file.
+
+        Uses the ``__getstate__`` protocol. Override ``__getstate__`` (not this method)
+        if custom serialization is needed.
 
         Args:
-            path: (Local or Cloud) path where the callback is saved
+            path: (Local or Cloud) path where the callback will be saved.
         """
-        raise NotImplementedError("TODO: Callback.save_to_file is not yet implemented!")
+        path = ensure_path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        data = dump_object(self)
+        with path.open("w") as f:
+            json.dump(data, f, indent=4, default=llmeter_default_serializer)
 
     @staticmethod
     @final
     def load_from_file(path: ReadablePathLike) -> Callback:
-        """Load (any type of) Callback from file
+        """Load (any type of) Callback from a JSON file.
 
-        `Callback.load_from_file()` attempts to detect the type of Callback saved in a given file,
-        and use the relevant implementation's `_load_from_file` method to load it.
-
-        Args:
-            path: (Local or Cloud) path where the callback is saved
-        Returns:
-            callback: A loaded Callback - for example an `MlflowCallback`.
-        """
-        raise NotImplementedError(
-            "TODO: Callback.load_from_file is not yet implemented!"
-        )
-
-    @classmethod
-    def _load_from_file(cls, path: ReadablePathLike) -> Callback:
-        """Load this Callback from file
-
-        Individual Callbacks implement this method to define how they can be loaded from files
-        created by the equivalent `save_to_file()` method.
+        Detects the callback type from the ``_class`` field and reconstructs it.
 
         Args:
-            path: (Local or Cloud) path where the callback is saved
+            path: (Local or Cloud) path where the callback was saved.
         Returns:
-            callback: The loaded Callback object
+            callback: A loaded Callback instance.
         """
-        raise NotImplementedError(
-            "TODO: Callback._load_from_file is not yet implemented!"
-        )
+        path = ensure_path(path)
+        with path.open("r") as f:
+            data = json.load(f)
+        return load_object(data)
