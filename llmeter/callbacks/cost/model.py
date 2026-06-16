@@ -2,17 +2,9 @@
 # SPDX-License-Identifier: Apache-2.0
 """Cost modelling callback for LLMeter test runs."""
 
-import importlib
-import json
-
-from upath.types import ReadablePathLike, WritablePathLike
-
 from ...endpoints.base import InvocationResponse
-from ...json_utils import llmeter_default_serializer
 from ...results import Result
 from ...runner import _RunConfig
-from ...serialization import dump_object, load_object
-from ...utils import ensure_path
 from ..base import Callback
 from .dimensions import IRequestCostDimension, IRunCostDimension
 from .results import CalculatedCostWithDimensions
@@ -69,73 +61,6 @@ class CostModel(Callback):
                     )
                 all_dims[name] = dim
                 self.run_dims[name] = dim
-
-    # ------------------------------------------------------------------
-    # Serialization helpers (to_dict/from_dict for legacy compat)
-    # ------------------------------------------------------------------
-
-    def to_dict(self) -> dict:
-        """Serialize to dict with _type tags (legacy-compatible format)."""
-        return {
-            "_type": "CostModel",
-            "request_dims": {
-                name: dim.to_dict()
-                for name, dim in self.request_dims.items()
-            },
-            "run_dims": {
-                name: dim.to_dict()
-                for name, dim in self.run_dims.items()
-            },
-        }
-
-    def to_json(self, indent: int | None = 4) -> str:
-        return json.dumps(self.to_dict(), indent=indent)
-
-    @classmethod
-    def from_dict(cls, raw: dict, **kwargs) -> "CostModel":
-        """Load from dict (supports both new _class/_state and legacy _type)."""
-        clean = {k: v for k, v in raw.items() if k != "_type"}
-
-        # Check if dimensions use legacy _type format and convert
-        dim_module = importlib.import_module(
-            "llmeter.callbacks.cost.dimensions"
-        )
-        for key in ("request_dims", "run_dims"):
-            dims = clean.get(key, {})
-            if isinstance(dims, dict):
-                converted = {}
-                for name, d in dims.items():
-                    if isinstance(d, dict) and "_type" in d and "_class" not in d:
-                        # Legacy format → convert to object directly
-                        type_name = d.pop("_type")
-                        dim_cls = getattr(dim_module, type_name, None)
-                        if dim_cls is None:
-                            providers = importlib.import_module(
-                                "llmeter.callbacks.cost.providers.sagemaker"
-                            )
-                            dim_cls = getattr(providers, type_name, None)
-                        if dim_cls is None:
-                            raise ValueError(
-                                f"Unknown dimension type: {type_name!r}"
-                            )
-                        converted[name] = dim_cls(**d)
-                    elif isinstance(d, dict) and "_class" in d:
-                        converted[name] = load_object(d)
-                    else:
-                        converted[name] = d
-                clean[key] = converted
-
-        return cls(**clean)
-
-    @classmethod
-    def from_json(cls, json_string: str) -> "CostModel":
-        return cls.from_dict(json.loads(json_string))
-
-    @classmethod
-    def from_file(cls, path: ReadablePathLike) -> "CostModel":
-        path = ensure_path(path)
-        with path.open("r") as f:
-            return cls.from_json(f.read())
 
     # ------------------------------------------------------------------
     # Callback lifecycle hooks
@@ -209,14 +134,3 @@ class CostModel(Callback):
         await self.calculate_run_cost(
             result, recalculate_request_costs=False, save=True
         )
-
-    def save_to_file(self, path: WritablePathLike) -> None:
-        path = ensure_path(path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        data = dump_object(self)
-        with path.open("w") as f:
-            json.dump(data, f, indent=4, default=llmeter_default_serializer)
-
-    @classmethod
-    def _load_from_file(cls, path: ReadablePathLike) -> "CostModel":
-        return cls.from_file(path)

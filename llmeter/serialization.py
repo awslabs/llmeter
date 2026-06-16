@@ -33,6 +33,31 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
+# Serializable mixin
+# ---------------------------------------------------------------------------
+
+
+class Serializable:
+    """Mixin that provides ``__getstate__``/``__setstate__`` via introspection.
+
+    Inherit from this to get automatic serialization support. Works with
+    plain classes, ``@dataclass``, and any class whose ``__init__`` parameters
+    match instance attributes.
+
+    Example::
+
+        class MyEndpoint(Serializable, Endpoint):
+            ...  # __getstate__/__setstate__ inherited — no boilerplate needed
+    """
+
+    def __getstate__(self) -> dict:
+        return default_getstate(self)
+
+    def __setstate__(self, state: dict) -> None:
+        default_setstate(self, state)
+
+
+# ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 

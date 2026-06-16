@@ -14,11 +14,11 @@ from ..endpoints.base import InvocationResponse
 from ..json_utils import llmeter_default_serializer
 from ..results import Result
 from ..runner import _RunConfig
-from ..serialization import default_getstate, default_setstate, dump_object, load_object
+from ..serialization import Serializable, dump_object, load_object
 from ..utils import ensure_path
 
 
-class Callback(ABC):
+class Callback(Serializable, ABC):
     """Base class for a callback in LLMeter
 
     Callbacks support extending LLMeter functionality by running additional code at defined points
@@ -74,14 +74,6 @@ class Callback(ABC):
             None: If you'd like to modify the run `result`, edit the argument in-place.
         """
         pass
-
-    def __getstate__(self) -> dict:
-        """Serialize callback configuration for persistence."""
-        return default_getstate(self)
-
-    def __setstate__(self, state: dict) -> None:
-        """Restore callback from saved state."""
-        default_setstate(self, state)
 
     def save_to_file(self, path: WritablePathLike) -> None:
         """Save this Callback to a JSON file.

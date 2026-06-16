@@ -22,7 +22,7 @@ from upath import UPath as Path
 from upath.types import ReadablePathLike, WritablePathLike
 
 from ..json_utils import llmeter_bytes_decoder, llmeter_default_serializer
-from ..serialization import default_getstate, default_setstate
+from ..serialization import Serializable
 from ..utils import ensure_path
 
 logger = logging.getLogger(__name__)
@@ -164,7 +164,7 @@ class InvocationResponse:
 TRawResponse = TypeVar("TRawResponse", bound=Any)
 
 
-class Endpoint(ABC, Generic[TRawResponse]):
+class Endpoint(Serializable, ABC, Generic[TRawResponse]):
     """
     An abstract base class for endpoint implementations.
 
@@ -503,18 +503,6 @@ class Endpoint(ABC, Generic[TRawResponse]):
         endpoint_conf = {k: v for k, v in vars(self).items() if not k.startswith("_")}
         endpoint_conf["endpoint_type"] = self.__class__.__name__
         return endpoint_conf
-
-    def __getstate__(self) -> dict:
-        """Serialize endpoint configuration for persistence.
-
-        Introspects ``__init__`` to determine what's needed to recreate this endpoint.
-        Runtime state (clients, connections) is excluded automatically.
-        """
-        return default_getstate(self)
-
-    def __setstate__(self, state: dict) -> None:
-        """Restore endpoint from saved state by calling ``__init__(**state)``."""
-        default_setstate(self, state)
 
     @classmethod
     def load_from_file(cls, input_path: ReadablePathLike) -> "Endpoint":

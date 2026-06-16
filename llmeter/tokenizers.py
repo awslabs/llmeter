@@ -10,11 +10,11 @@ from typing import Any
 from upath import UPath
 from upath.types import ReadablePathLike, WritablePathLike
 
-from .serialization import default_getstate, default_setstate
+from .serialization import Serializable
 from .utils import ensure_path
 
 
-class Tokenizer(ABC):
+class Tokenizer(Serializable, ABC):
     def __init__(self, *args, **kwargs):
         pass
 
@@ -25,14 +25,6 @@ class Tokenizer(ABC):
     @abstractmethod
     def decode(self, tokens: list[str]):
         raise NotImplementedError
-
-    def __getstate__(self) -> dict:
-        """Serialize tokenizer configuration for persistence."""
-        return default_getstate(self)
-
-    def __setstate__(self, state: dict) -> None:
-        """Restore tokenizer from saved state."""
-        default_setstate(self, state)
 
     @classmethod
     def __subclasshook__(cls, C):

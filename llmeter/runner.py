@@ -163,24 +163,18 @@ class _RunConfig:
         # Restore endpoint
         ep = config.get("endpoint")
         if isinstance(ep, dict):
-            if "_class" in ep:
-                config["endpoint"] = load_object(ep)
-            else:
-                config["endpoint"] = Endpoint.load(ep)
+            config["endpoint"] = load_object(ep)
 
         # Restore tokenizer
         tok = config.get("tokenizer")
         if isinstance(tok, dict):
-            if "_class" in tok:
-                config["tokenizer"] = load_object(tok)
-            else:
-                config["tokenizer"] = Tokenizer.load(tok)
+            config["tokenizer"] = load_object(tok)
 
         # Restore callbacks
         cbs = config.get("callbacks")
         if isinstance(cbs, list):
             config["callbacks"] = [
-                load_object(cb) if isinstance(cb, dict) and "_class" in cb else cb
+                load_object(cb) if isinstance(cb, dict) else cb
                 for cb in cbs
             ]
 
