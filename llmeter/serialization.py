@@ -114,12 +114,51 @@ def load_object(data: dict) -> Any:
 # ---------------------------------------------------------------------------
 
 
+def _serialize_value(val: Any) -> Any:
+    """Recursively serialize a value for JSON persistence.
+
+    - Objects with custom ``__getstate__`` → ``dump_object(val)``
+    - Dicts → recurse into values
+    - Lists/tuples → recurse into items
+    - Scalars (str, int, float, bool, None) → pass through
+    """
+    if val is None or isinstance(val, (str, int, float, bool)):
+        return val
+    if hasattr(val, "__getstate__") and type(val).__getstate__ is not object.__getstate__:
+        return dump_object(val)
+    if isinstance(val, dict):
+        return {k: _serialize_value(v) for k, v in val.items()}
+    if isinstance(val, (list, tuple)):
+        return [_serialize_value(item) for item in val]
+    # Fallback: try str
+    return str(val)
+
+
+def _deserialize_value(val: Any) -> Any:
+    """Recursively deserialize a value from JSON persistence.
+
+    - Dicts with ``_class``/``_state`` → ``load_object(val)``
+    - Other dicts → recurse into values
+    - Lists → recurse into items
+    - Scalars → pass through
+    """
+    if val is None or isinstance(val, (str, int, float, bool)):
+        return val
+    if isinstance(val, dict):
+        if "_class" in val and "_state" in val:
+            return load_object(val)
+        return {k: _deserialize_value(v) for k, v in val.items()}
+    if isinstance(val, (list, tuple)):
+        return [_deserialize_value(item) for item in val]
+    return val
+
+
 def default_getstate(obj: Any) -> dict:
     """Default __getstate__: infers state from __init__ signature.
 
     Matches __init__ parameter names to instance attributes (self.name or
-    self._name). Parameters without a match are omitted -- __init__ will use
-    defaults on reconstruction.
+    self._name). Nested objects with ``__getstate__`` are recursively
+    serialized via ``dump_object``. Parameters without a match are omitted.
     """
     sig = inspect.signature(obj.__init__)
     state = {}
@@ -129,12 +168,16 @@ def default_getstate(obj: Any) -> dict:
         if param.kind in (param.VAR_POSITIONAL, param.VAR_KEYWORD):
             continue
         if hasattr(obj, name):
-            state[name] = getattr(obj, name)
+            state[name] = _serialize_value(getattr(obj, name))
         elif hasattr(obj, f"_{name}"):
-            state[name] = getattr(obj, f"_{name}")
+            state[name] = _serialize_value(getattr(obj, f"_{name}"))
     return state
 
 
 def default_setstate(obj: Any, state: dict) -> None:
-    """Default __setstate__: calls __init__(**state) to reconstruct."""
-    obj.__init__(**state)
+    """Default __setstate__: deserializes nested objects then calls __init__.
+
+    Any dict with ``_class``/``_state`` keys is restored via ``load_object``.
+    """
+    deserialized = {k: _deserialize_value(v) for k, v in state.items()}
+    obj.__init__(**deserialized)
