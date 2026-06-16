@@ -11,6 +11,9 @@ from upath import UPath
 from upath.types import ReadablePathLike, WritablePathLike
 
 
+from .quantile_ci import can_estimate_quantile, quantile_ci
+
+
 class DeferredError:
     """Stores an exception and raises it at a later time if this object is accessed in any way.
 
@@ -28,12 +31,6 @@ class DeferredError:
     """
 
     def __init__(self, exception):
-        # # Ensure the exception is a BaseException instance
-        # if isinstance(exception, BaseException):
-        #     self.exc = exception
-        # else:
-        #     # If it's not a BaseException, wrap it in an ImportError
-        #     self.exc = ImportError(str(exception))
         self.exc = exception
 
     def __getattr__(self, name: str):
@@ -50,24 +47,38 @@ class DeferredError:
 def summary_stats_from_list(
     data: Sequence[int | float],
     percentiles: Sequence[int] = (50, 90, 99),
+    confidence: float | None = None,
 ) -> dict[str, int | float]:
     """Calculate summary statistics for a sequence of numbers in pure Python
 
     Args:
         data: Sequence of numbers
         percentiles: Integer percentiles from 1-99
+        confidence: Confidence level for quantile CI estimation (default 0.95).
+            When set (e.g. ``confidence=0.95``), quantiles whose confidence
+            interval cannot be formed at this level are omitted from the output,
+            and CI bounds are attached as ``p{N}_ci_lower`` / ``p{N}_ci_upper``
+            keys. Default is None (legacy behavior: always report point estimates).
     Returns:
         stats: Dictionary of descriptive statistics including "average" (the arithmetic mean of the
             input `data`), and the requested `percentiles` in format "p50", "p90", "p99", etc.
+            When confidence gating is enabled, unreliable quantiles are omitted.
     """
     clean_data = list(filterfalse(isnan, data))
+    n = len(clean_data)
     try:
         result = dict(average=mean(clean_data))
         # Rather than always using n=100-based quantiles, we'll adapt between a few specific bases
         # depending on the requested percentiles - and calculate these splits only as needed:
         q_bases: dict[int, Any] = {k: None for k in [4, 10, 100]}
         for p in percentiles:
-            if len(clean_data) == 1:
+            q = p / 100
+
+            # Gate: skip quantiles we can't reliably estimate
+            if confidence is not None and not can_estimate_quantile(n, q, confidence):
+                continue
+
+            if n == 1:
                 result[f"p{p}"] = clean_data[0]
             elif p == 50:
                 result[f"p{p}"] = median(clean_data)
@@ -81,6 +92,14 @@ def summary_stats_from_list(
                 if q_bases[q_base] is None:
                     q_bases[q_base] = quantiles(clean_data, n=q_base)
                 result[f"p{p}"] = q_bases[q_base][int(p * q_base / 100) - 1]
+
+            # Attach CI bounds when available
+            if confidence is not None and n > 1:
+                ci = quantile_ci(clean_data, q, confidence)
+                if ci:
+                    result[f"p{p}_ci_lower"] = ci[0]
+                    result[f"p{p}_ci_upper"] = ci[1]
+
         return result
 
     except StatisticsError:
@@ -225,6 +244,14 @@ class RunningStats:
             return (self._last_send_time - self._first_send_time).total_seconds()
         return None
 
+    def snapshot(self) -> dict[str, Any]:
+        """Return current stats for live display without finalizing.
+
+        This is called repeatedly during a run to update the progress bar.
+        Does not require ``end_time`` or ``result_dict``.
+        """
+        return self.to_stats()
+
 
 def now_utc() -> datetime:
     """Returns the current UTC datetime.
@@ -236,27 +263,17 @@ def now_utc() -> datetime:
 
 
 @overload
-def ensure_path(path: ReadablePathLike | WritablePathLike) -> UPath: ...
+def ensure_path(path: None) -> None: ...
 
 
 @overload
-def ensure_path(path: None) -> None: ...
+def ensure_path(path: ReadablePathLike | WritablePathLike) -> UPath: ...
 
 
 def ensure_path(
     path: ReadablePathLike | WritablePathLike | None,
 ) -> UPath | None:
-    """Normalize a path-like argument to a UPath instance.
-
-    Converts strings, os.PathLike objects, and UPath instances into a
-    consistent UPath representation. Passes through None unchanged.
-
-    Args:
-        path: A string, path-like object, or None.
-
-    Returns:
-        A UPath instance, or None if the input was None.
-    """
+    """Convert a string or path-like to UPath, or return None."""
     if path is None:
         return None
-    return UPath(path)
+    return UPath(path) if not isinstance(path, UPath) else path
