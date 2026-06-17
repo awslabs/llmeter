@@ -6,7 +6,7 @@ import logging
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from numbers import Number
-from typing import Any, Sequence
+from typing import Any, Callable, Sequence
 
 import jmespath
 from upath.types import ReadablePathLike, WritablePathLike
@@ -402,6 +402,195 @@ class Result:
             # raise ValueError(f"Dimension {dimension} not found in any response")
             logger.warning(f"Dimension {dimension} not found in any response")
         return values
+
+    def filter(
+        self,
+        predicate: Callable[["InvocationResponse"], bool] | None = None,
+        *,
+        errors: bool | None = None,
+        cached: bool | None = None,
+        min_tokens_output: int | None = None,
+        max_tokens_output: int | None = None,
+        min_tokens_input: int | None = None,
+        max_tokens_input: int | None = None,
+        min_ttft: float | None = None,
+        max_ttft: float | None = None,
+        min_ttlt: float | None = None,
+        max_ttlt: float | None = None,
+        has_response_text: bool | None = None,
+    ) -> "Result":
+        """Return a new Result containing only responses that match the given criteria.
+
+        All specified criteria are combined with AND logic. Pass a custom ``predicate``
+        callable for conditions not covered by the keyword shortcuts.
+
+        Args:
+            predicate: A callable that receives an
+                :class:`~llmeter.endpoints.base.InvocationResponse` and returns ``True``
+                to keep it.  Applied *after* all keyword filters.
+            errors: If ``True``, keep only responses that have an error. If ``False``,
+                keep only successful responses (no error). If ``None`` (default), no
+                filtering on errors.
+            cached: If ``True``, keep only responses where ``num_tokens_input_cached``
+                is set and > 0 (i.e. cache was used). If ``False``, keep only responses
+                without cached tokens. If ``None``, no filtering.
+            min_tokens_output: Minimum ``num_tokens_output`` (inclusive).
+            max_tokens_output: Maximum ``num_tokens_output`` (inclusive).
+            min_tokens_input: Minimum ``num_tokens_input`` (inclusive).
+            max_tokens_input: Maximum ``num_tokens_input`` (inclusive).
+            min_ttft: Minimum ``time_to_first_token`` in seconds (inclusive).
+            max_ttft: Maximum ``time_to_first_token`` in seconds (inclusive).
+            min_ttlt: Minimum ``time_to_last_token`` in seconds (inclusive).
+            max_ttlt: Maximum ``time_to_last_token`` in seconds (inclusive).
+            has_response_text: If ``True``, keep only responses with non-empty
+                ``response_text``. If ``False``, keep only those with empty/``None``
+                response text. If ``None``, no filtering.
+
+        Returns:
+            A new :class:`Result` with the filtered subset of responses. Metadata
+            fields (``model_id``, ``provider``, etc.) are preserved from the
+            original. ``total_requests`` is updated to reflect the filtered count.
+            Stats are recomputed from the filtered responses.
+
+        Example::
+
+            # Keep only successful responses
+            successful = result.filter(errors=False)
+
+            # Keep only cached responses
+            cached_only = result.filter(cached=True)
+
+            # Custom predicate: responses with > 100 output tokens and < 1s TTLT
+            fast_long = result.filter(
+                predicate=lambda r: True,
+                min_tokens_output=100,
+                max_ttlt=1.0,
+            )
+
+            # Combine keyword and predicate filters
+            custom = result.filter(
+                predicate=lambda r: r.num_tokens_output_reasoning is not None,
+                errors=False,
+            )
+        """
+        filtered = list(self.responses)
+
+        # Error filter
+        if errors is True:
+            filtered = [r for r in filtered if r.error is not None]
+        elif errors is False:
+            filtered = [r for r in filtered if r.error is None]
+
+        # Cache filter
+        if cached is True:
+            filtered = [
+                r
+                for r in filtered
+                if r.num_tokens_input_cached is not None
+                and r.num_tokens_input_cached > 0
+            ]
+        elif cached is False:
+            filtered = [
+                r
+                for r in filtered
+                if r.num_tokens_input_cached is None or r.num_tokens_input_cached == 0
+            ]
+
+        # Token output bounds
+        if min_tokens_output is not None:
+            filtered = [
+                r
+                for r in filtered
+                if r.num_tokens_output is not None
+                and r.num_tokens_output >= min_tokens_output
+            ]
+        if max_tokens_output is not None:
+            filtered = [
+                r
+                for r in filtered
+                if r.num_tokens_output is not None
+                and r.num_tokens_output <= max_tokens_output
+            ]
+
+        # Token input bounds
+        if min_tokens_input is not None:
+            filtered = [
+                r
+                for r in filtered
+                if r.num_tokens_input is not None
+                and r.num_tokens_input >= min_tokens_input
+            ]
+        if max_tokens_input is not None:
+            filtered = [
+                r
+                for r in filtered
+                if r.num_tokens_input is not None
+                and r.num_tokens_input <= max_tokens_input
+            ]
+
+        # TTFT bounds
+        if min_ttft is not None:
+            filtered = [
+                r
+                for r in filtered
+                if r.time_to_first_token is not None
+                and r.time_to_first_token >= min_ttft
+            ]
+        if max_ttft is not None:
+            filtered = [
+                r
+                for r in filtered
+                if r.time_to_first_token is not None
+                and r.time_to_first_token <= max_ttft
+            ]
+
+        # TTLT bounds
+        if min_ttlt is not None:
+            filtered = [
+                r
+                for r in filtered
+                if r.time_to_last_token is not None
+                and r.time_to_last_token >= min_ttlt
+            ]
+        if max_ttlt is not None:
+            filtered = [
+                r
+                for r in filtered
+                if r.time_to_last_token is not None
+                and r.time_to_last_token <= max_ttlt
+            ]
+
+        # Response text filter
+        if has_response_text is True:
+            filtered = [
+                r for r in filtered if r.response_text is not None and r.response_text
+            ]
+        elif has_response_text is False:
+            filtered = [
+                r for r in filtered if r.response_text is None or not r.response_text
+            ]
+
+        # Custom predicate (applied last)
+        if predicate is not None:
+            filtered = [r for r in filtered if predicate(r)]
+
+        return Result(
+            responses=filtered,
+            total_requests=len(filtered),
+            clients=self.clients,
+            n_requests=self.n_requests,
+            total_test_time=self.total_test_time,
+            model_id=self.model_id,
+            output_path=None,
+            endpoint_name=self.endpoint_name,
+            provider=self.provider,
+            run_name=self.run_name,
+            run_description=self.run_description,
+            start_time=self.start_time,
+            first_request_time=self.first_request_time,
+            last_request_time=self.last_request_time,
+            end_time=self.end_time,
+        )
 
 
 def _get_stats_from_results(
