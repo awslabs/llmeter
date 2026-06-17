@@ -35,6 +35,7 @@ nav:
     - Installation: user_guide/installation.md
     - Key Concepts: user_guide/key_concepts.md
     - Metrics and Statistics: user_guide/metrics.md
+    - Quantile Confidence Intervals: user_guide/quantile_confidence.md
     - Connect to Endpoints: user_guide/connect_endpoints.md
     - Run Experiments: user_guide/run_experiments.md
     - Callback-Powered Features:
@@ -42,6 +43,7 @@ nav:
       - user_guide/callbacks/cache_buster.md
       - user_guide/callbacks/cost.md
       - user_guide/callbacks/mlflow.md
+    - Plotting: user_guide/plotting.md
   - API Reference:
     - reference/index.md
     - callbacks:
@@ -71,10 +73,13 @@ nav:
     - json_utils: reference/json_utils.md
     - plotting:
       - reference/plotting/index.md
+      - defaults: reference/plotting/defaults.md
+      - percentage: reference/plotting/percentage.md
     - prompt_utils: reference/prompt_utils.md
     - results: reference/results.md
     - runner: reference/runner.md
     - tokenizers: reference/tokenizers.md
+    - quantile_ci: reference/quantile_ci.md
     - utils: reference/utils.md
 repo_url: https://github.com/awslabs/llmeter
 repo_name: awslabs/llmeter
