@@ -10,10 +10,11 @@ from typing import Any
 from upath import UPath
 from upath.types import ReadablePathLike, WritablePathLike
 
+from .serialization import Serializable
 from .utils import ensure_path
 
 
-class Tokenizer(ABC):
+class Tokenizer(Serializable, ABC):
     def __init__(self, *args, **kwargs):
         pass
 

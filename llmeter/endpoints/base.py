@@ -22,6 +22,7 @@ from upath import UPath as Path
 from upath.types import ReadablePathLike, WritablePathLike
 
 from ..json_utils import llmeter_bytes_decoder, llmeter_default_serializer
+from ..serialization import Serializable
 from ..utils import ensure_path
 
 logger = logging.getLogger(__name__)
@@ -163,7 +164,7 @@ class InvocationResponse:
 TRawResponse = TypeVar("TRawResponse", bound=Any)
 
 
-class Endpoint(ABC, Generic[TRawResponse]):
+class Endpoint(Serializable, ABC, Generic[TRawResponse]):
     """
     An abstract base class for endpoint implementations.
 

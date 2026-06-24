@@ -5,41 +5,31 @@ from unittest.mock import AsyncMock, Mock, NonCallableMock
 
 import pytest
 
+from llmeter.serialization import to_dict, dump_object, load_object
 from llmeter.callbacks.cost.model import CostModel
 from llmeter.callbacks.cost.results import CalculatedCostWithDimensions
 
 
 def test_cost_model_serialization():
-    """Cost models can be serialized & de-serialized"""
-    spec = {
-        "_type": "CostModel",
-        "request_dims": {
-            "TokensIn": {"_type": "InputTokens", "price_per_million": 30},
-        },
-        "run_dims": {
-            "ComputeSeconds": {"_type": "EndpointTime", "price_per_hour": 50},
-        },
-    }
-    model = CostModel.from_dict(spec)
-    assert model.request_dims["TokensIn"].price_per_million == 30
-    assert model.run_dims["ComputeSeconds"].price_per_hour == 50
-    assert model.to_dict() == {
-        "_type": "CostModel",
-        "request_dims": {
-            "TokensIn": {
-                "_type": "InputTokens",
-                "price_per_million": 30,
-                "granularity": 1,
-            },
-        },
-        "run_dims": {
-            "ComputeSeconds": {
-                "_type": "EndpointTime",
-                "price_per_hour": 50,
-                "granularity_secs": 1,
-            },
-        },
-    }
+    """Cost models can be serialized & de-serialized via dump_object/load_object"""
+    from llmeter.callbacks.cost.dimensions import EndpointTime, InputTokens
+
+    model = CostModel(
+        request_dims={"TokensIn": InputTokens(price_per_million=30)},
+        run_dims={"ComputeSeconds": EndpointTime(price_per_hour=50)},
+    )
+
+    # Round-trip via dump_object / load_object
+    data = dump_object(model)
+    restored = load_object(data)
+
+    assert restored.request_dims["TokensIn"].price_per_million == 30
+    assert restored.run_dims["ComputeSeconds"].price_per_hour == 50
+
+    # to_dict produces a plain dict representation
+    d = to_dict(model)
+    assert "request_dims" in d
+    assert "run_dims" in d
 
 
 def test_cost_model_detects_duplicate_cost_dim_names():

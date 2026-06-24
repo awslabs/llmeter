@@ -23,6 +23,7 @@ from upath import UPath as Path
 from upath.types import ReadablePathLike, WritablePathLike
 
 from .live_display import LiveStatsDisplay
+from .serialization import dump_object, load_object
 from .utils import RunningStats, ensure_path, now_utc
 
 if TYPE_CHECKING:
@@ -166,6 +167,9 @@ class _RunConfig:
     ):
         """Save the configuration to a disk or cloud storage.
 
+        Uses the ``__getstate__``/``__setstate__`` protocol for Endpoint, Tokenizer,
+        and Callback serialization.
+
         Args:
             output_path: Optional override for output folder. By default, self.output_path is used.
             file_name: File name to create under `output_path`.
@@ -180,12 +184,14 @@ class _RunConfig:
             payload_path = save_payloads(self.payload, output_path)
             config_copy.payload = payload_path
 
+        # Serialize callable objects using dump_object
         assert self.endpoint is not None, "Endpoint cannot be None"
-        if not isinstance(self.endpoint, dict):
-            config_copy.endpoint = self.endpoint.to_dict()
+        config_copy.endpoint = dump_object(self._endpoint)
 
-        if not isinstance(self.tokenizer, dict):
-            config_copy.tokenizer = Tokenizer.to_dict(self.tokenizer)
+        config_copy.tokenizer = dump_object(self._tokenizer)
+
+        if self.callbacks:
+            config_copy.callbacks = [dump_object(cb) for cb in self.callbacks]
 
         with run_config_path.open("w") as f:
             f.write(
@@ -198,6 +204,9 @@ class _RunConfig:
     def load(cls, load_path: ReadablePathLike, file_name: str = "run_config.json"):
         """Load a configuration from a (local or cloud-stored) JSON file.
 
+        Restores Endpoint, Tokenizer, and Callback objects via ``load_object``.
+        Also supports legacy format (``endpoint_type`` / ``tokenizer_module`` keys).
+
         Args:
             load_path: Folder under which the configuration is stored
             file_name: File name within `load_path` for the run configuration JSON.
@@ -205,8 +214,25 @@ class _RunConfig:
         load_path = ensure_path(load_path)
         with (load_path / file_name).open() as f:
             config = json.load(f)
-        config["endpoint"] = Endpoint.load(config["endpoint"])
-        config["tokenizer"] = Tokenizer.load(config["tokenizer"])
+
+        # Restore endpoint
+        ep = config.get("endpoint")
+        if isinstance(ep, dict):
+            config["endpoint"] = load_object(ep)
+
+        # Restore tokenizer
+        tok = config.get("tokenizer")
+        if isinstance(tok, dict):
+            config["tokenizer"] = load_object(tok)
+
+        # Restore callbacks
+        cbs = config.get("callbacks")
+        if isinstance(cbs, list):
+            config["callbacks"] = [
+                load_object(cb) if isinstance(cb, dict) else cb
+                for cb in cbs
+            ]
+
         return cls(**config)
 
 

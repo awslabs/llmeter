@@ -1,51 +1,46 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-import pytest
+import json
 
 from llmeter.callbacks.base import Callback
+from llmeter.callbacks.mlflow import MlflowCallback
 
 
 class TestBase:
-    def test__load_from_file_not_implemented(self):
-        """
-        Test that _load_from_file raises NotImplementedError.
-        """
-        with pytest.raises(NotImplementedError):
-            Callback._load_from_file("valid_path.json")
+    def test_save_to_file_creates_valid_json(self, tmp_path):
+        """save_to_file creates a valid JSON file with __llmeter_class__ and __llmeter_state__."""
+        cb = MlflowCallback(step=5, nested=True)
+        path = tmp_path / "callback.json"
+        cb.save_to_file(path)
 
-    def test_load_from_file_not_implemented(self):
-        """
-        Test that load_from_file raises a NotImplementedError as it's not yet implemented.
-        """
-        with pytest.raises(NotImplementedError):
-            Callback.load_from_file("valid_path.txt")
+        with open(path) as f:
+            data = json.load(f)
 
-    def test_load_from_file_raises_not_implemented_error(self):
-        """
-        Test that Callback.load_from_file raises a NotImplementedError.
+        assert "__llmeter_class__" in data
+        assert "__llmeter_state__" in data
+        assert data["__llmeter_class__"] == "llmeter.callbacks.mlflow.MlflowCallback"
+        assert data["__llmeter_state__"] == {"step": 5, "nested": True}
 
-        This test verifies that calling the static method load_from_file
-        on the Callback class raises a NotImplementedError, as the method
-        is not yet implemented.
-        """
-        with pytest.raises(NotImplementedError) as excinfo:
-            Callback.load_from_file("dummy_path")
+    def test_load_from_file_restores_callback(self, tmp_path):
+        """load_from_file correctly restores a callback instance."""
+        cb = MlflowCallback(step=3, nested=False)
+        path = tmp_path / "callback.json"
+        cb.save_to_file(path)
 
-        assert (
-            str(excinfo.value)
-            == "TODO: Callback.load_from_file is not yet implemented!"
-        )
+        restored = Callback.load_from_file(path)
 
-    def test_load_from_file_raises_not_implemented_error_2(self):
-        """
-        Test that _load_from_file raises NotImplementedError when called.
-        This method is not yet implemented in the base Callback class.
-        """
-        with pytest.raises(NotImplementedError) as excinfo:
-            Callback._load_from_file("dummy_path")
+        assert isinstance(restored, MlflowCallback)
+        assert restored.step == 3
+        assert restored.nested is False
 
-        assert (
-            str(excinfo.value)
-            == "TODO: Callback._load_from_file is not yet implemented!"
-        )
+    def test_getstate_setstate_roundtrip(self):
+        """__getstate__ / __setstate__ round-trips correctly."""
+        cb = MlflowCallback(step=7, nested=True)
+        state = cb.__getstate__()
+
+        restored = MlflowCallback.__new__(MlflowCallback)
+        restored.__setstate__(state)
+
+        assert restored.step == 7
+        assert restored.nested is True
