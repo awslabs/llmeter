@@ -82,7 +82,11 @@ class _GracefulShutdown:
 
     def _handle(self, sig: signal.Signals) -> None:
         self.received_signal = sig
-        logger.warning("Received %s — shutting down gracefully.", sig.name)
+        logger.warning(
+            "Received %s — shutting down gracefully. Note that in-flight requests cannot be "
+            "cancelled so may take time to clear.",
+            sig.name,
+        )
         if self._task is not None and not self._task.cancelled():
             self._task.cancel()
 
