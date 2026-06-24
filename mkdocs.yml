@@ -57,6 +57,8 @@ nav:
         - results: reference/callbacks/cost/results.md
         - serde: reference/callbacks/cost/serde.md
       - mlflow: reference/callbacks/mlflow.md
+      - profiling: reference/callbacks/profiling.md
+      - system_metrics: reference/callbacks/system_metrics.md
     - endpoints:
       - reference/endpoints/index.md
       - anthropic_messages: reference/endpoints/anthropic_messages.md
@@ -71,6 +73,9 @@ nav:
     - json_utils: reference/json_utils.md
     - plotting:
       - reference/plotting/index.md
+      - defaults: reference/plotting/defaults.md
+      - percentage: reference/plotting/percentage.md
+      - profiling: reference/plotting/profiling.md
     - prompt_utils: reference/prompt_utils.md
     - results: reference/results.md
     - runner: reference/runner.md
