@@ -3,7 +3,8 @@
 
 import json
 import logging
-from dataclasses import asdict, dataclass
+import types as _types
+from dataclasses import asdict, dataclass, fields
 from datetime import datetime
 from numbers import Number
 from typing import Any, Sequence
@@ -16,6 +17,16 @@ from .json_utils import llmeter_default_serializer
 from .utils import ensure_path, summary_stats_from_list
 
 logger = logging.getLogger(__name__)
+
+
+def _get_type_args(tp) -> tuple:
+    """Return the members of a union type (e.g. ``datetime | None`` -> (datetime, NoneType))."""
+    if isinstance(tp, _types.UnionType):
+        return tp.__args__
+    origin = getattr(tp, "__origin__", None)
+    if origin is _types.UnionType:
+        return tp.__args__
+    return (tp,) if isinstance(tp, type) else ()
 
 
 @dataclass
@@ -47,6 +58,24 @@ class Result:
         if not hasattr(self, "_preloaded_stats"):
             self._preloaded_stats = None
 
+    @classmethod
+    def _parse_datetime_fields(cls, d: dict) -> None:
+        """Convert any datetime fields on cls present in d from ISO-8601 strings to datetimes
+
+        Introspects this (data)class to find all `datetime`-typed fields, and converts any matching
+        entries in `d` with ISO-8601 string values to datetimes instead. This is used for loading
+        JSON data (in which dates are stringified) into the Result class or stats.
+        """
+        for f in fields(cls):
+            if datetime not in _get_type_args(f.type):
+                continue
+            val = d.get(f.name)
+            if val and isinstance(val, str):
+                try:
+                    d[f.name] = datetime.fromisoformat(val.replace("Z", "+00:00"))
+                except ValueError:
+                    pass
+
     def _update_contributed_stats(self, stats: dict[str, Number]):
         """
         Upsert externally-provided statistics for the `stats` property
@@ -62,7 +91,7 @@ class Result:
                 )
         self._contributed_stats.update(stats)
 
-    def save(self, output_path: WritablePathLike | None = None):
+    def save(self, output_path: WritablePathLike | None = None) -> None:
         """
         Save the results to disk or cloud storage.
 
@@ -113,7 +142,7 @@ class Result:
                         + "\n"
                     )
 
-    def to_json(self, default=llmeter_default_serializer, **kwargs):
+    def to_json(self, default=llmeter_default_serializer, **kwargs) -> str:
         """Return the results as a JSON string.
 
         Args:
@@ -126,7 +155,7 @@ class Result:
         }
         return json.dumps(summary, default=default, **kwargs)
 
-    def to_dict(self, include_responses: bool = False):
+    def to_dict(self, include_responses: bool = False) -> dict:
         """Return a dictionary representation of this result.
 
         Returns a plain ``dict`` produced by :func:`dataclasses.asdict`,
@@ -187,10 +216,10 @@ class Result:
         """
         Load run results from disk or cloud storage.
 
-        Reads previously saved run results from the specified
-        path. It expects 'summary.json' to be present in the given directory.
-        By default, also loads 'responses.jsonl' containing individual invocation
-        responses.
+        Reads previously saved run results from the specified path. Handles
+        both complete runs (with ``summary.json``) and interrupted runs where
+        only ``responses.jsonl``, ``run_config.json``, or ``stats.json`` are
+        available.
 
         Args:
             result_path (UPath | str): The path to the directory containing the
@@ -206,93 +235,182 @@ class Result:
             responses and summary data.
 
         Raises:
-            FileNotFoundError: If required files are not found in the specified
-                directory.
-            JSONDecodeError: If there's an issue parsing the JSON data in
-                either file.
-
+            FileNotFoundError: If the directory does not exist or contains no
+                recognizable result files (``summary.json``, ``responses.jsonl``,
+                or ``stats.json``).
+            JSONDecodeError: If ``summary.json`` cannot be parsed.
         """
         result_path = ensure_path(result_path)
         summary_path = result_path / "summary.json"
 
-        with summary_path.open("r") as g:
-            summary = json.load(g)
+        # 1. Resolve metadata
+        if summary_path.exists():
+            metadata = cls._load_summary(result_path)
+        else:
+            metadata = cls._recover_metadata(result_path)
 
-        # Convert datetime strings back to datetime objects
-        for key in [
-            "start_time",
-            "end_time",
-            "first_request_time",
-            "last_request_time",
-        ]:
-            if key in summary and summary[key] and isinstance(summary[key], str):
-                try:
-                    summary[key] = datetime.fromisoformat(
-                        summary[key].replace("Z", "+00:00")
-                    )
-                except ValueError:
-                    pass
+        # 2. Load responses (if requested and available)
+        responses = cls._read_responses(result_path) if load_responses else []
+        if not load_responses:
+            logger.info(
+                "Loaded summary only (responses not loaded). "
+                "Call result.load_responses() to load them on demand.",
+            )
 
-        # Ensure output_path is set so load_responses() can find the files later
+        # 3. Construct and resolve stats
+        result = cls(responses=responses, **metadata)
+        cls._resolve_stats(result, result_path / "stats.json")
+        return result
+
+    @classmethod
+    def _load_summary(cls, result_path) -> dict[str, Any]:
+        """Load metadata from a complete run directory (has ``summary.json``)."""
+        summary_path = result_path / "summary.json"
+        with summary_path.open("r") as f:
+            summary = json.load(f)
+
+        cls._parse_datetime_fields(summary)
+
         if "output_path" not in summary or summary["output_path"] is None:
             summary["output_path"] = str(result_path)
 
-        if load_responses:
-            responses_path = result_path / "responses.jsonl"
-            with responses_path.open("r") as f:
-                responses = [InvocationResponse.from_json(line) for line in f if line]
-        else:
-            responses = []
-            responses_path = result_path / "responses.jsonl"
-            logger.info(
-                "Loaded summary only (responses not loaded). "
-                "Individual responses are stored at: %s. "
-                "Call result.load_responses() to load them on demand.",
-                responses_path,
+        return summary
+
+    @classmethod
+    def _recover_metadata(cls, result_path) -> dict[str, Any]:
+        """Recover metadata from an incomplete run directory (no ``summary.json``).
+
+        Reconstructs what it can from ``run_config.json`` and, if responses are
+        readable, their timestamps. Falls back gracefully when files are missing
+        or corrupt.
+
+        Raises:
+            FileNotFoundError: If neither ``responses.jsonl`` nor ``stats.json``
+                exist (no useful data to recover).
+        """
+        responses_path = result_path / "responses.jsonl"
+        config_path = result_path / "run_config.json"
+        stats_path = result_path / "stats.json"
+
+        if not responses_path.exists() and not stats_path.exists():
+            raise FileNotFoundError(
+                f"Cannot recover run from '{result_path}': neither 'summary.json' "
+                "nor 'responses.jsonl' or 'stats.json' were found. "
+                "There is no data to recover."
             )
 
-        result = cls(responses=responses, **summary)
+        metadata: dict[str, Any] = {"output_path": str(result_path)}
 
-        # Load or compute stats
-        if not load_responses:
-            # Use pre-computed stats from disk when responses aren't loaded
-            stats_path = result_path / "stats.json"
-            if stats_path.exists():
-                with stats_path.open("r") as s:
-                    result._preloaded_stats = json.loads(s.read())
-                    # Convert datetime strings in stats
-                    for key in [
-                        "start_time",
-                        "end_time",
-                        "first_request_time",
-                        "last_request_time",
-                    ]:
-                        val = result._preloaded_stats.get(key)
-                        if val and isinstance(val, str):
-                            try:
-                                result._preloaded_stats[key] = datetime.fromisoformat(
-                                    val.replace("Z", "+00:00")
-                                )
-                            except ValueError:
-                                pass
-            else:
-                result._preloaded_stats = None
-        else:
-            # Compute stats from the loaded responses, but also merge any
-            # contributed stats that were persisted in stats.json so they
-            # survive a save/load round-trip.
-            result._preloaded_stats = cls._compute_stats(result)
-            stats_path = result_path / "stats.json"
-            if stats_path.exists():
+        # Extract what we can from run_config.json
+        if config_path.exists():
+            try:
+                with config_path.open("r") as f:
+                    config = json.load(f)
+                for passthru_field in (
+                    "clients",
+                    "n_requests",
+                    "run_name",
+                    "run_description",
+                ):
+                    if passthru_field in config:
+                        metadata[passthru_field] = config[passthru_field]
+                endpoint = config.get("endpoint", {})
+                if isinstance(endpoint, dict):
+                    metadata["model_id"] = endpoint.get("model_id")
+                    metadata["endpoint_name"] = endpoint.get("endpoint_name")
+                    metadata["provider"] = endpoint.get("provider")
+            except (json.JSONDecodeError, KeyError) as e:
+                logger.warning(f"Could not parse run_config.json: {e}")
+
+        # Derive timing info and count by streaming through responses
+        if responses_path.exists():
+            try:
+                first = None
+                last = None
+                count = 0
+                with responses_path.open("r") as f:
+                    for line in f:
+                        if not line:
+                            continue
+                        count += 1
+                        resp = InvocationResponse.from_json(line)
+                        if resp.request_time is not None:
+                            if first is None or resp.request_time < first:
+                                first = resp.request_time
+                            if last is None or resp.request_time > last:
+                                last = resp.request_time
+                if first is not None:
+                    metadata.update(
+                        start_time=first,
+                        first_request_time=first,
+                        last_request_time=last,
+                        end_time=last,
+                    )
+                metadata["total_requests"] = count
+            except OSError as e:
+                logger.warning(f"Could not read responses.jsonl for timestamps: {e}")
+
+        logger.warning(
+            "Loaded result from interrupted run (no summary.json). "
+            "Some metadata may be incomplete."
+        )
+        return metadata
+
+    @classmethod
+    def _read_responses(cls, result_path) -> list[InvocationResponse]:
+        """Read responses.jsonl, returning an empty list if the file is missing."""
+        responses_path = result_path / "responses.jsonl"
+        if not responses_path.exists():
+            logger.warning(
+                "responses.jsonl not found at %s. "
+                "Responses will be empty; stats may come from stats.json.",
+                result_path,
+            )
+            return []
+        with responses_path.open("r") as f:
+            responses = [InvocationResponse.from_json(line) for line in f if line]
+        logger.info("Loaded %d responses from %s", len(responses), responses_path)
+        return responses
+
+    @classmethod
+    def _resolve_stats(cls, result: "Result", stats_path) -> None:
+        """Resolve ``_preloaded_stats`` for a freshly loaded Result.
+
+        Unifies the stats-loading logic used by :meth:`load` and
+        :meth:`_load_without_summary`. The resolution strategy is:
+
+        - **responses populated**: Compute stats from the in-memory responses
+          (authoritative), then merge any *contributed* stats (callback-injected
+          keys not produced by ``_compute_stats``) from ``stats.json`` on disk.
+        - **responses empty**: Use the pre-computed stats from ``stats.json``
+          directly. If that file is missing or corrupt, set ``None`` (deferred
+          computation will happen on first access via the ``stats`` property).
+
+        Args:
+            result: The ``Result`` instance to update (mutated in place).
+            stats_path: Path to the ``stats.json`` file (may not exist).
+        """
+        saved_stats = None
+        if stats_path.exists():
+            try:
                 with stats_path.open("r") as s:
                     saved_stats = json.loads(s.read())
-                # Contributed stats are any keys in the saved file that are
-                # not produced by _compute_stats (i.e. they came from callbacks).
+                cls._parse_datetime_fields(saved_stats)
+            except (json.JSONDecodeError, OSError) as e:
+                logger.warning(f"Could not load stats.json: {e}")
+                saved_stats = None
+
+        if result.responses:
+            result._preloaded_stats = cls._compute_stats(result)
+            # Merge contributed stats (callback-injected keys) from disk
+            if saved_stats:
                 for key, value in saved_stats.items():
                     if key not in result._preloaded_stats:
                         result._preloaded_stats[key] = value
-
-        return result
+        elif saved_stats is not None:
+            result._preloaded_stats = saved_stats
+        else:
+            result._preloaded_stats = None
 
     @classmethod
     def _compute_stats(cls, result: "Result") -> dict:

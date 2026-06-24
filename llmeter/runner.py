@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import random
+import signal
 import time
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
@@ -41,6 +42,53 @@ _disable_tqdm = False
 if os.getenv("LLMETER_DISABLE_ALL_PROGRESS_BARS") == "1":
     logger.info("Disabling tqdm progress bars")
     _disable_tqdm = True
+
+
+class _GracefulShutdown:
+    """Context manager that installs signal handlers for graceful async shutdown.
+
+    Registers handlers for SIGINT and SIGTERM on the running event loop that
+    cancel the current task instead of raising exceptions out of thin air.
+    Restores previous handlers on exit.
+
+    See https://docs.python.org/3/library/signal.html#note-on-signal-handlers-and-exceptions
+
+    Attributes:
+        received_signal: The signal that triggered shutdown, or ``None`` if no
+            signal was received during the context.
+    """
+
+    def __init__(self, loop: asyncio.AbstractEventLoop):
+        self._loop = loop
+        self._task: asyncio.Task | None = None
+        self._registered: list[signal.Signals] = []
+        self.received_signal: signal.Signals | None = None
+
+    def __enter__(self):
+        self._task = asyncio.current_task()
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            try:
+                self._loop.add_signal_handler(sig, self._handle, sig)
+                self._registered.append(sig)
+            except (NotImplementedError, OSError):
+                # add_signal_handler unavailable on Windows / some event loops
+                pass
+        return self
+
+    def __exit__(self, *exc_info):
+        for sig in self._registered:
+            self._loop.remove_signal_handler(sig)
+        self._registered.clear()
+
+    def _handle(self, sig: signal.Signals) -> None:
+        self.received_signal = sig
+        logger.warning(
+            "Received %s — shutting down gracefully. Note that in-flight requests cannot be "
+            "cancelled so may take time to clear.",
+            sig.name,
+        )
+        if self._task is not None and not self._task.cancelled():
+            self._task.cancel()
 
 
 @dataclass
@@ -629,48 +677,92 @@ class _Run(_RunConfig):
         prefix = "reqs=0" if self._time_bound else ""
         self._stats_display.update({}, extra_prefix=prefix)
 
-        try:
-            run_start_time = now_utc()
-            if self._time_bound:
-                invoke_coro = self._invoke_clients(
-                    payload=self.payload,  # type: ignore
-                    duration=self.run_duration,
-                    clients=self.clients,
-                )
-                _, (total_test_time, start_time, end_time), _ = await asyncio.gather(
-                    self._process_results_from_q(
-                        output_path=ensure_path(self.output_path) / "responses.jsonl"
-                        if self.output_path
-                        else None,
-                    ),
-                    invoke_coro,
-                    self._tick_time_bar(),
-                )
-            else:
-                invoke_coro = self._invoke_clients(
-                    payload=self.payload,  # type: ignore
-                    n_requests=self.n_requests,
-                    clients=self.clients,
-                )
-                _, (total_test_time, start_time, end_time) = await asyncio.gather(
-                    self._process_results_from_q(
-                        output_path=Path(self.output_path) / "responses.jsonl"
-                        if self.output_path
-                        else None,
-                    ),
-                    invoke_coro,
-                )
-            run_end_time = now_utc()
+        interrupted = False
+        run_start_time = now_utc()
 
-        except asyncio.CancelledError:
-            logger.error(
-                f"Waited {self.timeout} seconds, but received no response. Test failed."
-            )
-            return result
+        # Install signal handlers so SIGINT (Ctrl+C) and SIGTERM both trigger
+        # graceful shutdown via task cancellation rather than raising exceptions
+        # out of thin air.  See:
+        # https://docs.python.org/3/library/signal.html#note-on-signal-handlers-and-exceptions
+        shutdown = _GracefulShutdown(loop)
+        with shutdown:
+            try:
+                responses_path = (
+                    ensure_path(self.output_path) / "responses.jsonl"
+                    if self.output_path
+                    else None
+                )
+                coros: list = [
+                    self._process_results_from_q(output_path=responses_path),
+                    self._invoke_clients(
+                        payload=self.payload,  # type: ignore
+                        clients=self.clients,
+                        **(
+                            {"duration": self.run_duration}
+                            if self._time_bound
+                            else {"n_requests": self.n_requests}
+                        ),
+                    ),
+                ]
+                if self._time_bound:
+                    coros.append(self._tick_time_bar())
 
-        self._progress_bar.close()
+                results = await asyncio.gather(*coros)
+                total_test_time, start_time, end_time = results[1]
+                run_end_time = now_utc()
+
+            except asyncio.CancelledError:
+                if shutdown.received_signal is None:
+                    raise  # Not ours — propagate
+                interrupted = True
+                run_end_time = now_utc()
+                total_test_time = None
+                logger.warning(
+                    "Run interrupted (%s). Saving partial results "
+                    "(%d responses collected).",
+                    shutdown.received_signal.name,
+                    self._running_stats._count,
+                )
+
+        if self._progress_bar is not None:
+            self._progress_bar.close()
         if self._stats_display is not None:
             self._stats_display.close()
+
+        if interrupted:
+            if shutdown.received_signal is None and self._running_stats._count == 0:
+                # External cancellation with no collected data (e.g. timeout)
+                return result
+
+            actual_total = self._running_stats._count
+            result = replace(
+                result,
+                responses=self._responses,
+                total_test_time=total_test_time,
+                total_requests=actual_total,
+                n_requests=actual_total // max(self.clients, 1),
+                start_time=run_start_time,
+                first_request_time=self._running_stats._first_send_time,
+                last_request_time=self._running_stats._last_send_time,
+                end_time=run_end_time,
+            )
+            result._preloaded_stats = self._running_stats.to_stats(
+                end_time=run_end_time,
+                result_dict=result.to_dict(),
+            )
+            result._preloaded_stats["start_time"] = run_start_time
+            result._preloaded_stats["end_time"] = run_end_time
+            result._preloaded_stats["interrupted"] = True
+
+            if result.output_path:
+                result.save()
+                logger.info(
+                    f"Partial results saved to {result.output_path}. "
+                    "Use Result.load() to recover them."
+                )
+
+            return result
+
         logger.info(f"Test completed in {total_test_time * 1000:.2f} seconds.")
 
         actual_total = self._running_stats._count
