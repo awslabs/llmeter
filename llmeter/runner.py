@@ -43,6 +43,13 @@ if os.getenv("LLMETER_DISABLE_ALL_PROGRESS_BARS") == "1":
     logger.info("Disabling tqdm progress bars")
     _disable_tqdm = True
 
+#: Seconds between live stats display refreshes. Prevents excessive rendering
+#: when results arrive faster than the display can meaningfully update.
+STATS_UPDATE_INTERVAL = 0.5
+
+#: Seconds between progress bar ticks for time-bound runs.
+TIME_BAR_TICK_INTERVAL = 0.5
+
 
 class _GracefulShutdown:
     """Context manager that installs signal handlers for graceful async shutdown.
@@ -333,8 +340,39 @@ class _Run(_RunConfig):
                     raise ValueError("generated output can't be converted to string")
             response.num_tokens_output = len(tokenizer.encode(text))
 
+    def _record_response(self, response: InvocationResponse):
+        """Accumulate a processed response into stats and (optionally) memory."""
+        self._running_stats.update(response.to_dict())
+        if not self.low_memory:
+            self._responses.append(response)
+
+    def _advance_progress(self):
+        """Tick whichever progress bar is active for this result."""
+        if self._backlog_bar is not None:
+            self._backlog_bar.update(1)
+        elif self._progress_bar is not None and not self._time_bound:
+            self._progress_bar.update(1)
+
+    def _refresh_stats_display(self, *, force: bool = False) -> None:
+        """Push latest stats to the live display, respecting the throttle interval.
+
+        Args:
+            force: Bypass the throttle and update immediately (e.g. on final drain).
+        """
+        if self._stats_display is None:
+            return
+        now = time.perf_counter()
+        if not force and (now - self._last_stats_update) < STATS_UPDATE_INTERVAL:
+            return
+        self._last_stats_update = now
+        raw = self._running_stats.to_stats(end_time=now_utc())
+        if raw:
+            prefix = f"reqs={self._running_stats._count}" if self._time_bound else ""
+            self._stats_display.update(raw, extra_prefix=prefix)
+
     async def _process_results_from_q(self, output_path: Path | None = None):
         logger.info("Starting token counting from queue")
+        self._last_stats_update = 0.0
         while True:
             try:
                 response: InvocationResponse | None = await asyncio.wait_for(
@@ -358,22 +396,9 @@ class _Run(_RunConfig):
             if self.callbacks is not None:
                 [await cb.after_invoke(response) for cb in self.callbacks]
 
-            if self.low_memory and self._running_stats is not None:
-                self._running_stats.update(response.to_dict())
-            else:
-                self._responses.append(response)
-                self._running_stats.update(response.to_dict())
-
-            if self._progress_bar is not None and not self._time_bound:
-                self._progress_bar.update(1)
-
-            if self._stats_display is not None:
-                raw = self._running_stats.to_stats(end_time=now_utc())
-                if raw:
-                    prefix = (
-                        f"reqs={self._running_stats._count}" if self._time_bound else ""
-                    )
-                    self._stats_display.update(raw, extra_prefix=prefix)
+            self._record_response(response)
+            self._advance_progress()
+            self._refresh_stats_display()
 
             if output_path:
                 output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -381,6 +406,8 @@ class _Run(_RunConfig):
                     f.write(response.to_json() + "\n")
 
             self._queue.task_done()
+
+        self._refresh_stats_display(force=True)
 
     def _invoke_n_no_wait(
         self,
@@ -605,7 +632,7 @@ class _Run(_RunConfig):
         duration = self.run_duration
         prev = 0
         while True:
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(TIME_BAR_TICK_INTERVAL)
             elapsed = time.perf_counter() - start
             tick = min(int(elapsed), int(duration)) - prev
             if tick > 0 and self._progress_bar is not None:
@@ -613,6 +640,90 @@ class _Run(_RunConfig):
                 prev += tick
             if elapsed >= duration:
                 break
+
+    def _responses_output_path(self) -> Path | None:
+        """Return the path for streaming responses to disk, or None."""
+        if not self.output_path:
+            return None
+        return ensure_path(self.output_path) / "responses.jsonl"
+
+    def _close_progress_bar(self):
+        """Close the main progress bar, ensuring it reaches 100% first."""
+        if self._progress_bar is None:
+            return
+        remaining = self._progress_bar.total - self._progress_bar.n
+        if remaining > 0:
+            self._progress_bar.update(remaining)
+        self._progress_bar.close()
+        self._progress_bar = None
+
+    async def _drain_backlog(self, results_task: asyncio.Task):
+        """Wait for the results processor to finish, showing a backlog bar if needed."""
+        # Subtract 1 to exclude the None sentinel that _invoke_clients enqueued
+        # to signal end-of-stream — it won't trigger _advance_progress().
+        backlog_size = self._queue.qsize() - 1
+        if backlog_size > 0:
+            self._backlog_bar = tqdm(
+                total=backlog_size,
+                leave=False,
+                desc="Processing backlog",
+                unit="req",
+                disable=_disable_tqdm,
+            )
+
+        await results_task
+
+        if self._backlog_bar is not None:
+            self._backlog_bar.close()
+            self._backlog_bar = None
+
+    async def _run_time_bound(self) -> tuple[float, float, float]:
+        """Execute a duration-based run in two phases.
+
+        Phase 1: Send requests + tick the time bar concurrently while the
+        results processor runs in the background.
+
+        Phase 2: After sending stops, close the time bar, show a backlog
+        progress bar, and wait for the results processor to drain.
+
+        Returns:
+            (total_test_time, start_time, end_time) perf_counter values.
+        """
+        results_task = asyncio.ensure_future(
+            self._process_results_from_q(output_path=self._responses_output_path())
+        )
+
+        (total_test_time, start_time, end_time), _ = await asyncio.gather(
+            self._invoke_clients(
+                payload=self.payload,  # type: ignore
+                duration=self.run_duration,
+                clients=self.clients,
+            ),
+            self._tick_time_bar(),
+        )
+
+        self._close_progress_bar()
+        await self._drain_backlog(results_task)
+        return total_test_time, start_time, end_time
+
+    async def _run_count_bound(self) -> tuple[float, float, float]:
+        """Execute a request-count-based run.
+
+        Sends a fixed number of requests per client while processing results
+        concurrently.
+
+        Returns:
+            (total_test_time, start_time, end_time) perf_counter values.
+        """
+        _, (total_test_time, start_time, end_time) = await asyncio.gather(
+            self._process_results_from_q(output_path=self._responses_output_path()),
+            self._invoke_clients(
+                payload=self.payload,  # type: ignore
+                n_requests=self.n_requests,
+                clients=self.clients,
+            ),
+        )
+        return total_test_time, start_time, end_time
 
     async def _run(self):
         """Run the test with the given configuration
@@ -673,6 +784,10 @@ class _Run(_RunConfig):
             display_stats=self.progress_bar_stats,
         )
 
+        # Backlog progress bar — used in time-bound runs to show processing
+        # of remaining results after clients stop sending.
+        self._backlog_bar = None
+
         # Show the table layout immediately with placeholder values
         prefix = "reqs=0" if self._time_bound else ""
         self._stats_display.update({}, extra_prefix=prefix)
@@ -687,28 +802,10 @@ class _Run(_RunConfig):
         shutdown = _GracefulShutdown(loop)
         with shutdown:
             try:
-                responses_path = (
-                    ensure_path(self.output_path) / "responses.jsonl"
-                    if self.output_path
-                    else None
+                run_strategy = (
+                    self._run_time_bound if self._time_bound else self._run_count_bound
                 )
-                coros: list = [
-                    self._process_results_from_q(output_path=responses_path),
-                    self._invoke_clients(
-                        payload=self.payload,  # type: ignore
-                        clients=self.clients,
-                        **(
-                            {"duration": self.run_duration}
-                            if self._time_bound
-                            else {"n_requests": self.n_requests}
-                        ),
-                    ),
-                ]
-                if self._time_bound:
-                    coros.append(self._tick_time_bar())
-
-                results = await asyncio.gather(*coros)
-                total_test_time, start_time, end_time = results[1]
+                total_test_time, start_time, end_time = await run_strategy()
                 run_end_time = now_utc()
 
             except asyncio.CancelledError:

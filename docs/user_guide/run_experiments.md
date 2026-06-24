@@ -52,11 +52,19 @@ results.stats["requests_per_minute"]  # observed throughput
 
 `n_requests` and `run_duration` are mutually exclusive — set one or the other, not both.
 
-During a time-bound run, the progress bar shows two lines: a time bar that fills as seconds elapse, and a request counter with live statistics (requests per minute, latency percentiles, tokens per second, etc.).
+During a time-bound run, the progress bar shows two lines: a time bar that fills as seconds elapse, and a request counter with live statistics.
+
+!!! info "Processing backlogs after your Run time finishes"
+    Duration-bound Runs may take extra time to finalize results after your specified duration has elapsed, due to two main reasons:
+
+    1. In-flight requests wait for completion (which could take significant time especially if your target endpoint implements queuing)
+    2. Response processing is separated from the client request loop, so Runs with high concurrency may build up a backlog of pending responses to process even after the final in-flight request is completed.
+
+    If your Run has progress bars enabled, you'll see a separate "Processing backlog" progress bar rendered if LLMeter still needs to perform processing after the final in-flight request is finished.
 
 ### Live progress-bar statistics
 
-Both count-bound and time-bound runs display live statistics on the progress bar as requests complete. By default these include p50/p90 TTFT and TTLT, median output tokens per second, total input/output tokens, requests per minute, and failure count.
+By default, both count-bound and time-bound runs display live statistics on the progress bar as requests complete. These default statistics include p50/p90 TTFT and TTLT, median output tokens per second, total input/output tokens, requests per minute, and failure count.
 
 You can customize which stats are shown via the `progress_bar_stats` parameter:
 
@@ -76,6 +84,8 @@ results = await endpoint_test.run(
 ```
 
 Pass `progress_bar_stats={}` to disable live stats entirely. See [`DEFAULT_DISPLAY_STATS`](../reference/live_display.md) for the full default configuration.
+
+You can also disable progress bars themselves via `run()` parameters or by setting the `LLMETER_DISABLE_ALL_PROGRESS_BARS` environment variable to `1`.
 
 ### Low-memory mode
 
