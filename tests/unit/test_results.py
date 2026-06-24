@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import json
+from datetime import datetime
 from pathlib import Path
 
 import pytest
@@ -404,6 +405,80 @@ def test_save_method_existing_responses(sample_result: Result, temp_dir: UPath):
         responses = [json.loads(line) for line in f]
         assert len(responses) == 6  # 5 original + 1 extra
         assert responses[-1]["id"] == "extra_response"
+
+
+# ── _parse_datetime_fields introspection ───────────────────────────────────────
+
+
+def test_parse_datetime_fields_converts_iso_strings():
+    """_parse_datetime_fields should convert all datetime-typed field keys."""
+    d = {
+        "start_time": "2025-06-01T10:00:00Z",
+        "end_time": "2025-06-01T10:05:00+00:00",
+        "first_request_time": "2025-06-01T10:00:01Z",
+        "last_request_time": None,
+        "total_requests": 5,  # non-datetime field, should be left alone
+    }
+    Result._parse_datetime_fields(d)
+
+    assert isinstance(d["start_time"], datetime)
+    assert isinstance(d["end_time"], datetime)
+    assert isinstance(d["first_request_time"], datetime)
+    assert d["last_request_time"] is None
+    assert d["total_requests"] == 5
+
+
+def test_parse_datetime_fields_skips_already_parsed():
+    """Already-datetime values should pass through unchanged."""
+    from datetime import timezone
+
+    dt = datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+    d = {"start_time": dt}
+    Result._parse_datetime_fields(d)
+    assert d["start_time"] is dt
+
+
+def test_parse_datetime_fields_handles_invalid_string():
+    """Invalid date strings should be left as-is (not raise)."""
+    d = {"start_time": "not-a-date"}
+    Result._parse_datetime_fields(d)
+    assert d["start_time"] == "not-a-date"
+
+
+# ── Corrupt stats.json alongside valid summary.json ────────────────────────────
+
+
+def test_load_with_corrupt_stats_json_and_responses(sample_result: Result, temp_dir):
+    """Corrupt stats.json should not crash load() when responses are available."""
+    output_path = temp_dir / "corrupt_stats"
+    sample_result.save(output_path)
+
+    # Corrupt stats.json
+    with (output_path / "stats.json").open("w") as f:
+        f.write("{invalid json!!")
+
+    loaded = Result.load(output_path, load_responses=True)
+
+    # Stats should still be computed from responses
+    assert loaded.stats["failed_requests"] == 0
+    assert "time_to_first_token-p50" in loaded.stats
+    assert loaded.total_requests == 5
+
+
+def test_load_with_corrupt_stats_json_no_responses(sample_result: Result, temp_dir):
+    """Corrupt stats.json with load_responses=False should not crash."""
+    output_path = temp_dir / "corrupt_stats_lazy"
+    sample_result.save(output_path)
+
+    with (output_path / "stats.json").open("w") as f:
+        f.write("not json")
+
+    loaded = Result.load(output_path, load_responses=False)
+
+    # _preloaded_stats falls back to None; stats property will compute on demand
+    assert loaded._preloaded_stats is None
+    stats = loaded.stats
+    assert stats["total_requests"] == 5
 
 
 # Tests for llmeter_default_serializer

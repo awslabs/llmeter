@@ -3,7 +3,8 @@
 
 import json
 import logging
-from dataclasses import asdict, dataclass
+import types as _types
+from dataclasses import asdict, dataclass, fields
 from datetime import datetime
 from numbers import Number
 from typing import Any, Sequence
@@ -16,6 +17,16 @@ from .json_utils import llmeter_default_serializer
 from .utils import ensure_path, summary_stats_from_list
 
 logger = logging.getLogger(__name__)
+
+
+def _get_type_args(tp) -> tuple:
+    """Return the members of a union type (e.g. ``datetime | None`` -> (datetime, NoneType))."""
+    if isinstance(tp, _types.UnionType):
+        return tp.__args__
+    origin = getattr(tp, "__origin__", None)
+    if origin is _types.UnionType:
+        return tp.__args__
+    return (tp,) if isinstance(tp, type) else ()
 
 
 @dataclass
@@ -47,6 +58,24 @@ class Result:
         if not hasattr(self, "_preloaded_stats"):
             self._preloaded_stats = None
 
+    @classmethod
+    def _parse_datetime_fields(cls, d: dict) -> None:
+        """Convert any datetime fields on cls present in d from ISO-8601 strings to datetimes
+
+        Introspects this (data)class to find all `datetime`-typed fields, and converts any matching
+        entries in `d` with ISO-8601 string values to datetimes instead. This is used for loading
+        JSON data (in which dates are stringified) into the Result class or stats.
+        """
+        for f in fields(cls):
+            if datetime not in _get_type_args(f.type):
+                continue
+            val = d.get(f.name)
+            if val and isinstance(val, str):
+                try:
+                    d[f.name] = datetime.fromisoformat(val.replace("Z", "+00:00"))
+                except ValueError:
+                    pass
+
     def _update_contributed_stats(self, stats: dict[str, Number]):
         """
         Upsert externally-provided statistics for the `stats` property
@@ -62,7 +91,7 @@ class Result:
                 )
         self._contributed_stats.update(stats)
 
-    def save(self, output_path: WritablePathLike | None = None):
+    def save(self, output_path: WritablePathLike | None = None) -> None:
         """
         Save the results to disk or cloud storage.
 
@@ -113,7 +142,7 @@ class Result:
                         + "\n"
                     )
 
-    def to_json(self, default=llmeter_default_serializer, **kwargs):
+    def to_json(self, default=llmeter_default_serializer, **kwargs) -> str:
         """Return the results as a JSON string.
 
         Args:
@@ -126,7 +155,7 @@ class Result:
         }
         return json.dumps(summary, default=default, **kwargs)
 
-    def to_dict(self, include_responses: bool = False):
+    def to_dict(self, include_responses: bool = False) -> dict:
         """Return a dictionary representation of this result.
 
         Returns a plain ``dict`` produced by :func:`dataclasses.asdict`,
@@ -221,20 +250,7 @@ class Result:
         with summary_path.open("r") as g:
             summary = json.load(g)
 
-        # Convert datetime strings back to datetime objects
-        for key in [
-            "start_time",
-            "end_time",
-            "first_request_time",
-            "last_request_time",
-        ]:
-            if key in summary and summary[key] and isinstance(summary[key], str):
-                try:
-                    summary[key] = datetime.fromisoformat(
-                        summary[key].replace("Z", "+00:00")
-                    )
-                except ValueError:
-                    pass
+        cls._parse_datetime_fields(summary)
 
         # Ensure output_path is set so load_responses() can find the files later
         if "output_path" not in summary or summary["output_path"] is None:
@@ -255,46 +271,8 @@ class Result:
             )
 
         result = cls(responses=responses, **summary)
-
-        # Load or compute stats
-        if not load_responses:
-            # Use pre-computed stats from disk when responses aren't loaded
-            stats_path = result_path / "stats.json"
-            if stats_path.exists():
-                with stats_path.open("r") as s:
-                    result._preloaded_stats = json.loads(s.read())
-                    # Convert datetime strings in stats
-                    for key in [
-                        "start_time",
-                        "end_time",
-                        "first_request_time",
-                        "last_request_time",
-                    ]:
-                        val = result._preloaded_stats.get(key)
-                        if val and isinstance(val, str):
-                            try:
-                                result._preloaded_stats[key] = datetime.fromisoformat(
-                                    val.replace("Z", "+00:00")
-                                )
-                            except ValueError:
-                                pass
-            else:
-                result._preloaded_stats = None
-        else:
-            # Compute stats from the loaded responses, but also merge any
-            # contributed stats that were persisted in stats.json so they
-            # survive a save/load round-trip.
-            result._preloaded_stats = cls._compute_stats(result)
-            stats_path = result_path / "stats.json"
-            if stats_path.exists():
-                with stats_path.open("r") as s:
-                    saved_stats = json.loads(s.read())
-                # Contributed stats are any keys in the saved file that are
-                # not produced by _compute_stats (i.e. they came from callbacks).
-                for key, value in saved_stats.items():
-                    if key not in result._preloaded_stats:
-                        result._preloaded_stats[key] = value
-
+        stats_path = result_path / "stats.json"
+        cls._resolve_stats(result, stats_path)
         return result
 
     @classmethod
@@ -399,40 +377,53 @@ class Result:
             **config_info,
         )
 
-        # Load or compute stats
-        if stats_path.exists():
-            try:
-                with stats_path.open("r") as s:
-                    result._preloaded_stats = json.loads(s.read())
-                # Convert datetime strings in stats
-                for key in [
-                    "start_time",
-                    "end_time",
-                    "first_request_time",
-                    "last_request_time",
-                ]:
-                    val = result._preloaded_stats.get(key)
-                    if val and isinstance(val, str):
-                        try:
-                            result._preloaded_stats[key] = datetime.fromisoformat(
-                                val.replace("Z", "+00:00")
-                            )
-                        except ValueError:
-                            pass
-            except (json.JSONDecodeError, OSError) as e:
-                logger.warning(f"Could not load stats.json: {e}")
-                result._preloaded_stats = None
-        elif responses:
-            # Compute stats from loaded responses
-            result._preloaded_stats = cls._compute_stats(result)
-        else:
-            result._preloaded_stats = None
+        cls._resolve_stats(result, stats_path)
 
         logger.warning(
             "Loaded result from interrupted run (no summary.json). "
             "Some metadata may be incomplete."
         )
         return result
+
+    @classmethod
+    def _resolve_stats(cls, result: "Result", stats_path) -> None:
+        """Resolve ``_preloaded_stats`` for a freshly loaded Result.
+
+        Unifies the stats-loading logic used by :meth:`load` and
+        :meth:`_load_without_summary`. The resolution strategy is:
+
+        - **responses populated**: Compute stats from the in-memory responses
+          (authoritative), then merge any *contributed* stats (callback-injected
+          keys not produced by ``_compute_stats``) from ``stats.json`` on disk.
+        - **responses empty**: Use the pre-computed stats from ``stats.json``
+          directly. If that file is missing or corrupt, set ``None`` (deferred
+          computation will happen on first access via the ``stats`` property).
+
+        Args:
+            result: The ``Result`` instance to update (mutated in place).
+            stats_path: Path to the ``stats.json`` file (may not exist).
+        """
+        saved_stats = None
+        if stats_path.exists():
+            try:
+                with stats_path.open("r") as s:
+                    saved_stats = json.loads(s.read())
+                cls._parse_datetime_fields(saved_stats)
+            except (json.JSONDecodeError, OSError) as e:
+                logger.warning(f"Could not load stats.json: {e}")
+                saved_stats = None
+
+        if result.responses:
+            result._preloaded_stats = cls._compute_stats(result)
+            # Merge contributed stats (callback-injected keys) from disk
+            if saved_stats:
+                for key, value in saved_stats.items():
+                    if key not in result._preloaded_stats:
+                        result._preloaded_stats[key] = value
+        elif saved_stats is not None:
+            result._preloaded_stats = saved_stats
+        else:
+            result._preloaded_stats = None
 
     @classmethod
     def _compute_stats(cls, result: "Result") -> dict:
