@@ -285,9 +285,7 @@ class TestBacklogProgressBar:
         assert len(run._responses) == 1
 
     @pytest.mark.asyncio
-    async def test_backlog_bar_and_progress_bar_independent(
-        self, time_bound_run: _Run
-    ):
+    async def test_backlog_bar_and_progress_bar_independent(self, time_bound_run: _Run):
         """Backlog bar updates independently of the main progress bar."""
         run = time_bound_run
         run._queue = asyncio.Queue()
@@ -459,7 +457,9 @@ class TestStatsPrefix:
 
         # Check that the final update includes the reqs= prefix
         last_call = run._stats_display.update.call_args_list[-1]
-        extra_prefix = last_call[1].get("extra_prefix", last_call[0][1] if len(last_call[0]) > 1 else "")
+        extra_prefix = last_call[1].get(
+            "extra_prefix", last_call[0][1] if len(last_call[0]) > 1 else ""
+        )
         assert "reqs=" in extra_prefix
 
     @pytest.mark.asyncio
@@ -487,5 +487,7 @@ class TestStatsPrefix:
 
         # Check that calls use empty prefix
         for call in run._stats_display.update.call_args_list:
-            extra_prefix = call[1].get("extra_prefix", call[0][1] if len(call[0]) > 1 else "")
+            extra_prefix = call[1].get(
+                "extra_prefix", call[0][1] if len(call[0]) > 1 else ""
+            )
             assert "reqs=" not in extra_prefix
