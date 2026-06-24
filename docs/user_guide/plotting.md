@@ -1,8 +1,6 @@
 # Plotting and Visualization
 
-LLMeter includes a set of Plotly-based visualization primitives for charting benchmark
-results. All charts share a consistent visual theme and color palette managed through
-`llmeter.plotting.defaults`.
+LLMeter includes a set of [Plotly](https://plotly.com/python/)-based visualization primitives for charting benchmark results.
 
 ## Installation
 
@@ -16,8 +14,7 @@ This installs Plotly, Kaleido (for static image export), and pandas.
 
 ## Theme and Color Management
 
-All LLMeter charts use a shared template and color cycle defined in
-`llmeter.plotting.defaults`:
+All LLMeter charts share a consistent visual theme and color palette managed through `llmeter.plotting.defaults`:
 
 ```python
 from llmeter.plotting import DEFAULT_TEMPLATE, get_colorway

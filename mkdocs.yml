@@ -43,7 +43,7 @@ nav:
       - user_guide/callbacks/cache_buster.md
       - user_guide/callbacks/cost.md
       - user_guide/callbacks/mlflow.md
-    - Plotting: user_guide/plotting.md
+    - Visualize Results: user_guide/plotting.md
   - API Reference:
     - reference/index.md
     - callbacks:
