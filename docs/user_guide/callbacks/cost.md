@@ -3,6 +3,7 @@
 Comparing AI endpoints and models by inference speed alone is, of course, not particularly useful: A holistic evaluation should consider other factors including cost and the various different ways "quality" can be measured too.
 
 Unfortunately, pricing for AI inference is not as simple as common "dollars per input and output token" listings might first appear:
+
 - Many services offer multiple "service tiers", volume discounts, region-specific prices, or other private agreements
 - We'd often like to compare as-a-service APIs to other options like pay-per-GPU-hour infrastructure hosting services
 

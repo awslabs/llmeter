@@ -13,12 +13,12 @@ See the dedicated sections in this guide on how [built-in callbacks](../../refer
 
 You can implement custom callbacks to add your own functionality to LLMeter, by extending from the [`Callback`](../../reference/callbacks/base/#llmeter.callbacks.base.Callback) base class and implementing one or multiple of its standard methods:
 
-- [`before_run`](../../reference/callbacks/base/#llmeter.callbacks.base.Callback.before_run) is called before each test Run starts, and has the opportunity to inspect or modify the run configuration.
+- [`before_run`](../../reference/callbacks/base/#llmeter.callbacks.base.Callback.before_run) is called before each test Run starts, and has the opportunity to inspect or modify the Run configuration.
 - [`before_invoke`](../../reference/callbacks/base/#llmeter.callbacks.base.Callback.before_invoke) is called before each individual model invocation, and can inspect or modify the request payload.
 - [`after_invoke`](../../reference/callbacks/base/#llmeter.callbacks.base.Callback.after_invoke) is called after each model invocation, and can inspect or modify the `InvocationResponse`.
-- [`after_run`](../../reference/callbacks/base/#llmeter.callbacks.base.Callback.after_run) is called after each test Run completes, and can inspect or modify the run `Result`.
+- [`after_run`](../../reference/callbacks/base/#llmeter.callbacks.base.Callback.after_run) is called after each test Run completes, and can inspect or modify the Run `Result`.
 
-Callbacks are processed outside of the timing of invocations, and `before_run` and `after_run` callbacks are processed outside of the timing of the overall run. However, it's important to remember that slow callbacks could still affect the overall volume of traffic that LLMeter is able to drive - and that the backlog of `after_invoke` callbacks must be cleared before a run is considered ended.
+Callbacks are processed outside of the timing of invocations, and `before_run` and `after_run` callbacks are processed outside of the timing of the overall Run. However, it's important to remember that slow callbacks could still affect the maximum volume of traffic that LLMeter is able to drive - and that the backlog of `after_invoke` callbacks must be cleared before a Run is considered ended.
 
 You can specify one or multiple callbacks when setting up your Runner, as below:
 

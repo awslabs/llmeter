@@ -7,3 +7,6 @@ When running many different tests or experiments, you'll likely be interested to
 Wherever your MLflow tracking server is hosted, you can use LLMeter's built-in [`MlflowCallback`](../../reference/callbacks/mlflow/#llmeter.callbacks.mlflow.MlflowCallback) to log your Run input parameters and output metrics to MLflow experiment runs.
 
 Just set up MLflow as usual in your script, before running your LLMeter `Runner`. You can find client setup guidance for MLflow on Amazon SageMaker [in its developer guide](https://docs.aws.amazon.com/sagemaker/latest/dg/mlflow-track-experiments.html).
+
+!!! tip "Logging callback-contributed stats"
+    If you're using some other callback that contributes statistics to the Run Result via an `after_run` hook, and you want those statistics to be reflected in your MLflow experiments, remember to include the `MlflowCallback` **after** your other stat-contributing callbacks - not before!
