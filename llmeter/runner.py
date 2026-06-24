@@ -659,7 +659,9 @@ class _Run(_RunConfig):
 
     async def _drain_backlog(self, results_task: asyncio.Task):
         """Wait for the results processor to finish, showing a backlog bar if needed."""
-        backlog_size = self._queue.qsize()
+        # Subtract 1 to exclude the None sentinel that _invoke_clients enqueued
+        # to signal end-of-stream — it won't trigger _advance_progress().
+        backlog_size = self._queue.qsize() - 1
         if backlog_size > 0:
             self._backlog_bar = tqdm(
                 total=backlog_size,
