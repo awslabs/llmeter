@@ -481,6 +481,22 @@ def test_load_with_corrupt_stats_json_no_responses(sample_result: Result, temp_d
     assert stats["total_requests"] == 5
 
 
+def test_load_missing_responses_jsonl_with_summary(sample_result: Result, temp_dir):
+    """Missing responses.jsonl should not crash; stats come from stats.json."""
+    output_path = temp_dir / "no_responses"
+    sample_result.save(output_path)
+
+    # Remove responses.jsonl
+    (output_path / "responses.jsonl").unlink()
+
+    loaded = Result.load(output_path, load_responses=True)
+
+    assert loaded.responses == []
+    assert loaded.total_requests == 5
+    # Stats should come from stats.json on disk
+    assert "time_to_first_token-p50" in loaded.stats
+
+
 # Tests for llmeter_default_serializer
 # Validates Requirements: 7.1, 7.2
 

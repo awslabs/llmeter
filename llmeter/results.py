@@ -216,10 +216,10 @@ class Result:
         """
         Load run results from disk or cloud storage.
 
-        Reads previously saved run results from the specified
-        path. It expects 'summary.json' to be present in the given directory.
-        By default, also loads 'responses.jsonl' containing individual invocation
-        responses.
+        Reads previously saved run results from the specified path. Handles
+        both complete runs (with ``summary.json``) and interrupted runs where
+        only ``responses.jsonl``, ``run_config.json``, or ``stats.json`` are
+        available.
 
         Args:
             result_path (UPath | str): The path to the directory containing the
@@ -235,77 +235,63 @@ class Result:
             responses and summary data.
 
         Raises:
-            FileNotFoundError: If required files are not found in the specified
-                directory.
-            JSONDecodeError: If there's an issue parsing the JSON data in
-                either file.
-
+            FileNotFoundError: If the directory does not exist or contains no
+                recognizable result files (``summary.json``, ``responses.jsonl``,
+                or ``stats.json``).
+            JSONDecodeError: If ``summary.json`` cannot be parsed.
         """
         result_path = ensure_path(result_path)
         summary_path = result_path / "summary.json"
 
-        if not summary_path.exists():
-            return cls._load_without_summary(result_path, load_responses)
-
-        with summary_path.open("r") as g:
-            summary = json.load(g)
-
-        cls._parse_datetime_fields(summary)
-
-        # Ensure output_path is set so load_responses() can find the files later
-        if "output_path" not in summary or summary["output_path"] is None:
-            summary["output_path"] = str(result_path)
-
-        if load_responses:
-            responses_path = result_path / "responses.jsonl"
-            with responses_path.open("r") as f:
-                responses = [InvocationResponse.from_json(line) for line in f if line]
+        # 1. Resolve metadata
+        if summary_path.exists():
+            metadata = cls._load_summary(result_path)
         else:
-            responses = []
-            responses_path = result_path / "responses.jsonl"
+            metadata = cls._recover_metadata(result_path)
+
+        # 2. Load responses (if requested and available)
+        responses = cls._read_responses(result_path) if load_responses else []
+        if not load_responses:
             logger.info(
                 "Loaded summary only (responses not loaded). "
-                "Individual responses are stored at: %s. "
                 "Call result.load_responses() to load them on demand.",
-                responses_path,
             )
 
-        result = cls(responses=responses, **summary)
-        stats_path = result_path / "stats.json"
-        cls._resolve_stats(result, stats_path)
+        # 3. Construct and resolve stats
+        result = cls(responses=responses, **metadata)
+        cls._resolve_stats(result, result_path / "stats.json")
         return result
 
     @classmethod
-    def _load_without_summary(
-        cls, result_path, load_responses: bool = True
-    ) -> "Result":
-        """Reconstruct a Result from an incomplete run directory (no summary.json).
+    def _load_summary(cls, result_path) -> dict[str, Any]:
+        """Load metadata from a complete run directory (has ``summary.json``)."""
+        summary_path = result_path / "summary.json"
+        with summary_path.open("r") as f:
+            summary = json.load(f)
 
-        This handles the case where a run was interrupted (e.g. Ctrl+C) before
-        ``summary.json`` could be written. It reconstructs what it can from
-        whatever files are available:
+        cls._parse_datetime_fields(summary)
 
-        - ``responses.jsonl``: Individual invocation responses (main data source)
-        - ``run_config.json``: Run configuration (endpoint, payload, clients, etc.)
-        - ``stats.json``: Pre-computed statistics (if available)
+        if "output_path" not in summary or summary["output_path"] is None:
+            summary["output_path"] = str(result_path)
 
-        Args:
-            result_path: Path to the run output directory.
-            load_responses: Whether to load individual responses into memory.
+        return summary
 
-        Returns:
-            A ``Result`` instance reconstructed from available files.
+    @classmethod
+    def _recover_metadata(cls, result_path) -> dict[str, Any]:
+        """Recover metadata from an incomplete run directory (no ``summary.json``).
+
+        Reconstructs what it can from ``run_config.json`` and, if responses are
+        readable, their timestamps. Falls back gracefully when files are missing
+        or corrupt.
 
         Raises:
             FileNotFoundError: If neither ``responses.jsonl`` nor ``stats.json``
-                exist at the given path (no useful data to recover).
+                exist (no useful data to recover).
         """
-        result_path = ensure_path(result_path)
         responses_path = result_path / "responses.jsonl"
         config_path = result_path / "run_config.json"
         stats_path = result_path / "stats.json"
 
-        # We need at least responses or stats to reconstruct anything useful
         if not responses_path.exists() and not stats_path.exists():
             raise FileNotFoundError(
                 f"Cannot recover run from '{result_path}': neither 'summary.json' "
@@ -313,77 +299,78 @@ class Result:
                 "There is no data to recover."
             )
 
+        metadata: dict[str, Any] = {"output_path": str(result_path)}
+
         # Extract what we can from run_config.json
-        config_info: dict[str, Any] = {}
         if config_path.exists():
             try:
                 with config_path.open("r") as f:
                     config = json.load(f)
-                # Pull relevant fields from the run config
-                if "clients" in config:
-                    config_info["clients"] = config["clients"]
-                if "n_requests" in config:
-                    config_info["n_requests"] = config["n_requests"]
-                if "run_name" in config:
-                    config_info["run_name"] = config["run_name"]
-                if "run_description" in config:
-                    config_info["run_description"] = config["run_description"]
-                # Extract endpoint info
+                for passthru_field in (
+                    "clients",
+                    "n_requests",
+                    "run_name",
+                    "run_description",
+                ):
+                    if passthru_field in config:
+                        metadata[passthru_field] = config[passthru_field]
                 endpoint = config.get("endpoint", {})
                 if isinstance(endpoint, dict):
-                    config_info["model_id"] = endpoint.get("model_id")
-                    config_info["endpoint_name"] = endpoint.get("endpoint_name")
-                    config_info["provider"] = endpoint.get("provider")
+                    metadata["model_id"] = endpoint.get("model_id")
+                    metadata["endpoint_name"] = endpoint.get("endpoint_name")
+                    metadata["provider"] = endpoint.get("provider")
             except (json.JSONDecodeError, KeyError) as e:
                 logger.warning(f"Could not parse run_config.json: {e}")
 
-        # Load responses if available and requested
-        responses: list[InvocationResponse] = []
-        if load_responses and responses_path.exists():
-            with responses_path.open("r") as f:
-                responses = [InvocationResponse.from_json(line) for line in f if line]
-            logger.info(
-                "Recovered %d responses from interrupted run at %s",
-                len(responses),
-                result_path,
-            )
-        elif not load_responses and responses_path.exists():
-            logger.info(
-                "Recovered run metadata from interrupted run at %s. "
-                "Call result.load_responses() to load %s.",
-                result_path,
-                responses_path,
-            )
-
-        # Derive timing info from response request_time timestamps
-        first_request_time = None
-        last_request_time = None
-        if responses:
-            request_times = [
-                r.request_time for r in responses if r.request_time is not None
-            ]
-            if request_times:
-                first_request_time = min(request_times)
-                last_request_time = max(request_times)
-
-        result = cls(
-            responses=responses,
-            total_requests=len(responses) if responses else None,
-            output_path=str(result_path),
-            start_time=first_request_time,
-            first_request_time=first_request_time,
-            last_request_time=last_request_time,
-            end_time=last_request_time,
-            **config_info,
-        )
-
-        cls._resolve_stats(result, stats_path)
+        # Derive timing info and count by streaming through responses
+        if responses_path.exists():
+            try:
+                first = None
+                last = None
+                count = 0
+                with responses_path.open("r") as f:
+                    for line in f:
+                        if not line:
+                            continue
+                        count += 1
+                        resp = InvocationResponse.from_json(line)
+                        if resp.request_time is not None:
+                            if first is None or resp.request_time < first:
+                                first = resp.request_time
+                            if last is None or resp.request_time > last:
+                                last = resp.request_time
+                if first is not None:
+                    metadata.update(
+                        start_time=first,
+                        first_request_time=first,
+                        last_request_time=last,
+                        end_time=last,
+                    )
+                metadata["total_requests"] = count
+            except OSError as e:
+                logger.warning(f"Could not read responses.jsonl for timestamps: {e}")
 
         logger.warning(
             "Loaded result from interrupted run (no summary.json). "
             "Some metadata may be incomplete."
         )
-        return result
+        return metadata
+
+    @classmethod
+    def _read_responses(cls, result_path) -> list[InvocationResponse]:
+        """Read responses.jsonl, returning an empty list if the file is missing."""
+        responses_path = result_path / "responses.jsonl"
+        if not responses_path.exists():
+            logger.warning(
+                "responses.jsonl not found at %s. "
+                "Responses will be empty; stats may come from stats.json.",
+                result_path,
+            )
+            return []
+        with responses_path.open("r") as f:
+            responses = [InvocationResponse.from_json(line) for line in f if line]
+        logger.info("Loaded %d responses from %s", len(responses), responses_path)
+        return responses
 
     @classmethod
     def _resolve_stats(cls, result: "Result", stats_path) -> None:
