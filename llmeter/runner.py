@@ -831,47 +831,21 @@ class _Run(_RunConfig):
                 # External cancellation with no collected data (e.g. timeout)
                 return result
 
-            actual_total = self._running_stats._count
-            result = replace(
-                result,
-                responses=self._responses,
-                total_test_time=total_test_time,
-                total_requests=actual_total,
-                n_requests=actual_total // max(self.clients, 1),
-                start_time=run_start_time,
-                first_request_time=self._running_stats._first_send_time,
-                last_request_time=self._running_stats._last_send_time,
-                end_time=run_end_time,
-            )
-            result._preloaded_stats = self._running_stats.to_stats(
-                end_time=run_end_time,
-                result_dict=result.to_dict(),
-            )
-            result._preloaded_stats["start_time"] = run_start_time
-            result._preloaded_stats["end_time"] = run_end_time
-            result._preloaded_stats["interrupted"] = True
-
-            if result.output_path:
-                result.save()
-                logger.info(
-                    f"Partial results saved to {result.output_path}. "
-                    "Use Result.load() to recover them."
-                )
-
-            return result
-
-        logger.info(f"Test completed in {total_test_time * 1000:.2f} seconds.")
-
         actual_total = self._running_stats._count
+
+        if interrupted:
+            n_requests = actual_total // max(self.clients, 1)
+        elif self._time_bound:
+            n_requests = actual_total // max(self.clients, 1)
+        else:
+            n_requests = self.n_requests
 
         result = replace(
             result,
             responses=self._responses,
             total_test_time=total_test_time,
             total_requests=actual_total,
-            n_requests=actual_total // max(self.clients, 1)
-            if self._time_bound
-            else self.n_requests,
+            n_requests=n_requests,
             start_time=run_start_time,
             first_request_time=self._running_stats._first_send_time,
             last_request_time=self._running_stats._last_send_time,
@@ -885,19 +859,35 @@ class _Run(_RunConfig):
         )
         result._preloaded_stats["start_time"] = run_start_time
         result._preloaded_stats["end_time"] = run_end_time
-        result._preloaded_stats["total_test_time"] = total_test_time
 
-        if self.low_memory:
+        if interrupted:
+            result._preloaded_stats["interrupted"] = True
+        else:
+            result._preloaded_stats["total_test_time"] = total_test_time
+            logger.info(f"Test completed in {total_test_time * 1000:.2f} seconds.")
+
+        if self.low_memory and not interrupted:
             logger.info(
                 "Low-memory mode: responses not stored in memory. "
                 "Use result.load_responses() to load from disk."
             )
 
         if self.callbacks is not None:
-            [await cb.after_run(result) for cb in self.callbacks]
+            for cb in self.callbacks:
+                try:
+                    await cb.after_run(result)
+                except Exception as e:
+                    logger.debug(
+                        f"Callback {cb.__class__.__name__}.after_run failed: {e}"
+                    )
 
         if result.output_path:
             result.save()
+            if interrupted:
+                logger.info(
+                    f"Partial results saved to {result.output_path}. "
+                    "Use Result.load() to recover them."
+                )
 
         return result
 
