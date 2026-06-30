@@ -198,10 +198,6 @@ class SystemMetricsMonitor(Callback):
         # Contribute to result
         result._update_contributed_stats(stats)
 
-        # Store raw samples on the result for potential detailed analysis
-        if not hasattr(result, "_system_metrics_samples"):
-            result._system_metrics_samples = self._samples
-
         logger.info(
             "System metrics: %d samples collected. CPU avg=%.1f%%, "
             "Memory RSS peak=%.1f MB, Net sent=%d bytes, Net recv=%d bytes",
@@ -248,24 +244,7 @@ class SystemMetricsMonitor(Callback):
             last_sample.net_bytes_recv - self._net_start[1]
         )
 
-        # Network rates (bytes per second)
-        if len(self._samples) >= 2:
-            duration = self._samples[-1].timestamp - self._samples[0].timestamp
-            if duration > 0:
-                net_sent_delta = (
-                    self._samples[-1].net_bytes_sent - self._samples[0].net_bytes_sent
-                )
-                net_recv_delta = (
-                    self._samples[-1].net_bytes_recv - self._samples[0].net_bytes_recv
-                )
-                stats["system_net_bytes_sent_per_second-average"] = (
-                    net_sent_delta / duration
-                )
-                stats["system_net_bytes_recv_per_second-average"] = (
-                    net_recv_delta / duration
-                )
-
-        # Per-interval network rates for percentile calculations
+        # Per-interval network rates (average, p50, p90, p99)
         if len(self._samples) >= 2:
             send_rates = []
             recv_rates = []
