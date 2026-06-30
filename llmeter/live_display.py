@@ -25,6 +25,7 @@ DEFAULT_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("TTLT", ("ttlt",)),
     ("Tokens", ("token",)),
     ("Errors", ("fail",)),
+    ("System", ("system_",)),
     ("Other", ("",)),
 )
 
@@ -202,6 +203,10 @@ class LiveStatsDisplay:
         alias renaming and formatting, and returns an ordered dict of
         ``{display_label: formatted_value}`` strings.
 
+        Additionally, any keys in *raw* not covered by ``self._display_stats``
+        that are contributed by callbacks (via ``Callback.live_stats()``) are
+        appended with automatic formatting.
+
         Args:
             raw: Flat dictionary of raw numeric stats, as returned by
                 ``RunningStats.to_stats()``.
@@ -214,6 +219,7 @@ class LiveStatsDisplay:
             return {label: "—" for label in self._display_stats}
 
         info: dict[str, str] = {}
+        mapped_keys: set[str] = set()
         for label, spec in self._display_stats.items():
             if isinstance(spec, tuple):
                 key, modifier = spec[0], spec[1]
@@ -222,6 +228,7 @@ class LiveStatsDisplay:
                 key = spec
                 invert = False
 
+            mapped_keys.add(key)
             val = raw.get(key)
             if val is None:
                 info[label] = "—"
@@ -231,6 +238,21 @@ class LiveStatsDisplay:
                 info[label] = _format_stat(key, float(val), invert=invert)
             except (TypeError, ValueError):
                 info[label] = str(val)
+
+        # Include extra callback-contributed stats not covered by _display_stats
+        for key, val in raw.items():
+            if key in mapped_keys or val is None:
+                continue
+            # Only include keys that look like live callback stats (numeric, not
+            # part of the standard RunningStats output)
+            if not isinstance(val, (int, float)):
+                continue
+            # Use the key itself as the label, skipping standard internal keys
+            if key.startswith("system_") or key.startswith("cb_"):
+                try:
+                    info[key] = _format_stat(key, float(val))
+                except (TypeError, ValueError):
+                    info[key] = str(val)
 
         return info
 
