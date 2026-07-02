@@ -748,3 +748,133 @@ class TestRunnerInterruptFlow:
         assert result.total_test_time is None  # Unknown for interrupted runs
         assert result.clients == 1
         assert result.model_id == "test-model"
+
+    @pytest.mark.asyncio
+    async def test_callbacks_after_run_called_on_interrupt(
+        self, tmp_path, mock_endpoint
+    ):
+        """after_run() should be called on all callbacks even when the run is interrupted."""
+        from llmeter.callbacks.base import Callback
+        from llmeter.runner import Runner
+        from llmeter.tokenizers import DummyTokenizer
+
+        class SpyCallback(Callback):
+            def __init__(self):
+                self.before_run_called = False
+                self.after_run_called = False
+                self.after_run_result = None
+
+            async def before_run(self, run_config):
+                self.before_run_called = True
+
+            async def after_run(self, result):
+                self.after_run_called = True
+                self.after_run_result = result
+
+        cb1 = SpyCallback()
+        cb2 = SpyCallback()
+
+        runner = Runner(
+            endpoint=mock_endpoint,
+            tokenizer=DummyTokenizer(),
+            output_path=UPath(tmp_path / "cb_interrupt"),
+            clients=1,
+            n_requests=200,
+            payload=[{"prompt": "hello"}],
+            callbacks=[cb1, cb2],
+        )
+
+        call_count = 0
+
+        def fast_invoke(payload):
+            nonlocal call_count
+            import time
+
+            call_count += 1
+            time.sleep(0.01)
+            return InvocationResponse(
+                id=f"r{call_count}",
+                input_prompt="test",
+                response_text="resp",
+                num_tokens_input=5,
+                num_tokens_output=10,
+            )
+
+        mock_endpoint.invoke = fast_invoke
+
+        loop = asyncio.get_running_loop()
+        loop.call_later(0.5, os.kill, os.getpid(), signal.SIGINT)
+
+        result = await runner.run()
+
+        # Verify the run was indeed interrupted
+        assert result.stats.get("interrupted") is True
+
+        # Both callbacks should have before_run and after_run called
+        assert cb1.before_run_called is True
+        assert cb1.after_run_called is True
+        assert cb1.after_run_result is result
+
+        assert cb2.before_run_called is True
+        assert cb2.after_run_called is True
+        assert cb2.after_run_result is result
+
+    @pytest.mark.asyncio
+    async def test_callback_after_run_exception_does_not_block_others(
+        self, tmp_path, mock_endpoint
+    ):
+        """If one callback's after_run() raises on interrupt, others still run."""
+        from llmeter.callbacks.base import Callback
+        from llmeter.runner import Runner
+        from llmeter.tokenizers import DummyTokenizer
+
+        class ExplodingCallback(Callback):
+            async def after_run(self, result):
+                raise RuntimeError("boom")
+
+        class SpyCallback(Callback):
+            def __init__(self):
+                self.after_run_called = False
+
+            async def after_run(self, result):
+                self.after_run_called = True
+
+        exploding = ExplodingCallback()
+        spy = SpyCallback()
+
+        runner = Runner(
+            endpoint=mock_endpoint,
+            tokenizer=DummyTokenizer(),
+            output_path=UPath(tmp_path / "cb_exc"),
+            clients=1,
+            n_requests=200,
+            payload=[{"prompt": "hello"}],
+            callbacks=[exploding, spy],
+        )
+
+        call_count = 0
+
+        def fast_invoke(payload):
+            nonlocal call_count
+            import time
+
+            call_count += 1
+            time.sleep(0.01)
+            return InvocationResponse(
+                id=f"r{call_count}",
+                input_prompt="test",
+                response_text="resp",
+                num_tokens_input=5,
+                num_tokens_output=10,
+            )
+
+        mock_endpoint.invoke = fast_invoke
+
+        loop = asyncio.get_running_loop()
+        loop.call_later(0.5, os.kill, os.getpid(), signal.SIGINT)
+
+        result = await runner.run()
+
+        assert result.stats.get("interrupted") is True
+        # The spy callback should still have been called despite the exploding one
+        assert spy.after_run_called is True
