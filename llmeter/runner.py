@@ -833,9 +833,7 @@ class _Run(_RunConfig):
 
         actual_total = self._running_stats._count
 
-        if interrupted:
-            n_requests = actual_total // max(self.clients, 1)
-        elif self._time_bound:
+        if interrupted or self._time_bound:
             n_requests = actual_total // max(self.clients, 1)
         else:
             n_requests = self.n_requests
@@ -859,15 +857,15 @@ class _Run(_RunConfig):
         )
         result._preloaded_stats["start_time"] = run_start_time
         result._preloaded_stats["end_time"] = run_end_time
+        result._preloaded_stats["total_test_time"] = total_test_time
 
         if interrupted:
             result._preloaded_stats["interrupted"] = True
         else:
-            result._preloaded_stats["total_test_time"] = total_test_time
             logger.info(f"Test completed in {total_test_time * 1000:.2f} seconds.")
 
-        if self.low_memory and not interrupted:
-            logger.info(
+        if self.low_memory:
+            logger.warning(
                 "Low-memory mode: responses not stored in memory. "
                 "Use result.load_responses() to load from disk."
             )
