@@ -42,6 +42,7 @@ nav:
       - user_guide/callbacks/cache_buster.md
       - user_guide/callbacks/cost.md
       - user_guide/callbacks/mlflow.md
+      - user_guide/callbacks/system_metrics.md
   - API Reference:
     - reference/index.md
     - callbacks:

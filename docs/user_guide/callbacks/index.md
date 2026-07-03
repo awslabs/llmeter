@@ -6,6 +6,7 @@ See the dedicated sections in this guide on how [built-in callbacks](../../refer
 
 - [Avoid prompt caching](cache_buster.md) on your target Endpoint
 - [Model and compare the costs](cost.md) of different Endpoints
+- [Monitor system resources](system_metrics.md) (CPU, memory, network I/O) during runs
 - [Track your experiments](mlflow.md) with MLflow
 
 
