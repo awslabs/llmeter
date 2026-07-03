@@ -6,6 +6,7 @@ import logging
 import threading
 import time
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from upath.types import ReadablePathLike, WritablePathLike
 
@@ -24,6 +25,17 @@ except ImportError as e:
         "Install with: pip install 'llmeter[system-metrics]'"
     )
     psutil = DeferredError(e)
+
+if not TYPE_CHECKING:
+    try:
+        import plotly.graph_objects as go
+        from plotly.subplots import make_subplots
+    except ImportError as e:
+        go = DeferredError(e)
+        make_subplots = DeferredError(e)
+else:
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
 
 
 @dataclass
@@ -92,25 +104,6 @@ class SystemMetricsMonitor(Callback):
         self._stop_event: threading.Event = threading.Event()
         self._process: object = None
         self._net_start: tuple[int, int] = (0, 0)
-
-    def __getstate__(self):
-        """Support pickling/deepcopy by excluding non-serializable thread state."""
-        return {
-            "sample_interval": self.sample_interval,
-            "per_process": self.per_process,
-            "_samples": self._samples,
-            "_net_start": self._net_start,
-        }
-
-    def __setstate__(self, state):
-        """Restore from pickle/deepcopy, reinitializing thread primitives."""
-        self.sample_interval = state["sample_interval"]
-        self.per_process = state["per_process"]
-        self._samples = state["_samples"]
-        self._net_start = state["_net_start"]
-        self._thread = None
-        self._stop_event = threading.Event()
-        self._process = None
 
     def _collect_sample(self) -> _Sample:
         """Collect a single metrics sample."""
@@ -197,6 +190,10 @@ class SystemMetricsMonitor(Callback):
 
         # Contribute to result
         result._update_contributed_stats(stats)
+
+        # Persist raw samples alongside the result
+        if result.output_path:
+            self._save_samples(result.output_path)
 
         logger.info(
             "System metrics: %d samples collected. CPU avg=%.1f%%, "
@@ -314,20 +311,98 @@ class SystemMetricsMonitor(Callback):
 
         return stats
 
+    def _save_samples(self, output_path: WritablePathLike) -> None:
+        """Save raw samples to a JSONL file alongside the result.
+
+        Args:
+            output_path: The result's output directory.
+        """
+        import json
+
+        from ..utils import ensure_path
+
+        path = ensure_path(output_path) / "system_metrics_samples.jsonl"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("w") as f:
+            for sample in self._samples:
+                f.write(
+                    json.dumps(
+                        {
+                            "timestamp": sample.timestamp,
+                            "cpu_percent": sample.cpu_percent,
+                            "memory_rss_mb": sample.memory_rss_mb,
+                            "memory_vms_mb": sample.memory_vms_mb,
+                            "net_bytes_sent": sample.net_bytes_sent,
+                            "net_bytes_recv": sample.net_bytes_recv,
+                        }
+                    )
+                    + "\n"
+                )
+        logger.debug("Saved %d system metrics samples to %s", len(self._samples), path)
+
+    @classmethod
+    def load_samples(cls, output_path: ReadablePathLike) -> list[_Sample]:
+        """Load raw samples from a previously saved result directory.
+
+        This allows time-series analysis and ``plot_samples()`` on results loaded
+        from disk, without needing to re-run the benchmark.
+
+        Args:
+            output_path: The result's output directory (same path used with
+                ``Result.load()``).
+
+        Returns:
+            A list of ``_Sample`` dataclass instances.
+
+        Raises:
+            FileNotFoundError: If no samples file exists at the given path.
+
+        Example::
+
+            monitor = SystemMetricsMonitor()
+            monitor._samples = SystemMetricsMonitor.load_samples("outputs/my-run/20240101-1200")
+            monitor.plot_samples()
+        """
+        import json
+
+        from ..utils import ensure_path
+
+        path = ensure_path(output_path) / "system_metrics_samples.jsonl"
+        if not path.exists():
+            raise FileNotFoundError(
+                f"No system metrics samples found at {path}. "
+                "Ensure the run was executed with a SystemMetricsMonitor and an output_path."
+            )
+
+        samples = []
+        with path.open("r") as f:
+            for line in f:
+                d = json.loads(line)
+                samples.append(_Sample(**d))
+        return samples
+
     def save_to_file(self, path: WritablePathLike) -> None:
-        """Save this SystemMetricsMonitor configuration to file."""
+        """Save this SystemMetricsMonitor configuration to file.
+
+        Uses the ``__llmeter_class__``/``__llmeter_state__`` envelope format
+        compatible with the unified serialization layer.
+        """
         import json
 
         from ..utils import ensure_path
 
         out_path = ensure_path(path)
-        config = {
-            "type": "SystemMetricsMonitor",
-            "sample_interval": self.sample_interval,
-            "per_process": self.per_process,
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        class_path = f"{self.__class__.__module__}.{self.__class__.__qualname__}"
+        data = {
+            "__llmeter_class__": class_path,
+            "__llmeter_state__": {
+                "sample_interval": self.sample_interval,
+                "per_process": self.per_process,
+            },
         }
         with out_path.open("w") as f:
-            json.dump(config, f, indent=2)
+            json.dump(data, f, indent=2)
 
     @classmethod
     def _load_from_file(cls, path: ReadablePathLike) -> "SystemMetricsMonitor":
@@ -338,9 +413,82 @@ class SystemMetricsMonitor(Callback):
 
         in_path = ensure_path(path)
         with in_path.open("r") as f:
-            config = json.load(f)
+            data = json.load(f)
+
+        # Support both legacy format and new envelope format
+        if "__llmeter_state__" in data:
+            state = data["__llmeter_state__"]
+        else:
+            state = data
 
         return cls(
-            sample_interval=config.get("sample_interval", 1.0),
-            per_process=config.get("per_process", True),
+            sample_interval=state.get("sample_interval", 1.0),
+            per_process=state.get("per_process", True),
         )
+
+    def plot_samples(self, show: bool = True):
+        """Plot time-series of collected samples (CPU, memory, network).
+
+        Creates a multi-panel figure showing how system resources evolved over
+        the duration of the last run. Requires the ``plotting`` extra
+        (``pip install 'llmeter[plotting]'``).
+
+        Args:
+            show: Whether to display the figure interactively. Default True.
+
+        Returns:
+            plotly.graph_objects.Figure: The generated figure.
+
+        Raises:
+            ValueError: If no samples have been collected yet.
+        """
+        if not self._samples:
+            raise ValueError(
+                "No samples to plot. Run a benchmark with this monitor attached first."
+            )
+
+        t0 = self._samples[0].timestamp
+        times = [s.timestamp - t0 for s in self._samples]
+        cpu = [s.cpu_percent for s in self._samples]
+        rss = [s.memory_rss_mb for s in self._samples]
+        net_recv = [s.net_bytes_recv for s in self._samples]
+
+        fig = make_subplots(
+            rows=3,
+            cols=1,
+            shared_xaxes=True,
+            subplot_titles=(
+                "CPU Usage (%)",
+                "Memory RSS (MB)",
+                "Cumulative Network Received (bytes)",
+            ),
+            vertical_spacing=0.08,
+        )
+
+        fig.add_trace(
+            go.Scatter(x=times, y=cpu, mode="lines+markers", name="CPU %"),
+            row=1,
+            col=1,
+        )
+        fig.add_trace(
+            go.Scatter(x=times, y=rss, mode="lines+markers", name="RSS MB"),
+            row=2,
+            col=1,
+        )
+        fig.add_trace(
+            go.Scatter(x=times, y=net_recv, mode="lines+markers", name="Net Recv"),
+            row=3,
+            col=1,
+        )
+
+        fig.update_layout(
+            height=700,
+            title_text="System Metrics Over Time",
+            showlegend=False,
+            template="plotly_white",
+        )
+        fig.update_xaxes(title_text="Time (seconds)", row=3, col=1)
+
+        if show:
+            fig.show()
+        return fig

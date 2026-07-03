@@ -2,71 +2,40 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import asyncio
-import copy
 import json
-import pickle
 import tempfile
-from dataclasses import asdict
 from pathlib import Path
 
 import pytest
 
-from llmeter.callbacks.system_metrics import SystemMetricsMonitor, _Sample
+from llmeter.callbacks.system_metrics import SystemMetricsMonitor
 from llmeter.results import Result
 
 
-class TestSystemMetricsMonitorPickle:
-    """Ensure SystemMetricsMonitor survives pickle, deepcopy, and dataclasses.asdict.
+class TestSystemMetricsMonitorSerialization:
+    """Ensure SystemMetricsMonitor configuration can be saved and loaded."""
 
-    The Runner calls dataclasses.asdict() on its _RunConfig (which includes callbacks)
-    when saving run_config.json. This internally does a deepcopy of all field values.
-    Callbacks with threading primitives (locks, events, threads) must handle this
-    gracefully.
-    """
+    def test_save_to_file_and_load(self):
+        """Test callback configuration persistence."""
+        monitor = SystemMetricsMonitor(sample_interval=2.5, per_process=False)
 
-    def test_deepcopy(self):
-        """Callbacks must survive copy.deepcopy (used by dataclasses.asdict)."""
-        monitor = SystemMetricsMonitor(sample_interval=0.5, per_process=True)
-        monitor_copy = copy.deepcopy(monitor)
+        with tempfile.TemporaryDirectory() as tmpdir:
+            path = Path(tmpdir) / "monitor.json"
+            monitor.save_to_file(path)
 
-        assert monitor_copy.sample_interval == 0.5
-        assert monitor_copy.per_process is True
-        assert monitor_copy._stop_event is not monitor._stop_event
+            # Verify file contents use the envelope format
+            with open(path) as f:
+                config = json.load(f)
+            assert "__llmeter_class__" in config
+            assert "__llmeter_state__" in config
+            assert "SystemMetricsMonitor" in config["__llmeter_class__"]
+            assert config["__llmeter_state__"]["sample_interval"] == 2.5
+            assert config["__llmeter_state__"]["per_process"] is False
 
-    def test_pickle_roundtrip(self):
-        """Callbacks must survive pickle serialization."""
-        monitor = SystemMetricsMonitor(sample_interval=2.0, per_process=False)
-        data = pickle.dumps(monitor)
-        restored = pickle.loads(data)
-
-        assert restored.sample_interval == 2.0
-        assert restored.per_process is False
-        assert hasattr(restored, "_stop_event")
-        assert hasattr(restored, "_thread")
-
-    def test_asdict(self):
-        """dataclasses.asdict must not raise on SystemMetricsMonitor."""
-        monitor = SystemMetricsMonitor(sample_interval=1.0, per_process=True)
-        d = asdict(monitor)
-
-        assert d == {"sample_interval": 1.0, "per_process": True}
-
-    def test_deepcopy_preserves_samples(self):
-        """Collected samples should survive deepcopy."""
-        monitor = SystemMetricsMonitor(sample_interval=1.0)
-        monitor._samples = [
-            _Sample(
-                timestamp=1.0,
-                cpu_percent=25.0,
-                memory_rss_mb=100.0,
-                memory_vms_mb=200.0,
-                net_bytes_sent=1000,
-                net_bytes_recv=2000,
-            )
-        ]
-        monitor_copy = copy.deepcopy(monitor)
-        assert len(monitor_copy._samples) == 1
-        assert monitor_copy._samples[0].cpu_percent == 25.0
+            # Load back
+            restored = SystemMetricsMonitor._load_from_file(path)
+            assert restored.sample_interval == 2.5
+            assert restored.per_process is False
 
 
 class TestSystemMetricsMonitorLifecycle:
@@ -206,26 +175,6 @@ class TestSystemMetricsMonitorPersistence:
                 assert "system_memory_rss_mb-max" in loaded_no_resp.stats
 
         asyncio.run(_test())
-
-    def test_save_to_file_and_load(self):
-        """Test callback configuration persistence."""
-        monitor = SystemMetricsMonitor(sample_interval=2.5, per_process=False)
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            path = Path(tmpdir) / "monitor.json"
-            monitor.save_to_file(path)
-
-            # Verify file contents
-            with open(path) as f:
-                config = json.load(f)
-            assert config["type"] == "SystemMetricsMonitor"
-            assert config["sample_interval"] == 2.5
-            assert config["per_process"] is False
-
-            # Load back
-            restored = SystemMetricsMonitor._load_from_file(path)
-            assert restored.sample_interval == 2.5
-            assert restored.per_process is False
 
 
 class TestSystemMetricsMonitorReuse:

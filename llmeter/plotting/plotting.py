@@ -452,6 +452,7 @@ def latency_clients_fig(
 def plot_load_test_results(
     load_test_result: LoadTestResult,
     log_scale=True,
+    extra_stats: dict[str, str] | None = None,
 ) -> dict[str, go.Figure]:
     """
     Generate a collection of plots visualizing different metrics from a load test result.
@@ -459,6 +460,14 @@ def plot_load_test_results(
     Args:
         load_test_result (LoadTestResult): The load test result object containing the data to plot
         log_scale (bool, optional): Whether to use logarithmic scale for the plots. Defaults to True.
+        extra_stats (dict[str, str] | None): Additional stat keys to plot vs number of clients.
+            Maps stat keys (as they appear in ``result.stats``) to display labels for the y-axis.
+            Each entry produces a separate figure. For example::
+
+                extra_stats={
+                    "system_cpu_percent-p90": "CPU p90 (%)",
+                    "system_memory_rss_mb-max": "RSS peak (MB)",
+                }
 
     Returns:
         dict: Dictionary containing the following plots:
@@ -468,6 +477,7 @@ def plot_load_test_results(
             - error_rate: Figure showing error rate vs number of clients
             - average_input_tokens_clients: Figure showing average input tokens per minute vs clients
             - average_output_tokens_clients: Figure showing average output tokens per minute vs clients
+            - One additional figure per entry in ``extra_stats``
     """
     f1 = latency_clients_fig(
         load_test_result, "time_to_first_token", log_scale=log_scale
@@ -480,7 +490,7 @@ def plot_load_test_results(
     f5 = average_input_tokens_clients_fig(load_test_result, log_scale=log_scale)
     f6 = average_output_tokens_clients_fig(load_test_result, log_scale=log_scale)
 
-    return {
+    figs = {
         "time_to_first_token": f1,
         "time_to_last_token": f2,
         "requests_per_minute": f3,
@@ -488,3 +498,21 @@ def plot_load_test_results(
         "average_input_tokens_clients": f5,
         "average_output_tokens_clients": f6,
     }
+
+    if extra_stats:
+        for stat_key, label in extra_stats.items():
+            fig = go.Figure()
+            fig.add_trace(
+                stat_clients(load_test_result, stat_key, name=label, opacity=1.0)
+            )
+            fig.update_layout(
+                title=f"{label} vs number of clients",
+                xaxis_title="Number of clients",
+                yaxis_title=label,
+                template="plotly_white",
+            )
+            if log_scale:
+                fig.update_xaxes(type="log")
+            figs[stat_key] = fig
+
+    return figs
