@@ -407,11 +407,13 @@ def test_save_method_existing_responses(sample_result: Result, temp_dir: UPath):
         assert responses[-1]["id"] == "extra_response"
 
 
-# ── _parse_datetime_fields introspection ───────────────────────────────────────
+# ── restore_dataclass_types introspection ──────────────────────────────────────
 
 
-def test_parse_datetime_fields_converts_iso_strings():
-    """_parse_datetime_fields should convert all datetime-typed field keys."""
+def test_restore_dataclass_types_converts_iso_strings():
+    """restore_dataclass_types should convert all datetime-typed field keys."""
+    from llmeter.serialization import restore_dataclass_types
+
     d = {
         "start_time": "2025-06-01T10:00:00Z",
         "end_time": "2025-06-01T10:05:00+00:00",
@@ -419,7 +421,7 @@ def test_parse_datetime_fields_converts_iso_strings():
         "last_request_time": None,
         "total_requests": 5,  # non-datetime field, should be left alone
     }
-    Result._parse_datetime_fields(d)
+    restore_dataclass_types(Result, d)
 
     assert isinstance(d["start_time"], datetime)
     assert isinstance(d["end_time"], datetime)
@@ -428,20 +430,24 @@ def test_parse_datetime_fields_converts_iso_strings():
     assert d["total_requests"] == 5
 
 
-def test_parse_datetime_fields_skips_already_parsed():
+def test_restore_dataclass_types_skips_already_parsed():
     """Already-datetime values should pass through unchanged."""
     from datetime import timezone
 
+    from llmeter.serialization import restore_dataclass_types
+
     dt = datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
     d = {"start_time": dt}
-    Result._parse_datetime_fields(d)
+    restore_dataclass_types(Result, d)
     assert d["start_time"] is dt
 
 
-def test_parse_datetime_fields_handles_invalid_string():
+def test_restore_dataclass_types_handles_invalid_string():
     """Invalid date strings should be left as-is (not raise)."""
+    from llmeter.serialization import restore_dataclass_types
+
     d = {"start_time": "not-a-date"}
-    Result._parse_datetime_fields(d)
+    restore_dataclass_types(Result, d)
     assert d["start_time"] == "not-a-date"
 
 

@@ -27,7 +27,7 @@ from ..serialization import (
     dump_object,
     json_default,
     load_object,
-    str_to_datetime,
+    restore_dataclass_types,
 )
 from ..utils import ensure_path
 
@@ -82,9 +82,8 @@ class InvocationResponse:
         correctly restores types that the default JSON round-trip would leave as strings or marker
         objects:
 
-        * `request_time` is parsed from an ISO-8601 string back to a Python `datetime`
-        * `payload`s containing `bytes` (as `__llmeter_bytes__` markers) are correctly loaded back
-          as bytes.
+        * `datetime`-annotated fields are parsed from ISO-8601 strings back to Python `datetime`
+        * `bytes`-typed fields and `__llmeter_bytes__` markers in nested payloads are restored
 
         Args:
             json_str: A JSON string representation of an InvocationResponse (produced by `to_json`
@@ -101,9 +100,7 @@ class InvocationResponse:
             ```
         """
         data = json.loads(json_str, object_hook=bytes_decoder)
-        rt = data.get("request_time")
-        if rt is not None and isinstance(rt, str):
-            data["request_time"] = str_to_datetime(rt)
+        restore_dataclass_types(cls, data)
         return cls(**data)
 
     def to_json(self, default=json_default, **kwargs) -> str:

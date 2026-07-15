@@ -3,9 +3,8 @@
 
 import json
 import logging
-import types as _types
 from collections.abc import Sequence
-from dataclasses import asdict, dataclass, fields
+from dataclasses import asdict, dataclass
 from datetime import datetime
 from numbers import Number
 from typing import Any
@@ -14,20 +13,10 @@ import jmespath
 from upath.types import ReadablePathLike, WritablePathLike
 
 from .endpoints import InvocationResponse
-from .serialization import json_default, str_to_datetime
+from .serialization import json_default, restore_dataclass_types
 from .utils import ensure_path, summary_stats_from_list
 
 logger = logging.getLogger(__name__)
-
-
-def _get_type_args(tp) -> tuple:
-    """Return the members of a union type (e.g. ``datetime | None`` -> (datetime, NoneType))."""
-    if isinstance(tp, _types.UnionType):
-        return tp.__args__
-    origin = getattr(tp, "__origin__", None)
-    if origin is _types.UnionType:
-        return tp.__args__
-    return (tp,) if isinstance(tp, type) else ()
 
 
 @dataclass
@@ -58,24 +47,6 @@ class Result:
         self._contributed_stats = {}
         if not hasattr(self, "_preloaded_stats"):
             self._preloaded_stats = None
-
-    @classmethod
-    def _parse_datetime_fields(cls, d: dict) -> None:
-        """Convert any datetime fields on cls present in d from ISO-8601 strings to datetimes
-
-        Introspects this (data)class to find all `datetime`-typed fields, and converts any matching
-        entries in `d` with ISO-8601 string values to datetimes instead. This is used for loading
-        JSON data (in which dates are stringified) into the Result class or stats.
-        """
-        for f in fields(cls):
-            if datetime not in _get_type_args(f.type):
-                continue
-            val = d.get(f.name)
-            if val and isinstance(val, str):
-                try:
-                    d[f.name] = str_to_datetime(val)
-                except ValueError:
-                    pass
 
     def _update_contributed_stats(self, stats: dict[str, Number]):
         """
@@ -275,7 +246,7 @@ class Result:
         with summary_path.open("r") as f:
             summary = json.load(f)
 
-        cls._parse_datetime_fields(summary)
+        restore_dataclass_types(cls, summary)
 
         if "output_path" not in summary or summary["output_path"] is None:
             summary["output_path"] = str(result_path)
@@ -401,7 +372,7 @@ class Result:
             try:
                 with stats_path.open("r") as s:
                     saved_stats = json.loads(s.read())
-                cls._parse_datetime_fields(saved_stats)
+                restore_dataclass_types(cls, saved_stats)
             except (json.JSONDecodeError, OSError) as e:
                 logger.warning(f"Could not load stats.json: {e}")
                 saved_stats = None

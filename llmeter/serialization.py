@@ -33,7 +33,8 @@ import inspect
 import logging
 import os
 import re
-from dataclasses import asdict, is_dataclass
+import types as _types
+from dataclasses import asdict, fields, is_dataclass
 from datetime import date, datetime, time, timezone
 from typing import Any
 
@@ -93,6 +94,38 @@ def bytes_decoder(dct: dict) -> dict | bytes:
     if "__llmeter_bytes__" in dct and len(dct) == 1:
         return base64.b64decode(dct["__llmeter_bytes__"])
     return dct
+
+
+def _get_type_args(tp) -> tuple:
+    """Return the members of a union type (e.g. ``datetime | None`` -> (datetime, NoneType))."""
+    if isinstance(tp, _types.UnionType):
+        return tp.__args__
+    origin = getattr(tp, "__origin__", None)
+    if origin is _types.UnionType:
+        return tp.__args__
+    return (tp,) if isinstance(tp, type) else ()
+
+
+def restore_dataclass_types(cls, data: dict) -> None:
+    """Restore typed fields in a dict destined for a dataclass constructor.
+
+    Introspects ``cls`` (a dataclass) and converts JSON-native values back to
+    their annotated Python types. Only fields declared on ``cls`` are touched —
+    nested user payloads (e.g. ``input_payload``) are left unchanged.
+    """
+    for f in fields(cls):
+        val = data.get(f.name)
+        if val is None:
+            continue
+        type_args = _get_type_args(f.type)
+        match val:
+            case str() if datetime in type_args:
+                try:
+                    data[f.name] = str_to_datetime(val)
+                except ValueError:
+                    pass
+            case {"__llmeter_bytes__": b64} if bytes in type_args and len(val) == 1:
+                data[f.name] = base64.b64decode(b64)
 
 
 # ---------------------------------------------------------------------------
