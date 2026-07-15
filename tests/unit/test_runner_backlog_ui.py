@@ -37,11 +37,10 @@ def mock_endpoint():
 
 @pytest.fixture
 def mock_tokenizer():
-    with patch(
-        "llmeter.tokenizers.Tokenizer.to_dict",
-        return_value={"tokenizer_module": "mock_tokenizer"},
-    ):
-        yield MagicMock(spec=Tokenizer)
+    # Tokenizer now serializes via the Serializable mixin (__getstate__), not a
+    # to_dict() method. These tests run without an output_path, so the tokenizer
+    # is never actually serialized — a bare spec'd mock is all that's needed.
+    yield MagicMock(spec=Tokenizer)
 
 
 @pytest.fixture

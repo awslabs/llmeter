@@ -44,7 +44,7 @@ def interrupted_run_dir(tmp_path, sample_responses):
     Contains only responses.jsonl and run_config.json, as would be left behind
     when a run is interrupted before Result.save() completes.
     """
-    from llmeter.json_utils import llmeter_default_serializer
+    from llmeter.serialization import json_default
 
     run_dir = UPath(tmp_path / "interrupted_run")
     run_dir.mkdir(parents=True)
@@ -78,7 +78,7 @@ def interrupted_run_dir(tmp_path, sample_responses):
     }
     config_path = run_dir / "run_config.json"
     with config_path.open("w") as f:
-        json.dump(config, f, default=llmeter_default_serializer)
+        json.dump(config, f, default=json_default)
 
     return run_dir
 
@@ -214,7 +214,7 @@ class TestLoadWithoutSummary:
     def test_load_recovers_interrupted_run_with_stats(self, tmp_path, sample_responses):
         """Simulates the case where both stats.json and responses.jsonl exist
         (e.g. the interrupt handler managed to write stats before exiting)."""
-        from llmeter.json_utils import llmeter_default_serializer
+        from llmeter.serialization import json_default
 
         run_dir = UPath(tmp_path / "partial_with_stats")
         run_dir.mkdir(parents=True)
@@ -232,7 +232,7 @@ class TestLoadWithoutSummary:
         }
         stats_path = run_dir / "stats.json"
         with stats_path.open("w") as f:
-            json.dump(stats, f, default=llmeter_default_serializer)
+            json.dump(stats, f, default=json_default)
 
         result = Result.load(run_dir)
 
