@@ -32,6 +32,7 @@ import importlib
 import inspect
 import logging
 import os
+import re
 from dataclasses import asdict, is_dataclass
 from datetime import date, datetime, time, timezone
 from typing import Any
@@ -172,28 +173,50 @@ def load_object(data: dict) -> Any:
 # Internal helpers for recursive serialization
 # ---------------------------------------------------------------------------
 
+_SERIALIZERS: list[tuple[type | tuple[type, ...], Any]] = [
+    (bytes, lambda v: {"__llmeter_bytes__": base64.b64encode(v).decode("utf-8")}),
+    (datetime, datetime_to_str),
+    (os.PathLike, lambda v: Path(v).as_posix()),
+]
+
+_DATETIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
+
 
 def _serialize_value(val: Any) -> Any:
     """Recursively prepare a value for JSON persistence."""
     if val is None or isinstance(val, (str, int, float, bool)):
         return val
-    if hasattr(val, "__getstate__") and type(val).__getstate__ is not object.__getstate__:
+    for types, fn in _SERIALIZERS:
+        if isinstance(val, types):
+            return fn(val)
+    if (
+        hasattr(val, "__getstate__")
+        and type(val).__getstate__ is not object.__getstate__
+    ):
         return dump_object(val)
     if isinstance(val, dict):
         return {k: _serialize_value(v) for k, v in val.items()}
     if isinstance(val, (list, tuple)):
         return [_serialize_value(item) for item in val]
-    return str(val)
+    raise TypeError(f"Cannot serialize {type(val).__name__!r} object: {val!r}")
 
 
 def _deserialize_value(val: Any) -> Any:
     """Recursively restore a value from JSON persistence."""
-    if val is None or isinstance(val, (str, int, float, bool)):
-        return val
-    if isinstance(val, dict):
-        if "__llmeter_class__" in val and "__llmeter_state__" in val:
+    match val:
+        case None | bool() | int() | float():
+            return val
+        case str() if _DATETIME_RE.fullmatch(val):
+            return str_to_datetime(val)
+        case str():
+            return val
+        case {"__llmeter_class__": _, "__llmeter_state__": _}:
             return load_object(val)
-        return {k: _deserialize_value(v) for k, v in val.items()}
-    if isinstance(val, (list, tuple)):
-        return [_deserialize_value(item) for item in val]
-    return val
+        case {"__llmeter_bytes__": b64} if len(val) == 1:
+            return base64.b64decode(b64)
+        case dict():
+            return {k: _deserialize_value(v) for k, v in val.items()}
+        case list() | tuple():
+            return [_deserialize_value(item) for item in val]
+        case _:
+            return val
