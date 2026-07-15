@@ -17,7 +17,7 @@ from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 
 from llmeter.endpoints.bedrock import BedrockBase
-from llmeter.json_utils import llmeter_bytes_decoder, llmeter_default_serializer
+from llmeter.serialization import bytes_decoder, json_default
 from llmeter.prompt_utils import (
     AudioContent,
     DocumentContent,
@@ -602,11 +602,11 @@ def test_property_10_load_prompts_integration(num_prompts):
             assert len(image_blocks) == 1
 
             # Verify the payload can be serialized
-            json_str = json.dumps(payload, default=llmeter_default_serializer)
+            json_str = json.dumps(payload, default=json_default)
             assert len(json_str) > 0
 
             # Verify it can be deserialized
-            deserialized = json.loads(json_str, object_hook=llmeter_bytes_decoder)
+            deserialized = json.loads(json_str, object_hook=bytes_decoder)
             assert deserialized == payload
 
 

@@ -2,34 +2,96 @@
 # SPDX-License-Identifier: Apache-2.0
 """Unified serialization for all LLMeter objects.
 
-Two operations, two purposes:
+This module is the single source of truth for serialization in LLMeter.
 
-- ``to_dict(obj)`` - Python dict with native types preserved (datetime stays datetime).
-  Use for in-memory access, stats computation, jmespath queries.
-- ``serialize(obj)`` - JSON-safe dict (datetimes become strings, etc).
-  Use for persistence to disk, JSON output, network transfer.
+Key components:
 
-For objects with runtime state (endpoints, tokenizers, callbacks), ``dump_object``
-and ``load_object`` provide full round-trip persistence using the
-``__getstate__``/``__setstate__`` protocol::
+- :class:`Serializable` — Mixin that gives any class automatic
+  ``__getstate__``/``__setstate__`` by introspecting ``__init__``.
 
-    data = dump_object(endpoint)   # -> {"__llmeter_class__": "...", "__llmeter_state__": {...}}
-    restored = load_object(data)   # -> new Endpoint instance
+- :func:`dump_object` / :func:`load_object` — Full round-trip persistence
+  using a ``{"__llmeter_class__": ..., "__llmeter_state__": ...}`` envelope.
+
+- :func:`json_default` — A ``json.dumps``-compatible *default* handler for
+  ``bytes``, ``datetime``, ``PathLike``.
+
+- :func:`bytes_decoder` — A ``json.loads``-compatible *object_hook* that
+  restores binary content encoded by :func:`json_default`.
+
+- :func:`datetime_to_str` / :func:`str_to_datetime` — Standardized
+  datetime ↔ string conversion (UTC ISO-8601 with ``Z`` suffix).
 
 .. warning:: Security
 
-    ``load_object`` will import and instantiate any class path found in the
+    :func:`load_object` imports and instantiates whatever class path is in the
     ``__llmeter_class__`` field. Do not load configs from untrusted sources.
 """
 
+import base64
 import importlib
 import inspect
-import json as _json
 import logging
+import os
 from dataclasses import asdict, is_dataclass
+from datetime import date, datetime, time, timezone
 from typing import Any
 
+from upath import UPath as Path
+
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Datetime helpers
+# ---------------------------------------------------------------------------
+
+
+def datetime_to_str(dt: datetime) -> str:
+    """Convert a datetime to a UTC ISO-8601 string with ``Z`` suffix.
+
+    Timezone-aware datetimes are converted to UTC first. Naive datetimes are
+    serialized as-is (assumed UTC).
+    """
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(timezone.utc)
+    return dt.isoformat(timespec="seconds").replace("+00:00", "Z")
+
+
+def str_to_datetime(s: str) -> datetime:
+    """Parse an ISO-8601 string (with optional ``Z`` suffix) to a datetime."""
+    return datetime.fromisoformat(s.replace("Z", "+00:00"))
+
+
+# ---------------------------------------------------------------------------
+# JSON helpers
+# ---------------------------------------------------------------------------
+
+
+def json_default(obj: Any) -> Any:
+    """Fallback serializer for :func:`json.dumps`.
+
+    Handles ``bytes`` (→ base64 marker), ``datetime``, ``date``/``time``,
+    ``os.PathLike``, and falls back to ``str()``.
+    """
+    if isinstance(obj, bytes):
+        return {"__llmeter_bytes__": base64.b64encode(obj).decode("utf-8")}
+    if isinstance(obj, datetime):
+        return datetime_to_str(obj)
+    if isinstance(obj, (date, time)):
+        return obj.isoformat()
+    if isinstance(obj, (os.PathLike, Path)):
+        return Path(obj).as_posix()
+    try:
+        return str(obj)
+    except Exception:
+        return None
+
+
+def bytes_decoder(dct: dict) -> dict | bytes:
+    """Object hook for :func:`json.loads` that restores ``__llmeter_bytes__`` markers."""
+    if "__llmeter_bytes__" in dct and len(dct) == 1:
+        return base64.b64decode(dct["__llmeter_bytes__"])
+    return dct
 
 
 # ---------------------------------------------------------------------------
@@ -38,91 +100,63 @@ logger = logging.getLogger(__name__)
 
 
 class Serializable:
-    """Mixin that provides ``__getstate__``/``__setstate__`` via introspection.
+    """Mixin providing automatic ``__getstate__``/``__setstate__`` via __init__ introspection.
 
-    Inherit from this to get automatic serialization support. Works with
-    plain classes, ``@dataclass``, and any class whose ``__init__`` parameters
-    match instance attributes.
+    Works with plain classes, ``@dataclass``, and any class whose ``__init__``
+    parameters correspond to instance attributes (``self.x`` or ``self._x``).
 
-    Example::
-
-        class MyEndpoint(Serializable, Endpoint):
-            ...  # __getstate__/__setstate__ inherited — no boilerplate needed
+    Nested :class:`Serializable` objects are recursively persisted via
+    :func:`dump_object` / :func:`load_object`.
     """
 
     def __getstate__(self) -> dict:
-        return default_getstate(self)
+        sig = inspect.signature(self.__init__)
+        state = {}
+        for name, param in sig.parameters.items():
+            if name in ("self", "args", "kwargs"):
+                continue
+            if param.kind in (param.VAR_POSITIONAL, param.VAR_KEYWORD):
+                continue
+            if hasattr(self, name):
+                state[name] = _serialize_value(getattr(self, name))
+            elif hasattr(self, f"_{name}"):
+                state[name] = _serialize_value(getattr(self, f"_{name}"))
+        return state
 
     def __setstate__(self, state: dict) -> None:
-        default_setstate(self, state)
+        deserialized = {k: _deserialize_value(v) for k, v in state.items()}
+        self.__init__(**deserialized)
 
 
 # ---------------------------------------------------------------------------
-# Public API
+# Object serialization API
 # ---------------------------------------------------------------------------
-
-
-def to_dict(obj: Any) -> dict:
-    """Convert any LLMeter object to a dict with native Python types preserved.
-
-    Dispatch order:
-    1. Objects with custom ``__getstate__`` -> ``__getstate__()``
-    2. Dataclasses -> ``dataclasses.asdict()``
-    3. Plain objects -> filtered ``__dict__`` (public attrs only)
-    """
-    has_custom_getstate = (
-        hasattr(obj, "__getstate__")
-        and type(obj).__getstate__ is not object.__getstate__
-    )
-    if has_custom_getstate:
-        return obj.__getstate__()
-    if is_dataclass(obj) and not isinstance(obj, type):
-        return asdict(obj)
-    if hasattr(obj, "__dict__"):
-        return {k: v for k, v in obj.__dict__.items() if not k.startswith("_")}
-    return dict(obj)
-
-
-def serialize(obj: Any) -> dict:
-    """Convert any LLMeter object to a JSON-safe dict for persistence.
-
-    Same dispatch as ``to_dict`` but intended for JSON output.
-    Objects should ensure their ``__getstate__`` returns JSON-serializable data.
-    """
-    has_custom_getstate = (
-        hasattr(obj, "__getstate__")
-        and type(obj).__getstate__ is not object.__getstate__
-    )
-    if has_custom_getstate:
-        return obj.__getstate__()
-    if is_dataclass(obj) and not isinstance(obj, type):
-        return asdict(obj)
-    if hasattr(obj, "__dict__"):
-        return {k: v for k, v in obj.__dict__.items() if not k.startswith("_")}
-    return dict(obj)
 
 
 def dump_object(obj: Any) -> dict:
-    """Serialize an object to a type-tagged dict for full round-trip persistence.
+    """Serialize an object to a type-tagged dict for round-trip persistence.
 
-    Returns ``{"__llmeter_class__": "module.ClassName", "__llmeter_state__": {...}}``.
+    Returns ``{"__llmeter_class__": "module.Class", "__llmeter_state__": {...}}``.
     """
     class_path = f"{obj.__class__.__module__}.{obj.__class__.__qualname__}"
-    try:
-        state = serialize(obj)
-        _json.dumps(state)  # verify JSON-serializable
-    except Exception:
-        logger.debug(
-            "dump_object: serialize(%s) returned non-serializable data", class_path
-        )
+    if (
+        hasattr(obj, "__getstate__")
+        and type(obj).__getstate__ is not object.__getstate__
+    ):
+        state = obj.__getstate__()
+    elif is_dataclass(obj) and not isinstance(obj, type):
+        state = asdict(obj)
+    elif hasattr(obj, "__dict__"):
+        state = {k: v for k, v in obj.__dict__.items() if not k.startswith("_")}
+    else:
         state = {}
     return {"__llmeter_class__": class_path, "__llmeter_state__": state}
 
 
 def load_object(data: dict) -> Any:
-    """Restore an object from a type-tagged state dict.
+    """Restore an object from a type-tagged dict produced by :func:`dump_object`.
 
-    WARNING: Do not call on data from untrusted sources.
+    .. warning:: Do not call on data from untrusted sources.
     """
     class_path = data["__llmeter_class__"]
     module_path, class_name = class_path.rsplit(".", 1)
@@ -135,18 +169,12 @@ def load_object(data: dict) -> Any:
 
 
 # ---------------------------------------------------------------------------
-# Default __getstate__ / __setstate__ implementations
+# Internal helpers for recursive serialization
 # ---------------------------------------------------------------------------
 
 
 def _serialize_value(val: Any) -> Any:
-    """Recursively serialize a value for JSON persistence.
-
-    - Objects with custom ``__getstate__`` → ``dump_object(val)``
-    - Dicts → recurse into values
-    - Lists/tuples → recurse into items
-    - Scalars (str, int, float, bool, None) → pass through
-    """
+    """Recursively prepare a value for JSON persistence."""
     if val is None or isinstance(val, (str, int, float, bool)):
         return val
     if hasattr(val, "__getstate__") and type(val).__getstate__ is not object.__getstate__:
@@ -155,18 +183,11 @@ def _serialize_value(val: Any) -> Any:
         return {k: _serialize_value(v) for k, v in val.items()}
     if isinstance(val, (list, tuple)):
         return [_serialize_value(item) for item in val]
-    # Fallback: try str
     return str(val)
 
 
 def _deserialize_value(val: Any) -> Any:
-    """Recursively deserialize a value from JSON persistence.
-
-    - Dicts with ``__llmeter_class__``/``__llmeter_state__`` → ``load_object(val)``
-    - Other dicts → recurse into values
-    - Lists → recurse into items
-    - Scalars → pass through
-    """
+    """Recursively restore a value from JSON persistence."""
     if val is None or isinstance(val, (str, int, float, bool)):
         return val
     if isinstance(val, dict):
@@ -176,33 +197,3 @@ def _deserialize_value(val: Any) -> Any:
     if isinstance(val, (list, tuple)):
         return [_deserialize_value(item) for item in val]
     return val
-
-
-def default_getstate(obj: Any) -> dict:
-    """Default __getstate__: infers state from __init__ signature.
-
-    Matches __init__ parameter names to instance attributes (self.name or
-    self._name). Nested objects with ``__getstate__`` are recursively
-    serialized via ``dump_object``. Parameters without a match are omitted.
-    """
-    sig = inspect.signature(obj.__init__)
-    state = {}
-    for name, param in sig.parameters.items():
-        if name in ("self", "args", "kwargs"):
-            continue
-        if param.kind in (param.VAR_POSITIONAL, param.VAR_KEYWORD):
-            continue
-        if hasattr(obj, name):
-            state[name] = _serialize_value(getattr(obj, name))
-        elif hasattr(obj, f"_{name}"):
-            state[name] = _serialize_value(getattr(obj, f"_{name}"))
-    return state
-
-
-def default_setstate(obj: Any, state: dict) -> None:
-    """Default __setstate__: deserializes nested objects then calls __init__.
-
-    Any dict with ``__llmeter_class__``/``__llmeter_state__`` keys is restored via ``load_object``.
-    """
-    deserialized = {k: _deserialize_value(v) for k, v in state.items()}
-    obj.__init__(**deserialized)

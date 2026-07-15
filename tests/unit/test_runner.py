@@ -13,7 +13,7 @@ from upath import UPath as Path
 import llmeter.endpoints
 from llmeter.endpoints.base import Endpoint, InvocationResponse
 from llmeter.runner import Runner, _Run, _RunConfig
-from llmeter.tokenizers import Tokenizer
+from llmeter.tokenizers import DummyTokenizer
 
 
 @pytest.fixture
@@ -33,11 +33,7 @@ def mock_endpoint():
 
 @pytest.fixture
 def mock_tokenizer():
-    with patch(
-        "llmeter.tokenizers.Tokenizer.to_dict",
-        return_value={"tokenizer_module": "mock_tokenizer"},
-    ):
-        yield MagicMock(spec=Tokenizer)
+    yield DummyTokenizer()
 
 
 @pytest.fixture
@@ -91,11 +87,9 @@ def test_runner_initialization(runner: Runner):
 
 
 def test_count_tokens_no_wait(runner: Runner):
-    # Test the tokenizer encode method directly since _count_tokens_no_wait doesn't exist
-    runner._tokenizer.encode.return_value = [1, 2, 3]
-    result = len(runner._tokenizer.encode("test text"))
-    assert result == 3
-    runner._tokenizer.encode.assert_called_once_with("test text")
+    # Test the tokenizer encode method directly
+    result = len(runner._tokenizer.encode("test text here"))
+    assert result == 3  # DummyTokenizer splits on whitespace
 
 
 @pytest.mark.asyncio

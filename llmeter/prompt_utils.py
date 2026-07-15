@@ -11,7 +11,7 @@ from typing import Any, Callable, Iterator
 from upath import UPath as Path
 from upath.types import ReadablePathLike, WritablePathLike
 
-from .json_utils import llmeter_bytes_decoder, llmeter_default_serializer
+from .serialization import bytes_decoder, json_default
 from .tokenizers import DummyTokenizer, Tokenizer
 from .utils import DeferredError, ensure_path
 
@@ -419,7 +419,7 @@ def load_payloads(
 
     This function reads JSON data from either a single file or multiple files
     in a directory. It supports both .json and .jsonl file formats. Binary content
-    (bytes objects) that were serialized using ``llmeter_default_serializer`` are automatically
+    (bytes objects) that were serialized using ``json_default`` are automatically
     restored during deserialization.
 
     Binary Content Handling:
@@ -514,12 +514,12 @@ def _load_data_file(file: Path) -> Iterator[dict]:
                         if not line.strip():
                             continue
                         yield json.loads(
-                            line.strip(), object_hook=llmeter_bytes_decoder
+                            line.strip(), object_hook=bytes_decoder
                         )
                     except json.JSONDecodeError as e:
                         print(f"Error decoding JSON in {file}: {e}")
             else:  # Assume it's a regular JSON file
-                yield json.load(f, object_hook=llmeter_bytes_decoder)
+                yield json.load(f, object_hook=bytes_decoder)
     except IOError as e:
         print(f"Error reading file {file}: {e}")
     except json.JSONDecodeError as e:
@@ -638,5 +638,5 @@ def save_payloads(
         payloads = [payloads]
     with output_file_path.open(mode="w") as f:
         for payload in payloads:
-            f.write(json.dumps(payload, default=llmeter_default_serializer) + "\n")
+            f.write(json.dumps(payload, default=json_default) + "\n")
     return output_file_path

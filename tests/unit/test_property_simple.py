@@ -14,7 +14,7 @@ from hypothesis.strategies import composite
 from llmeter.endpoints.base import InvocationResponse
 from llmeter.endpoints.openai import OpenAICompletionEndpoint
 from llmeter.prompt_utils import load_payloads, save_payloads
-from llmeter.tokenizers import DummyTokenizer, _to_dict
+from llmeter.tokenizers import DummyTokenizer
 
 
 # Custom strategies
@@ -69,13 +69,15 @@ class TestTokenizerProperties:
 
     @given(st.text(min_size=0, max_size=1000))
     def test_tokenizer_serialization(self, text):
-        """Tokenizer should serialize correctly."""
-        tokenizer = DummyTokenizer()
-        tokenizer_dict = _to_dict(tokenizer)
+        """Tokenizer should serialize via dump_object correctly."""
+        from llmeter.serialization import dump_object
 
-        assert isinstance(tokenizer_dict, dict)
-        assert "tokenizer_module" in tokenizer_dict
-        assert tokenizer_dict["tokenizer_module"] == "llmeter"
+        tokenizer = DummyTokenizer()
+        data = dump_object(tokenizer)
+
+        assert isinstance(data, dict)
+        assert "__llmeter_class__" in data
+        assert "DummyTokenizer" in data["__llmeter_class__"]
 
 
 # OpenAI endpoint property tests

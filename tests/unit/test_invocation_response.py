@@ -7,7 +7,7 @@ import json
 from datetime import datetime, timedelta, timezone
 
 from llmeter.endpoints.base import InvocationResponse
-from llmeter.json_utils import llmeter_default_serializer
+from llmeter.serialization import json_default
 
 
 class TestToJson:
@@ -72,6 +72,20 @@ class TestToJson:
         parsed = json.loads(response.to_json())
         assert parsed["request_time"] == "2026-01-01T04:00:00Z"
 
+    def test_to_json_passes_kwargs_to_json_dumps(self):
+        """to_json() forwards kwargs (e.g. indent) to json.dumps."""
+        response = InvocationResponse(
+            response_text="Test",
+            input_payload={"data": b"\x01\x02\x03"},
+            id="test-kwargs",
+        )
+        json_str = response.to_json(indent=2)
+        # Indentation implies newlines and leading spaces in the output.
+        assert "\n" in json_str
+        assert "  " in json_str
+        parsed = json.loads(json_str)
+        assert parsed["id"] == "test-kwargs"
+
 
 class TestFromJson:
     def test_round_trip_minimal(self):
@@ -134,7 +148,7 @@ class TestFromJson:
     def test_load_request_time_with_offset(self):
         json_str = json.dumps(
             {"response_text": "hi", "request_time": "2026-01-01T14:00:00+02:00"},
-            default=llmeter_default_serializer,
+            default=json_default,
         )
         restored = InvocationResponse.from_json(json_str)
         assert isinstance(restored.request_time, datetime)

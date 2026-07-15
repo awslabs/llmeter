@@ -23,7 +23,7 @@ from upath import UPath as Path
 from upath.types import ReadablePathLike, WritablePathLike
 
 from .live_display import LiveStatsDisplay
-from .serialization import dump_object, load_object
+from .serialization import dump_object, json_default, load_object
 from .utils import RunningStats, ensure_path, now_utc
 
 if TYPE_CHECKING:
@@ -31,7 +31,6 @@ if TYPE_CHECKING:
     from .callbacks.base import Callback
 
 from .endpoints.base import Endpoint, InvocationResponse
-from .json_utils import llmeter_default_serializer
 from .prompt_utils import load_payloads, save_payloads
 from .results import Result
 from .tokenizers import DummyTokenizer, Tokenizer
@@ -146,7 +145,10 @@ class _RunConfig:
 
         assert self.endpoint is not None, "Endpoint cannot be None"
         if isinstance(self.endpoint, dict):
-            self._endpoint: Endpoint = Endpoint.load(self.endpoint)
+            if "__llmeter_class__" in self.endpoint:
+                self._endpoint: Endpoint = load_object(self.endpoint)
+            else:
+                self._endpoint = Endpoint.load(self.endpoint)
         else:
             self._endpoint = self.endpoint
 
@@ -156,7 +158,10 @@ class _RunConfig:
         if self.tokenizer is None:
             self.tokenizer = DummyTokenizer()
         if isinstance(self.tokenizer, dict):
-            self._tokenizer: Tokenizer = Tokenizer.load(self.tokenizer)
+            if "__llmeter_class__" in self.tokenizer:
+                self._tokenizer: Tokenizer = load_object(self.tokenizer)
+            else:
+                self._tokenizer = Tokenizer.load(self.tokenizer)
         else:
             self._tokenizer = self.tokenizer
 
@@ -194,10 +199,8 @@ class _RunConfig:
             config_copy.callbacks = [dump_object(cb) for cb in self.callbacks]
 
         with run_config_path.open("w") as f:
-            f.write(
-                json.dumps(
-                    asdict(config_copy), default=llmeter_default_serializer, indent=4
-                )
+            json.dump(
+                asdict(config_copy), f, default=json_default, indent=4
             )
 
     @classmethod

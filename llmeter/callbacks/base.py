@@ -11,10 +11,9 @@ from typing import final
 from upath.types import ReadablePathLike, WritablePathLike
 
 from ..endpoints.base import InvocationResponse
-from ..json_utils import llmeter_default_serializer
 from ..results import Result
 from ..runner import _RunConfig
-from ..serialization import Serializable, dump_object, load_object
+from ..serialization import Serializable, dump_object, json_default, load_object
 from ..utils import ensure_path
 
 
@@ -88,7 +87,7 @@ class Callback(Serializable, ABC):
         path.parent.mkdir(parents=True, exist_ok=True)
         data = dump_object(self)
         with path.open("w") as f:
-            json.dump(data, f, indent=4, default=llmeter_default_serializer)
+            json.dump(data, f, indent=4, default=json_default)
 
     @staticmethod
     @final

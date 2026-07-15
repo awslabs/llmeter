@@ -79,11 +79,12 @@ class TestEndpointSerialization:
             with open(saved_path, "r") as f:
                 data = json.load(f)
 
-            # Verify content matches endpoint configuration
-            assert data["model_id"] == "gpt-4-turbo"
-            assert data["endpoint_name"] == "saved-endpoint"
-            assert data["provider"] == "openai"
-            assert data["endpoint_type"] == "OpenAIResponseEndpoint"
+            # Verify envelope format with correct state
+            assert "__llmeter_class__" in data
+            state = data["__llmeter_state__"]
+            assert state["model_id"] == "gpt-4-turbo"
+            assert state["endpoint_name"] == "saved-endpoint"
+            assert state["provider"] == "openai"
 
     @patch("llmeter.endpoints.openai_response.OpenAI")
     def test_load_from_file_reconstructs_endpoint(self, mock_openai_class):

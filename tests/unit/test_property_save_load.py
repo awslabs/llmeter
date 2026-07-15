@@ -18,7 +18,7 @@ from llmeter.endpoints.openai import OpenAICompletionEndpoint
 from llmeter.prompt_utils import load_payloads, save_payloads
 from llmeter.results import Result
 from llmeter.runner import _RunConfig
-from llmeter.tokenizers import DummyTokenizer, Tokenizer, save_tokenizer
+from llmeter.tokenizers import DummyTokenizer
 
 
 # Custom strategies
@@ -88,65 +88,36 @@ def valid_result(draw):
 
 # Tokenizer save/load property tests
 class TestTokenizerSaveLoadProperties:
-    """Property-based tests for tokenizer serialization."""
+    """Property-based tests for tokenizer serialization via dump_object/load_object."""
 
     @given(st.text(min_size=0, max_size=500))
     @settings(deadline=None)
-    def test_save_load_tokenizer_roundtrip(self, text):
-        """Saving and loading tokenizer should preserve behavior."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            original = DummyTokenizer()
-            output_path = Path(tmpdir) / "tokenizer.json"
+    def test_dump_load_tokenizer_roundtrip(self, text):
+        """dump_object/load_object should preserve tokenizer behavior."""
+        from llmeter.serialization import dump_object, load_object
 
-            # Save
-            saved_path = save_tokenizer(original, output_path)
-            assert saved_path.exists()
+        original = DummyTokenizer()
 
-            # Load
-            loaded = Tokenizer.load_from_file(saved_path)
+        # Serialize and restore
+        data = dump_object(original)
+        loaded = load_object(data)
 
-            # Should encode the same way
-            original_tokens = original.encode(text)
-            loaded_tokens = loaded.encode(text)
-            assert original_tokens == loaded_tokens
+        # Should encode the same way
+        original_tokens = original.encode(text)
+        loaded_tokens = loaded.encode(text)
+        assert original_tokens == loaded_tokens
 
-    def test_save_tokenizer_creates_valid_json(self):
-        """Saved tokenizer should be valid JSON."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tokenizer = DummyTokenizer()
-            output_path = Path(tmpdir) / "tokenizer.json"
+    def test_dump_object_produces_valid_structure(self):
+        """dump_object should produce a dict with __llmeter_class__ and __llmeter_state__."""
+        from llmeter.serialization import dump_object
 
-            saved_path = save_tokenizer(tokenizer, output_path)
+        tokenizer = DummyTokenizer()
+        data = dump_object(tokenizer)
 
-            # Should be valid JSON
-            with open(saved_path, "r") as f:
-                data = json.load(f)
-
-            assert isinstance(data, dict)
-            assert "tokenizer_module" in data
-
-    @given(
-        st.text(
-            min_size=1,
-            max_size=100,
-            alphabet=st.characters(
-                min_codepoint=32, max_codepoint=126, blacklist_characters='\\/:*?"<>|'
-            ),
-        )
-    )
-    @settings(deadline=None)
-    def test_save_tokenizer_with_various_filenames(self, filename):
-        """Tokenizer should save with various valid filenames."""
-        with tempfile.TemporaryDirectory() as tmpdir:
-            tokenizer = DummyTokenizer()
-            output_path = Path(tmpdir) / f"{filename}.json"
-
-            saved_path = save_tokenizer(tokenizer, output_path)
-            assert saved_path.exists()
-
-            # Should be loadable
-            loaded = Tokenizer.load_from_file(saved_path)
-            assert isinstance(loaded, DummyTokenizer)
+        assert isinstance(data, dict)
+        assert "__llmeter_class__" in data
+        assert "__llmeter_state__" in data
+        assert "DummyTokenizer" in data["__llmeter_class__"]
 
 
 # Payload save/load property tests
@@ -393,10 +364,11 @@ class TestEndpointSaveLoadProperties:
             saved_path = endpoint.save(output_path)
             assert saved_path.exists()
 
-            # Verify file contains model_id
+            # Verify file uses envelope format with model_id in state
             with open(saved_path, "r") as f:
                 data = json.load(f)
-            assert data["model_id"] == model_id
+            assert "__llmeter_class__" in data
+            assert data["__llmeter_state__"]["model_id"] == model_id
 
     @given(st.text(min_size=1, max_size=50))
     @settings(deadline=None)

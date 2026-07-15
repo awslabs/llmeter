@@ -21,8 +21,14 @@ from uuid import uuid4
 from upath import UPath as Path
 from upath.types import ReadablePathLike, WritablePathLike
 
-from ..json_utils import llmeter_bytes_decoder, llmeter_default_serializer
-from ..serialization import Serializable
+from ..serialization import (
+    Serializable,
+    bytes_decoder,
+    dump_object,
+    json_default,
+    load_object,
+    str_to_datetime,
+)
 from ..utils import ensure_path
 
 logger = logging.getLogger(__name__)
@@ -94,16 +100,16 @@ class InvocationResponse:
             restored = InvocationResponse.from_json(original.to_json())
             ```
         """
-        data = json.loads(json_str, object_hook=llmeter_bytes_decoder)
+        data = json.loads(json_str, object_hook=bytes_decoder)
         rt = data.get("request_time")
         if rt is not None and isinstance(rt, str):
-            data["request_time"] = datetime.fromisoformat(rt.replace("Z", "+00:00"))
+            data["request_time"] = str_to_datetime(rt)
         return cls(**data)
 
-    def to_json(self, default=llmeter_default_serializer, **kwargs) -> str:
+    def to_json(self, default=json_default, **kwargs) -> str:
         """Serialize this response to a JSON string.
 
-        Uses [`llmeter_default_serializer`][llmeter.json_utils.llmeter_default_serializer] by
+        Uses [`json_default`][llmeter.serialization.json_default] by
         default, which handles `bytes`, `datetime`, `PathLike`, and other common non-serializable
         types.
 
@@ -152,7 +158,7 @@ class InvocationResponse:
         `datetime` comparisons and arithmetic.
 
         For JSON output, use [`to_json`][llmeter.endpoints.base.InvocationResponse.to_json], (which
-        delegates to [`llmeter_default_serializer`][llmeter.json_utils.llmeter_default_serializer]
+        delegates to [`json_default`][llmeter.serialization.json_default]
         by default, for non-JSON-serializable data types).
 
         Returns:
@@ -475,22 +481,19 @@ class Endpoint(Serializable, ABC, Generic[TRawResponse]):
         return NotImplemented
 
     def save(self, output_path: WritablePathLike) -> Path:
-        """
-        Save the endpoint configuration to a JSON file.
-
-        This method serializes the endpoint's configuration (excluding private attributes)
-        to a JSON file at the specified path.
+        """Save the endpoint configuration to a JSON file.
 
         Args:
             output_path (str | UPath): The path where the configuration file will be saved.
 
         Returns:
-            None
+            Path: The path the file was written to.
         """
         output_path = ensure_path(output_path)
         output_path.parent.mkdir(parents=True, exist_ok=True)
+        data = dump_object(self)
         with output_path.open("w") as f:
-            json.dump(self, f, indent=4, default=llmeter_default_serializer)
+            json.dump(data, f, indent=4, default=json_default)
         return output_path
 
     def to_dict(self) -> dict:
@@ -506,24 +509,19 @@ class Endpoint(Serializable, ABC, Generic[TRawResponse]):
 
     @classmethod
     def load_from_file(cls, input_path: ReadablePathLike) -> "Endpoint":
-        """
-        Load an endpoint configuration from a JSON file.
-
-        This class method reads a JSON file containing an endpoint configuration,
-        determines the appropriate endpoint class, and instantiates it with the
-        loaded configuration.
+        """Load an endpoint configuration from a JSON file.
 
         Args:
-            input_path (str|UPath): The path to the JSON configuration file.
+            input_path (str | UPath): The path to the JSON configuration file.
 
         Returns:
-            Endpoint: An instance of the appropriate endpoint class, initialized
-                      with the configuration from the file.
+            Endpoint: An instance of the appropriate endpoint class.
         """
-
         input_path = ensure_path(input_path)
         with input_path.open("r") as f:
             data = json.load(f)
+        if "__llmeter_class__" in data:
+            return load_object(data)
         endpoint_type = data.pop("endpoint_type")
         endpoint_module = importlib.import_module("llmeter.endpoints")
         endpoint_class = getattr(endpoint_module, endpoint_type)
@@ -531,19 +529,17 @@ class Endpoint(Serializable, ABC, Generic[TRawResponse]):
 
     @classmethod
     def load(cls, endpoint_config: dict) -> "Endpoint":  # type: ignore
-        """
-        Load an endpoint configuration from a dictionary.
+        """Load an endpoint from a legacy ``{"endpoint_type": ...}`` dictionary.
 
-        This class method reads a dictionary containing an endpoint configuration,
-        determines the appropriate endpoint class, and instantiates it with the
-        loaded configuration.
+        .. deprecated::
+            New code should use :func:`~llmeter.serialization.load_object` with
+            dicts produced by :func:`~llmeter.serialization.dump_object`.
 
         Args:
-            endpoint_config (Dict): A dictionary containing the endpoint configuration.
+            endpoint_config: Dictionary with at minimum an ``endpoint_type`` key.
 
         Returns:
-            Endpoint: An instance of the appropriate endpoint class, initialized
-                      with the configuration from the dictionary.
+            Endpoint: An instance of the appropriate endpoint class.
         """
         endpoint_type = endpoint_config.pop("endpoint_type")
         endpoint_module = importlib.import_module("llmeter.endpoints")

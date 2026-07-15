@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock, Mock, NonCallableMock
 
 import pytest
 
-from llmeter.serialization import to_dict, dump_object, load_object
+from llmeter.serialization import dump_object, load_object
 from llmeter.callbacks.cost.model import CostModel
 from llmeter.callbacks.cost.results import CalculatedCostWithDimensions
 
@@ -26,8 +26,8 @@ def test_cost_model_serialization():
     assert restored.request_dims["TokensIn"].price_per_million == 30
     assert restored.run_dims["ComputeSeconds"].price_per_hour == 50
 
-    # to_dict produces a plain dict representation
-    d = to_dict(model)
+    # __getstate__ produces a plain dict representation
+    d = model.__getstate__()
     assert "request_dims" in d
     assert "run_dims" in d
 

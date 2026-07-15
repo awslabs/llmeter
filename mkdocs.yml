@@ -42,6 +42,7 @@ nav:
       - user_guide/callbacks/cache_buster.md
       - user_guide/callbacks/cost.md
       - user_guide/callbacks/mlflow.md
+    - Serialization: serialization.md
   - API Reference:
     - reference/index.md
     - callbacks:
@@ -55,7 +56,6 @@ nav:
           - reference/callbacks/cost/providers/index.md
           - sagemaker: reference/callbacks/cost/providers/sagemaker.md
         - results: reference/callbacks/cost/results.md
-        - serde: reference/callbacks/cost/serde.md
       - mlflow: reference/callbacks/mlflow.md
     - endpoints:
       - reference/endpoints/index.md
@@ -68,7 +68,7 @@ nav:
       - openai_response: reference/endpoints/openai_response.md
       - sagemaker: reference/endpoints/sagemaker.md
     - experiments: reference/experiments.md
-    - json_utils: reference/json_utils.md
+    - serialization: reference/serialization.md
     - plotting:
       - reference/plotting/index.md
     - prompt_utils: reference/prompt_utils.md

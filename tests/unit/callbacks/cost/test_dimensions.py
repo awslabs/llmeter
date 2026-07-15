@@ -2,7 +2,6 @@
 # SPDX-License-Identifier: Apache-2.0
 import pytest
 
-from llmeter.serialization import to_dict
 from llmeter.callbacks.cost.dimensions import (
     EndpointTime,
     InputTokens,
@@ -47,7 +46,7 @@ async def test_cost_per_input_token():
     err_response = InvocationResponse.error_output()
     assert await dim_valid.calculate(err_response) is None
 
-    assert to_dict(dim_valid) == {
+    assert dim_valid.__getstate__() == {
         "price_per_million": 30,
         "granularity": 10,
     }
@@ -72,7 +71,7 @@ async def test_cost_per_output_token():
     err_response = InvocationResponse.error_output()
     assert await dim_valid.calculate(err_response) is None
 
-    assert to_dict(dim_valid) == {
+    assert dim_valid.__getstate__() == {
         "price_per_million": 40,
         "granularity": 10,
     }
@@ -101,7 +100,7 @@ async def test_cost_per_hour():
     result.total_test_time = None
     assert await dim_valid.calculate(result) is None
 
-    assert to_dict(dim_valid) == {
+    assert dim_valid.__getstate__() == {
         "price_per_hour": 30,
         "granularity_secs": 60,
     }

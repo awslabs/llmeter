@@ -13,7 +13,7 @@ import jmespath
 from upath.types import ReadablePathLike, WritablePathLike
 
 from .endpoints import InvocationResponse
-from .json_utils import llmeter_default_serializer
+from .serialization import json_default, str_to_datetime
 from .utils import ensure_path, summary_stats_from_list
 
 logger = logging.getLogger(__name__)
@@ -50,7 +50,7 @@ class Result:
     end_time: datetime | None = None
 
     def __str__(self):
-        return json.dumps(self.stats, indent=4, default=llmeter_default_serializer)
+        return json.dumps(self.stats, indent=4, default=json_default)
 
     def __post_init__(self):
         """Initialize the Result instance."""
@@ -72,7 +72,7 @@ class Result:
             val = d.get(f.name)
             if val and isinstance(val, str):
                 try:
-                    d[f.name] = datetime.fromisoformat(val.replace("Z", "+00:00"))
+                    d[f.name] = str_to_datetime(val)
                 except ValueError:
                     pass
 
@@ -127,27 +127,31 @@ class Result:
 
         summary_path = output_path / "summary.json"
         stats_path = output_path / "stats.json"
-        with summary_path.open("w") as f, stats_path.open("w") as s:
-            f.write(self.to_json(indent=4))
-            s.write(
-                json.dumps(self.stats, indent=4, default=llmeter_default_serializer)
+        with summary_path.open("w") as f:
+            json.dump(
+                {k: o for k, o in asdict(self).items() if k not in ["responses", "stats"]},
+                f,
+                default=json_default,
+                indent=4,
             )
+        with stats_path.open("w") as f:
+            json.dump(self.stats, f, default=json_default, indent=4)
 
         responses_path = output_path / "responses.jsonl"
         if not responses_path.exists():
             with responses_path.open("w") as f:
                 for response in self.responses:
                     f.write(
-                        json.dumps(asdict(response), default=llmeter_default_serializer)
+                        json.dumps(asdict(response), default=json_default)
                         + "\n"
                     )
 
-    def to_json(self, default=llmeter_default_serializer, **kwargs) -> str:
+    def to_json(self, default=json_default, **kwargs) -> str:
         """Return the results as a JSON string.
 
         Args:
             default: Fallback serializer. Defaults to
-                :func:`~llmeter.json_utils.llmeter_default_serializer`.
+                :func:`~llmeter.serialization.json_default`.
             **kwargs: Extra keyword arguments passed to :func:`json.dumps`.
         """
         summary = {
@@ -164,9 +168,9 @@ class Result:
         processing.
 
         For JSON output, use :meth:`to_json` which delegates to
-        :func:`~llmeter.json_utils.llmeter_default_serializer` for
+        :func:`~llmeter.serialization.json_default` for
         non-serializable types, or pass the dict through
-        ``json.dumps(result.to_dict(), default=llmeter_default_serializer)``.
+        ``json.dumps(result.to_dict(), default=json_default)``.
 
         Args:
             include_responses: If ``True``, include the full list of

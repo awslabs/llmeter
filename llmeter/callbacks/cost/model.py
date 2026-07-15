@@ -120,9 +120,6 @@ class CostModel(Callback):
             result._update_contributed_stats(stats)
         return run_cost
 
-    async def before_invoke(self, payload: dict) -> None:
-        pass
-
     async def after_invoke(self, response: InvocationResponse) -> None:
         await self.calculate_request_cost(response, save=True)
 
