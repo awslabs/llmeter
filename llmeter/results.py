@@ -4,10 +4,11 @@
 import json
 import logging
 import types as _types
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass, fields
 from datetime import datetime
 from numbers import Number
-from typing import Any, Sequence
+from typing import Any
 
 import jmespath
 from upath.types import ReadablePathLike, WritablePathLike
@@ -129,7 +130,11 @@ class Result:
         stats_path = output_path / "stats.json"
         with summary_path.open("w") as f:
             json.dump(
-                {k: o for k, o in asdict(self).items() if k not in ["responses", "stats"]},
+                {
+                    k: o
+                    for k, o in asdict(self).items()
+                    if k not in ["responses", "stats"]
+                },
                 f,
                 default=json_default,
                 indent=4,
@@ -141,10 +146,7 @@ class Result:
         if not responses_path.exists():
             with responses_path.open("w") as f:
                 for response in self.responses:
-                    f.write(
-                        json.dumps(asdict(response), default=json_default)
-                        + "\n"
-                    )
+                    f.write(json.dumps(asdict(response), default=json_default) + "\n")
 
     def to_json(self, default=json_default, **kwargs) -> str:
         """Return the results as a JSON string.

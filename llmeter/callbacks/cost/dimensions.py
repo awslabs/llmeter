@@ -11,7 +11,7 @@ can use to bring customized cost dimensions for your own cost models.
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from math import ceil
-from typing import Optional, Protocol
+from typing import Protocol
 
 # Local Dependencies:
 from ...endpoints.base import InvocationResponse
@@ -23,14 +23,14 @@ from ...serialization import Serializable
 class IRequestCostDimension(Protocol):
     """Interface for one dimension of a per-request cost model."""
 
-    async def calculate(self, response: InvocationResponse) -> Optional[float]: ...
+    async def calculate(self, response: InvocationResponse) -> float | None: ...
 
 
 class IRunCostDimension(Protocol):
     """Interface for one dimension of a per-Run cost model."""
 
     async def before_run_start(self, run_config: _RunConfig) -> None: ...
-    async def calculate(self, result: Result) -> Optional[float]: ...
+    async def calculate(self, result: Result) -> float | None: ...
 
 
 class RequestCostDimensionBase(Serializable, ABC):
@@ -41,7 +41,7 @@ class RequestCostDimensionBase(Serializable, ABC):
     """
 
     @abstractmethod
-    async def calculate(self, response: InvocationResponse) -> Optional[float]:
+    async def calculate(self, response: InvocationResponse) -> float | None:
         raise NotImplementedError
 
 
@@ -56,7 +56,7 @@ class RunCostDimensionBase(Serializable, ABC):
         pass
 
     @abstractmethod
-    async def calculate(self, result: Result) -> Optional[float]:
+    async def calculate(self, result: Result) -> float | None:
         raise NotImplementedError
 
 
@@ -77,7 +77,7 @@ class InputTokens(RequestCostDimensionBase):
     price_per_million: float
     granularity: int = 1
 
-    async def calculate(self, req: InvocationResponse) -> Optional[float]:
+    async def calculate(self, req: InvocationResponse) -> float | None:
         if req.num_tokens_input is None:
             return None
         billable = ceil(req.num_tokens_input / self.granularity) * self.granularity
@@ -96,7 +96,7 @@ class OutputTokens(RequestCostDimensionBase):
     price_per_million: float
     granularity: int = 1
 
-    async def calculate(self, req: InvocationResponse) -> Optional[float]:
+    async def calculate(self, req: InvocationResponse) -> float | None:
         if req.num_tokens_output is None:
             return None
         billable = ceil(req.num_tokens_output / self.granularity) * self.granularity
@@ -115,11 +115,10 @@ class EndpointTime(RunCostDimensionBase):
     price_per_hour: float
     granularity_secs: float = 1
 
-    async def calculate(self, result: Result) -> Optional[float]:
+    async def calculate(self, result: Result) -> float | None:
         if result.total_test_time is None:
             return None
         billable = (
-            ceil(result.total_test_time / self.granularity_secs)
-            * self.granularity_secs
+            ceil(result.total_test_time / self.granularity_secs) * self.granularity_secs
         )
         return billable * self.price_per_hour / 3600

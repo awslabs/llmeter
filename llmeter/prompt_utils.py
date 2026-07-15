@@ -4,9 +4,10 @@
 import json
 import logging
 import random
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from itertools import product
-from typing import Any, Callable, Iterator
+from typing import Any
 
 from upath import UPath as Path
 from upath.types import ReadablePathLike, WritablePathLike
@@ -513,9 +514,7 @@ def _load_data_file(file: Path) -> Iterator[dict]:
                     try:
                         if not line.strip():
                             continue
-                        yield json.loads(
-                            line.strip(), object_hook=bytes_decoder
-                        )
+                        yield json.loads(line.strip(), object_hook=bytes_decoder)
                     except json.JSONDecodeError as e:
                         print(f"Error decoding JSON in {file}: {e}")
             else:  # Assume it's a regular JSON file
