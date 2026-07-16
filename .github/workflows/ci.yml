@@ -80,3 +80,7 @@ jobs:
 
       - name: Run tests
         run: uv run pytest --cov=llmeter -m "not integ"
+        env:
+          AWS_DEFAULT_REGION: us-east-1
+          AWS_ACCESS_KEY_ID: testing
+          AWS_SECRET_ACCESS_KEY: testing
