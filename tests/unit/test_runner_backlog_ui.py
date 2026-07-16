@@ -382,9 +382,6 @@ class TestTwoPhaseFlow:
 
         mock_endpoint.invoke.side_effect = slow_invoke
 
-        backlog_bar_created = [False]
-        original_run = run._run
-
         # Patch tqdm to track if a "Processing backlog" bar is created
         with patch("llmeter.runner.tqdm") as mock_tqdm:
             mock_tqdm.return_value = MagicMock()

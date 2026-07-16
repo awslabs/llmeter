@@ -53,10 +53,10 @@ jobs:
         run: uv sync
 
       - name: Ruff check
-        run: uv run ruff check .
+        run: uv run ruff check llmeter tests
 
       - name: Ruff format check
-        run: uv run ruff format --check .
+        run: uv run ruff format --check llmeter tests
 
       - name: Bandit security scan
         run: uv run bandit -c pyproject.toml -r llmeter

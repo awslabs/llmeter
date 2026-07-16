@@ -526,7 +526,13 @@ class TestGracefulShutdown:
         shutdown._task = task
 
         shutdown._handle(signal.SIGINT)
-        assert task.cancelling() > 0
+        # task.cancelling() added in 3.11; on 3.10 verify via await
+        if hasattr(task, "cancelling"):
+            assert task.cancelling() > 0
+        else:
+            with pytest.raises(asyncio.CancelledError):
+                await task
+            return
 
         # Cleanup
         try:
