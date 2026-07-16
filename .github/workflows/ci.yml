@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  # Derive the Python version matrix from pyproject.toml classifiers
+  resolve-python-versions:
+    runs-on: ubuntu-latest
+    outputs:
+      versions: ${{ steps.parse.outputs.versions }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Extract Python versions from classifiers
+        id: parse
+        run: |
+          versions=$(python3 -c "
+          import tomllib, json
+          with open('pyproject.toml', 'rb') as f:
+              data = tomllib.load(f)
+          classifiers = data['project'].get('classifiers', [])
+          versions = []
+          for c in classifiers:
+              # Match 'Programming Language :: Python :: 3.X'
+              parts = [p.strip() for p in c.split('::')]
+              if len(parts) == 3 and parts[0] == 'Programming Language' and parts[1] == 'Python':
+                  v = parts[2]
+                  # Only include specific minor versions (e.g. '3.10'), not just '3'
+                  if '.' in v:
+                      versions.append(v)
+          print(json.dumps(versions))
+          ")
+          echo "versions=$versions" >> "$GITHUB_OUTPUT"
+          echo "Resolved Python versions: $versions"
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v8.3.2
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Ruff check
+        run: uv run ruff check .
+
+      - name: Ruff format check
+        run: uv run ruff format --check .
+
+      - name: Bandit security scan
+        run: uv run bandit -c pyproject.toml -r llmeter
+
+  test:
+    needs: resolve-python-versions
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ${{ fromJson(needs.resolve-python-versions.outputs.versions) }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v8.3.2
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies
+        run: uv sync
+
+      - name: Run tests
+        run: uv run pytest --cov=llmeter -m "not integ"
