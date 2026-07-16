@@ -64,6 +64,15 @@ test = [
     "llmeter[all]",
 ]
 
+[tool.uv]
+# Exclude heavy dev group (sagemaker etc.) from default install/run
+default-groups = ["test", "docs"]
+# Transitive deps that dropped cp310 wheels
+constraint-dependencies = [
+    "onnxruntime<1.24; python_version == '3.10'",
+    "gevent<25.5; python_version == '3.10'",
+]
+
 [tool.pytest.ini_options]
 asyncio_default_fixture_loop_scope = "function"
 filterwarnings = ["ignore::DeprecationWarning"]

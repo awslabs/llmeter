@@ -47,9 +47,9 @@ class Interval:
         Returns:
             str: String in interval notation, e.g. "[1,2]" or "(1,2)"
         """
-        return f"{'[' if self.closed in ['left', 'both'] else '('}{self.left}, {
-            self.right
-        }{']' if self.closed in ['right', 'both'] else ')'}"
+        left_bracket = "[" if self.closed in ["left", "both"] else "("
+        right_bracket = "]" if self.closed in ["right", "both"] else ")"
+        return f"{left_bracket}{self.left}, {self.right}{right_bracket}"
 
     @property
     def mid(self):
