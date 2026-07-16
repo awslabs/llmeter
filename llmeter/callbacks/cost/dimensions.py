@@ -2,9 +2,13 @@
 # SPDX-License-Identifier: Apache-2.0
 """Classes defining different components of cost
 
-A "dimension" is one aspect of the pricing for a deployed Foundation Model or application.
-Here we provide implementations for some common cost dimensions, and define base classes you
-can use to bring customized cost dimensions for your own cost models.
+A "dimension" is one aspect of the pricing for a deployed Foundation Model or application. In
+general, multiple factors are likely to contribute to the total cost of FMs under test: For
+example, an API may charge separate rates for input vs output token counts; or a self-managed
+cloud deployment may carry per-hour charges for compute, as well as network bandwidth charges.
+
+Here we provide implementations for some common cost dimensions, and define base classes you can
+use to bring customized cost dimensions for your own cost models.
 """
 
 # Python Built-Ins:
@@ -21,42 +25,95 @@ from ...serialization import Serializable
 
 
 class IRequestCostDimension(Protocol):
-    """Interface for one dimension of a per-request cost model."""
+    """Interface for one dimension of a per-request cost model
 
-    async def calculate(self, response: InvocationResponse) -> float | None: ...
+    Per-request cost components are calculated independently for each invocation in a test run, and
+    can be used to model factors like cost-per-request, cost-per-input-tokens,
+    cost-per-request-duration, etc. They're typically most relevant for serverless deployments like
+    Amazon Bedrock, or estimating duration-based execution costs for AWS Lambda functions.
+    """
+
+    async def calculate(self, response: InvocationResponse) -> float | None:
+        """Calculate (this component of) the cost for an individual request/response"""
+        ...
 
 
 class IRunCostDimension(Protocol):
-    """Interface for one dimension of a per-Run cost model."""
+    """Interface for one dimension of a per-Run cost model
 
-    async def before_run_start(self, run_config: _RunConfig) -> None: ...
-    async def calculate(self, result: Result) -> float | None: ...
+    Per-run cost components are notified before the start of a test run via `before_run_start()`,
+    and then requested to `calculate()` at the end of the run. They're most relevant for
+    provisioned-infrastructure based deployments like Amazon SageMaker, where factors like a
+    (request-independent) cost-per-hour are important.
+    """
+
+    async def before_run_start(self, run_config: _RunConfig) -> None:
+        """Notify the cost component that a test run is about to start
+
+        This method is called before the test run starts, and can be used to perform any
+        initialization or setup required for the cost component. In general, we assume a dimension
+        instance may be re-used for multiple test runs, but only one run at a time: Meaning
+        `before_run_start()` should not be called again before `calculate()` is called for the
+        previous run.
+        """
+        ...
+
+    async def calculate(self, result: Result) -> float | None:
+        """Calculate (this component of) the cost for a completed test run
+
+        Dimensions that depend on `before_run_start` being called to return an accurate result
+        should throw an error if this was not done. Dimensions that only need `calculate()` should
+        silently ignore if `before_run_start` was not called.
+        """
+        ...
 
 
 class RequestCostDimensionBase(Serializable, ABC):
-    """Base class for per-request cost dimensions.
+    """Base class for implementing per-request cost model dimensions
 
-    Inherits ``__getstate__``/``__setstate__`` from :class:`~llmeter.serialization.Serializable`.
-    Subclasses just declare fields and implement ``calculate()``.
+    This class provides a default implementation of serialization (via
+    :class:`~llmeter.serialization.Serializable`) and sets up an abstract method for
+    `calculate()`. It's fine if you don't want to derive from it directly - just be sure to
+    fully implement `IRequestCostDimension`!
     """
 
     @abstractmethod
     async def calculate(self, response: InvocationResponse) -> float | None:
+        """Calculate (this component of) the cost for an individual request/response"""
         raise NotImplementedError
 
 
 class RunCostDimensionBase(Serializable, ABC):
-    """Base class for per-run cost dimensions.
+    """Base class for implementing per-run cost model dimensions
 
-    Inherits ``__getstate__``/``__setstate__`` from :class:`~llmeter.serialization.Serializable`.
+    This class provides a default implementation of serialization (via
+    :class:`~llmeter.serialization.Serializable`), a default empty `before_run_start`
+    implementation, and abstract methods for the other requirements of the `IRunCostDimension`
+    protocol. It's fine if you don't want to derive from it directly - just make sure you fully
+    implement `IRunCostDimension`!
     """
 
     async def before_run_start(self, run_config: _RunConfig) -> None:
-        """Called before a test run starts. Default is a no-op."""
+        """Notify the cost component that a test run is about to start
+
+        This method is called before the test run starts, and can be used to perform any
+        initialization or setup required for the cost component. In general, we assume a dimension
+        instance may be re-used for multiple test runs, but only one run at a time: Meaning
+        `before_run_start()` should not be called again before `calculate()` is called for the
+        previous run.
+
+        The default implementation is a pass.
+        """
         pass
 
     @abstractmethod
     async def calculate(self, result: Result) -> float | None:
+        """Calculate (this component of) the cost for a completed test run
+
+        Dimensions that depend on `before_run_start` being called to return an accurate result
+        should throw an error if this was not done. Dimensions that only need `calculate()` should
+        silently ignore if `before_run_start` was not called.
+        """
         raise NotImplementedError
 
 
@@ -67,11 +124,11 @@ class RunCostDimensionBase(Serializable, ABC):
 
 @dataclass
 class InputTokens(RequestCostDimensionBase):
-    """Request cost dimension: per-input-token costs with a flat charge rate.
+    """Request cost dimension to model per-input-token costs with a flat charge rate
 
     Args:
-        price_per_million: Charge per million input (prompt) tokens.
-        granularity: Minimum tokens billed per increment (Default 1).
+        price_per_million: Charge applied per million input (prompt) token to the Foundation Model
+        granularity: Minimum number of tokens billed per increment (Default 1)
     """
 
     price_per_million: float
@@ -86,11 +143,11 @@ class InputTokens(RequestCostDimensionBase):
 
 @dataclass
 class OutputTokens(RequestCostDimensionBase):
-    """Request cost dimension: per-output-token costs with a flat charge rate.
+    """Request cost dimension to model per-output-token costs with a flat charge rate
 
     Args:
-        price_per_million: Charge per million output (completion) tokens.
-        granularity: Minimum tokens billed per increment (Default 1).
+        price_per_million: Charge per million output (completion) token from the Foundation Model
+        granularity: Minimum number of tokens billed per increment (Default 1)
     """
 
     price_per_million: float
@@ -105,11 +162,11 @@ class OutputTokens(RequestCostDimensionBase):
 
 @dataclass
 class EndpointTime(RunCostDimensionBase):
-    """Run cost dimension: per-deployment-hour costs with a flat charge rate.
+    """Run cost dimension to model per-deployment-hour costs with a flat charge rate
 
     Args:
-        price_per_hour: Charge per hour a test run takes.
-        granularity_secs: Minimum seconds billed per increment (Default 1).
+        price_per_hour: Charge applied per hour a test run takes
+        granularity_secs: Minimum number of seconds billed per increment (Default 1)
     """
 
     price_per_hour: float

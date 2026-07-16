@@ -480,6 +480,9 @@ class Endpoint(Serializable, ABC, Generic[TRawResponse]):
     def save(self, output_path: WritablePathLike) -> Path:
         """Save the endpoint configuration to a JSON file.
 
+        This method serializes the endpoint's configuration via the ``__getstate__`` protocol
+        to a JSON file at the specified path.
+
         Args:
             output_path (str | UPath): The path where the configuration file will be saved.
 
@@ -508,11 +511,16 @@ class Endpoint(Serializable, ABC, Generic[TRawResponse]):
     def load_from_file(cls, input_path: ReadablePathLike) -> "Endpoint":
         """Load an endpoint configuration from a JSON file.
 
+        This class method reads a JSON file containing an endpoint configuration,
+        determines the appropriate endpoint class, and instantiates it with the
+        loaded configuration.
+
         Args:
             input_path (str | UPath): The path to the JSON configuration file.
 
         Returns:
-            Endpoint: An instance of the appropriate endpoint class.
+            Endpoint: An instance of the appropriate endpoint class, initialized
+                      with the configuration from the file.
         """
         input_path = ensure_path(input_path)
         with input_path.open("r") as f:
@@ -526,17 +534,24 @@ class Endpoint(Serializable, ABC, Generic[TRawResponse]):
 
     @classmethod
     def load(cls, endpoint_config: dict) -> "Endpoint":  # type: ignore
-        """Load an endpoint from a legacy ``{"endpoint_type": ...}`` dictionary.
+        """Load an endpoint configuration from a dictionary.
+
+        This class method reads a dictionary containing an endpoint configuration,
+        determines the appropriate endpoint class, and instantiates it with the
+        loaded configuration.
 
         .. deprecated::
-            New code should use :func:`~llmeter.serialization.load_object` with
-            dicts produced by :func:`~llmeter.serialization.dump_object`.
+            This supports the legacy ``{"endpoint_type": ...}`` format. New code should
+            use :func:`~llmeter.serialization.load_object` with dicts produced by
+            :func:`~llmeter.serialization.dump_object`.
 
         Args:
-            endpoint_config: Dictionary with at minimum an ``endpoint_type`` key.
+            endpoint_config (dict): A dictionary containing the endpoint configuration.
+                Must include at minimum an ``endpoint_type`` key.
 
         Returns:
-            Endpoint: An instance of the appropriate endpoint class.
+            Endpoint: An instance of the appropriate endpoint class, initialized
+                      with the configuration from the dictionary.
         """
         endpoint_type = endpoint_config.pop("endpoint_type")
         endpoint_module = importlib.import_module("llmeter.endpoints")

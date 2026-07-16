@@ -30,6 +30,7 @@ Key components:
 import base64
 import importlib
 import inspect
+import json
 import logging
 import os
 import re
@@ -39,6 +40,9 @@ from datetime import date, datetime, time, timezone
 from typing import Any
 
 from upath import UPath as Path
+from upath.types import ReadablePathLike, WritablePathLike
+
+from .utils import ensure_path
 
 logger = logging.getLogger(__name__)
 
@@ -70,10 +74,25 @@ def str_to_datetime(s: str) -> datetime:
 
 
 def json_default(obj: Any) -> Any:
-    """Fallback serializer for :func:`json.dumps`.
+    """Serialize a single non-JSON-serializable object.
 
-    Handles ``bytes`` (→ base64 marker), ``datetime``, ``date``/``time``,
-    ``os.PathLike``, and falls back to ``str()``.
+    Intended for use as the ``default`` argument to :func:`json.dumps` or
+    :func:`json.dump`.
+
+    Type handling (checked in order):
+
+    * ``bytes`` — wrapped in a ``{"__llmeter_bytes__": "<base64>"}`` marker so
+      that :func:`bytes_decoder` can restore them on the way back.
+    * ``datetime`` — converted to a UTC ISO-8601 string with a ``Z`` suffix.
+    * ``date`` / ``time`` — converted via ``.isoformat()``.
+    * ``os.PathLike`` — converted to a POSIX path string.
+    * Anything else — ``str()`` fallback (returns ``None`` if that also fails).
+
+    Args:
+        obj: The object that the default encoder could not handle.
+
+    Returns:
+        A JSON-serializable representation of *obj*.
     """
     if isinstance(obj, bytes):
         return {"__llmeter_bytes__": base64.b64encode(obj).decode("utf-8")}
@@ -90,7 +109,18 @@ def json_default(obj: Any) -> Any:
 
 
 def bytes_decoder(dct: dict) -> dict | bytes:
-    """Object hook for :func:`json.loads` that restores ``__llmeter_bytes__`` markers."""
+    """Decode ``__llmeter_bytes__`` marker objects back to ``bytes``.
+
+    Intended for use as the ``object_hook`` argument to :func:`json.loads` or
+    :func:`json.load`. Marker objects produced by :func:`json_default` are detected
+    and converted back to ``bytes``; all other dicts pass through unchanged.
+
+    Args:
+        dct: A dictionary produced by the JSON parser.
+
+    Returns:
+        The original ``bytes`` if *dct* is a marker object, otherwise *dct* unchanged.
+    """
     if "__llmeter_bytes__" in dct and len(dct) == 1:
         return base64.b64decode(dct["__llmeter_bytes__"])
     return dct
@@ -109,9 +139,18 @@ def _get_type_args(tp) -> tuple:
 def restore_dataclass_types(cls, data: dict) -> None:
     """Restore typed fields in a dict destined for a dataclass constructor.
 
-    Introspects ``cls`` (a dataclass) and converts JSON-native values back to
-    their annotated Python types. Only fields declared on ``cls`` are touched —
-    nested user payloads (e.g. ``input_payload``) are left unchanged.
+    Introspects ``cls`` (a dataclass) and converts JSON-native values back to their
+    annotated Python types. Currently handles:
+
+    * ``datetime`` fields — parses ISO-8601 strings via :func:`str_to_datetime`.
+    * ``bytes`` fields — decodes ``__llmeter_bytes__`` markers via base64.
+
+    Only fields declared on ``cls`` are touched — nested user payloads (e.g.
+    ``input_payload``) are left unchanged. Mutates *data* in place.
+
+    Args:
+        cls: A dataclass type to introspect for field type annotations.
+        data: A dictionary of field values (e.g. from :func:`json.load`) to coerce.
     """
     for f in fields(cls):
         val = data.get(f.name)
@@ -161,6 +200,37 @@ class Serializable:
         deserialized = {k: _deserialize_value(v) for k, v in state.items()}
         self.__init__(**deserialized)
 
+    def save_to_file(self, path: WritablePathLike) -> None:
+        """Save this object to a JSON file.
+
+        Uses the ``__getstate__`` protocol. Override ``__getstate__`` (not this method)
+        if custom serialization is needed.
+
+        Args:
+            path: (Local or Cloud) path where the object will be saved.
+        """
+        path = ensure_path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        data = dump_object(self)
+        with path.open("w") as f:
+            json.dump(data, f, indent=4, default=json_default)
+
+    @classmethod
+    def load_from_file(cls, path: ReadablePathLike) -> "Serializable":
+        """Load an object from a JSON file.
+
+        Detects the type from the ``__llmeter_class__`` field and reconstructs it.
+
+        Args:
+            path: (Local or Cloud) path where the object was saved.
+        Returns:
+            The loaded instance.
+        """
+        path = ensure_path(path)
+        with path.open("r") as f:
+            data = json.load(f)
+        return load_object(data)
+
 
 # ---------------------------------------------------------------------------
 # Object serialization API
@@ -170,7 +240,21 @@ class Serializable:
 def dump_object(obj: Any) -> dict:
     """Serialize an object to a type-tagged dict for round-trip persistence.
 
-    Returns ``{"__llmeter_class__": "module.Class", "__llmeter_state__": {...}}``.
+    The returned envelope has the form
+    ``{"__llmeter_class__": "module.Class", "__llmeter_state__": {...}}``.
+
+    Serialization strategy (checked in order):
+
+    1. If the object has a custom ``__getstate__`` (not :func:`object.__getstate__`),
+       calls it to obtain the state dict.
+    2. If the object is a dataclass, uses :func:`dataclasses.asdict`.
+    3. Otherwise, takes all public (non-underscore-prefixed) entries from ``__dict__``.
+
+    Args:
+        obj: The object to serialize.
+
+    Returns:
+        A JSON-serializable dict that :func:`load_object` can reconstruct.
     """
     class_path = f"{obj.__class__.__module__}.{obj.__class__.__qualname__}"
     if (
@@ -190,7 +274,20 @@ def dump_object(obj: Any) -> dict:
 def load_object(data: dict) -> Any:
     """Restore an object from a type-tagged dict produced by :func:`dump_object`.
 
-    .. warning:: Do not call on data from untrusted sources.
+    Imports the module identified by ``__llmeter_class__``, instantiates the class
+    (bypassing ``__init__`` via ``__new__``), and calls ``__setstate__`` with the
+    persisted state dict.
+
+    Args:
+        data: A dict with ``__llmeter_class__`` and ``__llmeter_state__`` keys, as
+            produced by :func:`dump_object`.
+
+    Returns:
+        The reconstructed object instance.
+
+    .. warning::
+        Do not call on data from untrusted sources — it imports and instantiates
+        arbitrary classes.
     """
     class_path = data["__llmeter_class__"]
     module_path, class_name = class_path.rsplit(".", 1)
@@ -216,7 +313,12 @@ _DATETIME_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 
 
 def _serialize_value(val: Any) -> Any:
-    """Recursively prepare a value for JSON persistence."""
+    """Recursively prepare a value for JSON persistence.
+
+    Handles primitives, known types (bytes, datetime, PathLike), nested
+    :class:`Serializable` objects (via :func:`dump_object`), dicts, and lists/tuples.
+    Raises :exc:`TypeError` for objects it cannot serialize.
+    """
     if val is None or isinstance(val, (str, int, float, bool)):
         return val
     for types, fn in _SERIALIZERS:
@@ -235,7 +337,12 @@ def _serialize_value(val: Any) -> Any:
 
 
 def _deserialize_value(val: Any) -> Any:
-    """Recursively restore a value from JSON persistence."""
+    """Recursively restore a value from JSON persistence.
+
+    Recognizes type-tagged dicts (``__llmeter_class__``), bytes markers
+    (``__llmeter_bytes__``), ISO-8601 datetime strings, and recursively processes
+    nested dicts and lists.
+    """
     match val:
         case None | bool() | int() | float():
             return val

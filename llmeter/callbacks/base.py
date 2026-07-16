@@ -4,17 +4,12 @@
 
 from __future__ import annotations
 
-import json
 from abc import ABC
-from typing import final
-
-from upath.types import ReadablePathLike, WritablePathLike
 
 from ..endpoints.base import InvocationResponse
 from ..results import Result
 from ..runner import _RunConfig
-from ..serialization import Serializable, dump_object, json_default, load_object
-from ..utils import ensure_path
+from ..serialization import Serializable
 
 
 class Callback(Serializable, ABC):
@@ -25,8 +20,8 @@ class Callback(Serializable, ABC):
     associated with test runs or individual model invocations.
 
     A Callback object may implement multiple of the defined lifecycle hooks (such as
-    `before_invoke`, `after_run`, etc). Callbacks must support serializing their configuration to
-    a file (by implementing `save_to_file`), and loading back (via `load_from_file`).
+    `before_invoke`, `after_run`, etc). Serialization to/from file is inherited from
+    :class:`~llmeter.serialization.Serializable`.
     """
 
     async def before_invoke(self, payload: dict) -> None:
@@ -74,34 +69,3 @@ class Callback(Serializable, ABC):
         """
         pass
 
-    def save_to_file(self, path: WritablePathLike) -> None:
-        """Save this Callback to a JSON file.
-
-        Uses the ``__getstate__`` protocol. Override ``__getstate__`` (not this method)
-        if custom serialization is needed.
-
-        Args:
-            path: (Local or Cloud) path where the callback will be saved.
-        """
-        path = ensure_path(path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        data = dump_object(self)
-        with path.open("w") as f:
-            json.dump(data, f, indent=4, default=json_default)
-
-    @staticmethod
-    @final
-    def load_from_file(path: ReadablePathLike) -> Callback:
-        """Load (any type of) Callback from a JSON file.
-
-        Detects the callback type from the ``__llmeter_class__`` field and reconstructs it.
-
-        Args:
-            path: (Local or Cloud) path where the callback was saved.
-        Returns:
-            callback: A loaded Callback instance.
-        """
-        path = ensure_path(path)
-        with path.open("r") as f:
-            data = json.load(f)
-        return load_object(data)

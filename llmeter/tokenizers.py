@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any
 
 from .serialization import Serializable
 
@@ -43,25 +42,30 @@ class Tokenizer(Serializable, ABC):
 
     @staticmethod
     def load(tokenizer_info: dict) -> "Tokenizer":
-        """Load a tokenizer from a legacy ``{"tokenizer_module": ...}`` dictionary.
+        """Load a tokenizer from a dictionary.
 
         This supports configs saved before the unified ``dump_object``/``load_object``
         serialization was introduced. New code should use
         :func:`~llmeter.serialization.load_object` instead.
 
         Args:
-            tokenizer_info: Dictionary with at minimum a ``tokenizer_module`` key.
+            tokenizer_info (dict): The tokenizer information to load. Must include at minimum
+                a ``tokenizer_module`` key.
 
         Returns:
-            A restored Tokenizer instance.
+            Tokenizer: The loaded tokenizer.
         """
         return _load_tokenizer_from_info(tokenizer_info)
 
 
 def _load_tokenizer_from_info(tokenizer_info: dict) -> Tokenizer:
-    """Instantiate a tokenizer from a legacy info dict.
+    """Load a tokenizer from a legacy info dictionary.
 
-    Supports ``"transformers"``, ``"tiktoken"``, and ``"llmeter"`` modules.
+    Args:
+        tokenizer_info (dict): The tokenizer information to load.
+
+    Returns:
+        Tokenizer: The loaded tokenizer.
     """
     module = tokenizer_info["tokenizer_module"]
 
