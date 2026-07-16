@@ -179,7 +179,7 @@ class TestLoadTestResult:
         figs = load_test_result.plot_results(show=False, format="html")
 
         assert figs == {"fig1": mock_fig1, "fig2": mock_fig2}
-        mock_plot.assert_called_once_with(load_test_result)
+        mock_plot.assert_called_once_with(load_test_result, extra_stats=None)
         mock_fig1.write_html.assert_called_once()
         mock_fig2.write_html.assert_called_once()
 

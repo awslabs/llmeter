@@ -41,8 +41,33 @@ class LoadTestResult:
     test_name: str
     output_path: WritablePathLike | None = None
 
-    def plot_results(self, show: bool = True, format: Literal["html", "png"] = "html"):
-        figs = plot_load_test_results(self)
+    def plot_results(
+        self,
+        show: bool = True,
+        format: Literal["html", "png"] = "html",
+        extra_stats: dict[str, str] | None = None,
+    ):
+        """Plot load test results.
+
+        Generates the standard set of plots (latency, RPM, error rate, tokens) and
+        optionally additional figures for arbitrary stat keys vs number of clients.
+
+        Args:
+            show: Whether to display figures interactively. Default True.
+            format: File format when saving figures to ``output_path``.
+            extra_stats: Additional stat keys to plot vs concurrency. Maps stat keys
+                (as they appear in ``result.stats``) to y-axis labels. Each entry
+                produces a separate figure. Example::
+
+                    load_test_result.plot_results(extra_stats={
+                        "system_cpu_percent-p90": "CPU p90 (%)",
+                        "system_memory_rss_mb-max": "RSS peak (MB)",
+                    })
+
+        Returns:
+            dict[str, Figure]: All generated figures keyed by name.
+        """
+        figs = plot_load_test_results(self, extra_stats=extra_stats)
 
         # add individual color sequence for each plot
         c_seqs = [

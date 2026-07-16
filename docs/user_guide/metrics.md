@@ -174,6 +174,65 @@ The `CostModel` callback extends `Result.stats` with cost estimates. When attach
 
 See the [Model Costs example notebook](https://github.com/awslabs/llmeter/blob/main/examples/Model%20Costs.ipynb) for a walkthrough of request-based pricing, infrastructure-based pricing, and custom cost dimensions.
 
+### System metrics
+
+The `SystemMetricsMonitor` callback extends `Result.stats` with client-side system resource metrics. When attached to a `Runner` or `Experiment`, it tracks CPU, memory, and network I/O throughout the run.
+
+!!! note
+    Requires the `system-metrics` extra: `pip install 'llmeter[system-metrics]'`
+
+#### Contributed statistics
+
+| Statistic | Description |
+| --- | --- |
+| `system_cpu_percent-average` | Mean CPU usage (%) during the run. |
+| `system_cpu_percent-p50` | Median CPU usage. |
+| `system_cpu_percent-p90` | 90th percentile CPU usage. |
+| `system_cpu_percent-p99` | 99th percentile CPU usage. |
+| `system_memory_rss_mb-average` | Mean resident memory (MB). |
+| `system_memory_rss_mb-max` | Peak resident memory during the run. |
+| `system_memory_rss_mb-p50` / `-p90` / `-p99` | Memory percentiles. |
+| `system_memory_vms_mb-average` / `-max` | Virtual memory statistics. |
+| `system_net_bytes_sent_total` | Total bytes sent over the network during the run. |
+| `system_net_bytes_recv_total` | Total bytes received from the network during the run. |
+| `system_net_bytes_sent_per_second-average` | Average network send rate (bytes/s). |
+| `system_net_bytes_recv_per_second-average` | Average network receive rate (bytes/s). |
+| `system_net_bytes_sent_per_second-p50` / `-p90` / `-p99` | Send rate percentiles. |
+| `system_net_bytes_recv_per_second-p50` / `-p90` / `-p99` | Receive rate percentiles. |
+| `system_samples_collected` | Number of metric samples taken during the run. |
+
+#### Live display
+
+When the `SystemMetricsMonitor` is active, real-time system metrics also appear in the progress bar's live stats display under a **System** column, showing the latest CPU %, memory RSS, and network receive rate.
+
+#### Usage
+
+```python
+from llmeter.callbacks.system_metrics import SystemMetricsMonitor
+from llmeter.runner import Runner
+
+monitor = SystemMetricsMonitor(sample_interval=0.5, per_process=True)
+runner = Runner(endpoint=endpoint, callbacks=[monitor], output_path="./results")
+result = await runner.run(payload=payload)
+
+print(result.stats["system_cpu_percent-average"])
+print(result.stats["system_memory_rss_mb-max"])
+print(result.stats["system_net_bytes_recv_total"])
+```
+
+Key parameters:
+
+- **`sample_interval`** (float, default 1.0): How often to sample metrics, in seconds. Lower values give more granular data but slightly increase overhead.
+- **`per_process`** (bool, default `True`): If `True`, monitors only the current Python process. Set to `False` for system-wide resource tracking (useful when other processes contribute to the workload).
+
+!!! note "Network I/O is always system-wide"
+    Regardless of the `per_process` setting, network I/O metrics are always system-wide because `psutil` does not support per-process network counters on most platforms. If other processes generate significant network traffic during a benchmark, it will be reflected in the network stats.
+
+!!! tip "Detecting client-side bottlenecks"
+    If `system_cpu_percent-p90` approaches 100% or `system_memory_rss_mb-max` grows significantly during high-concurrency load tests, your client machine may be a bottleneck rather than the LLM endpoint. Consider running LLMeter on a more powerful instance or reducing concurrency.
+
+See the [System Metrics Monitoring example notebook](https://github.com/awslabs/llmeter/blob/main/examples/System%20Metrics%20Monitoring.ipynb) for a full walkthrough including load test correlation plots and time-series analysis.
+
 ### Experiment-level metrics
 
 #### Load test

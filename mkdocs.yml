@@ -42,6 +42,7 @@ nav:
       - user_guide/callbacks/cache_buster.md
       - user_guide/callbacks/cost.md
       - user_guide/callbacks/mlflow.md
+      - user_guide/callbacks/system_metrics.md
   - API Reference:
     - reference/index.md
     - callbacks:
@@ -57,6 +58,7 @@ nav:
         - results: reference/callbacks/cost/results.md
         - serde: reference/callbacks/cost/serde.md
       - mlflow: reference/callbacks/mlflow.md
+      - system_metrics: reference/callbacks/system_metrics.md
     - endpoints:
       - reference/endpoints/index.md
       - anthropic_messages: reference/endpoints/anthropic_messages.md

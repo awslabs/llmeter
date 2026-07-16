@@ -24,9 +24,10 @@ litellm = ["litellm>=1.47.1"]
 plotting = ["plotly>=5.24.1", "kaleido<=0.2.1", "pandas>=2.2.0"]
 mlflow = ["mlflow-skinny>=3.10.0"]
 multimodal = ["puremagic>=1.28"]
+system-metrics = ["psutil>=5.9.0"]
 tokenizers = ["transformers>=4.40.2", "tiktoken>=0.7.0"]
 all = [
-    "llmeter[anthropic,openai,litellm,plotting,mlflow,multimodal,tokenizers]",
+    "llmeter[anthropic,openai,litellm,plotting,mlflow,multimodal,system-metrics,tokenizers]",
 ]
 
 [project.urls]
@@ -46,6 +47,7 @@ dev = [
     "nbformat>=5.10.4",
     "bandit>=1.7.10",
     "aws-bedrock-token-generator>=1.1.0",
+    "nbconvert>=7.17.1",
 ]
 docs = [
     "mkdocstrings[python]>=0.26.1",

@@ -27,3 +27,25 @@ The `Runner` is a low-level API to run a batch of (concurrent) requests through 
 An `Experiment` is a high-level, pre-defined analysis to explore a particular aspect of latency or performance - which might run one or more Runs under the hood.
 
 LLMeter's pre-built Experiments are designed based on evaluation best-practices and feedback from our users, but you can always build your own custom Experiments from the lower-level Runner API if needed.
+
+## [Callbacks](../reference/callbacks/index.md): Extensibility hooks
+
+Callbacks let you extend LLMeter's behavior at defined points in the run lifecycle. A callback can run code before/after each request, or before/after an entire run. Built-in callbacks include:
+
+- **[`CostModel`](../reference/callbacks/cost/model.md)**: Estimate costs based on token counts, endpoint time, or custom pricing dimensions.
+- **[`SystemMetricsMonitor`](../reference/callbacks/system_metrics.md)**: Monitor CPU, memory, and network I/O during runs, with live display integration and persisted statistics.
+- **[`MlflowCallback`](../reference/callbacks/mlflow.md)**: Log run parameters and results to MLflow for experiment tracking.
+
+Callbacks are passed to `Runner` or `Experiment` via the `callbacks` parameter:
+
+```python
+from llmeter.callbacks import CostModel
+from llmeter.callbacks.system_metrics import SystemMetricsMonitor
+
+runner = Runner(
+    endpoint=endpoint,
+    callbacks=[SystemMetricsMonitor(), CostModel(...)],
+)
+```
+
+You can also create custom callbacks by subclassing `Callback` — see the [API reference](../reference/callbacks/base.md) for the lifecycle hooks and best practices.
