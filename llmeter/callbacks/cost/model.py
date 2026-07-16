@@ -15,7 +15,7 @@ from ...utils import ensure_path
 from ..base import Callback
 from .dimensions import IRequestCostDimension, IRunCostDimension
 from .results import CalculatedCostWithDimensions
-from .serde import JSONableBase, from_dict_with_class_map
+from .serde import JSONableBase, from_dict_with_class, from_dict_with_class_map
 
 
 @dataclass
@@ -203,6 +203,18 @@ class CostModel(JSONableBase, Callback):
             result, recalculate_request_costs=False, save=True
         )
 
+    def to_dict(self, **kwargs) -> dict:
+        """Serialize the cost model to a JSON-safe dict.
+
+        Injects the ``_callback_type`` marker from ``Callback.to_dict()`` into the
+        dict produced by ``JSONableBase.to_dict()``, so that
+        ``Callback.from_dict()`` can reconstruct this ``CostModel`` dynamically.
+        """
+        data = JSONableBase.to_dict(self, **kwargs)
+        cls = self.__class__
+        data["_callback_type"] = f"{cls.__module__}:{cls.__qualname__}"
+        return data
+
     def save_to_file(self, path: WritablePathLike) -> None:
         """Save the cost model (including all dimensions) to a JSON file"""
         path = ensure_path(path)
@@ -217,13 +229,16 @@ class CostModel(JSONableBase, Callback):
             **alt_classes,
         }
         raw_args = {**raw}
+        # Strip callback/serde type markers — they're not constructor args
+        raw_args.pop("_callback_type", None)
+        raw_args.pop("_type", None)
         for key in ("request_dims", "run_dims"):
             if key in raw_args:
                 raw_args[key] = {
                     name: from_dict_with_class_map(d, class_map=dim_classes)
                     for name, d in raw_args[key].items()
                 }
-        return super().from_dict(raw_args, alt_classes=alt_classes, **kwargs)
+        return from_dict_with_class(raw=raw_args, cls=cls, **kwargs)
 
     @classmethod
     def _load_from_file(cls, path: ReadablePathLike):

@@ -3,9 +3,10 @@ import time
 from contextlib import contextmanager
 from io import BytesIO
 
+from unittest.mock import MagicMock, Mock
+
 import pytest
 from botocore.exceptions import ClientError
-from mock import MagicMock, Mock
 
 from llmeter.endpoints.bedrock_invoke import (
     BedrockInvoke,

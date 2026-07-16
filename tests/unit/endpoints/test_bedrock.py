@@ -6,7 +6,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 from botocore.exceptions import ClientError
-from mock import MagicMock
+from unittest.mock import MagicMock
 
 from llmeter.endpoints.bedrock import (
     BedrockBase,

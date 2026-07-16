@@ -9,6 +9,14 @@ keywords = ["llm", "genai", "testing", "performance"]
 license = { text = "Apache-2.0" }
 maintainers = [{ name = "llmeter-maintainers", email = "llmeter-maintainers@amazon.com" }]
 requires-python = ">=3.10,<4"
+classifiers = [
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
 dependencies = [
     "tqdm>=4.66.0",
     "jmespath>=0.7.1,<2.0.0",
@@ -60,8 +68,20 @@ test = [
     "pytest-cov>=5.0.0",
     "pillow>=12.1.1",
     "aws-bedrock-token-generator>=1.1.0",
+    "ruff>=0.6.5",
+    "bandit>=1.7.10",
+    "ipykernel>=6.29.0",
     # Pull in all optional dependencies for comprehensive testing
     "llmeter[all]",
+]
+
+[tool.uv]
+# Exclude heavy dev group (sagemaker etc.) from default install/run
+default-groups = ["test", "docs"]
+# Transitive deps that dropped cp310 wheels
+constraint-dependencies = [
+    "onnxruntime<1.24; python_version == '3.10'",
+    "gevent<25.5; python_version == '3.10'",
 ]
 
 [tool.pytest.ini_options]

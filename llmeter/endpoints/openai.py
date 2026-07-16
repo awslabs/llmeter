@@ -34,13 +34,14 @@ logger = logging.getLogger(__name__)
 
 # MIME types supported by OpenAI, grouped by content part type
 _OPENAI_IMAGE_MIMES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
-_OPENAI_AUDIO_MIMES = {"audio/mpeg", "audio/wav"}
+_OPENAI_AUDIO_MIMES = {"audio/mpeg", "audio/wav", "audio/wave"}
 _OPENAI_FILE_MIMES = {"application/pdf"}
 
 # Map MIME → OpenAI audio "format" field value
 _MIME_TO_OPENAI_AUDIO_FMT: dict[str, Literal["mp3", "wav"]] = {
     "audio/mpeg": "mp3",
     "audio/wav": "wav",
+    "audio/wave": "wav",
 }
 
 TOpenAICompletionBase = TypeVar(

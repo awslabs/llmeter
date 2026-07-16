@@ -187,6 +187,9 @@ class _RunConfig:
         if not isinstance(self.tokenizer, dict):
             config_copy.tokenizer = Tokenizer.to_dict(self.tokenizer)
 
+        if self.callbacks:
+            config_copy.callbacks = [cb.to_dict() for cb in self.callbacks]
+
         with run_config_path.open("w") as f:
             f.write(
                 json.dumps(
@@ -207,6 +210,10 @@ class _RunConfig:
             config = json.load(f)
         config["endpoint"] = Endpoint.load(config["endpoint"])
         config["tokenizer"] = Tokenizer.load(config["tokenizer"])
+        if config.get("callbacks"):
+            from .callbacks.base import Callback  # deferred: callbacks.base imports _RunConfig
+
+            config["callbacks"] = [Callback.from_dict(cb) for cb in config["callbacks"]]
         return cls(**config)
 
 
