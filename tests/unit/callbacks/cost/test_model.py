@@ -1,5 +1,6 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
+import json
 from dataclasses import dataclass
 from unittest.mock import AsyncMock, Mock, NonCallableMock
 
@@ -30,6 +31,80 @@ def test_cost_model_serialization():
     d = model.__getstate__()
     assert "request_dims" in d
     assert "run_dims" in d
+
+
+def test_cost_model_save_load_file_roundtrip(tmp_path):
+    """A CostModel can be saved to and loaded from a file, re-initialising its dimensions
+
+    Exercises the inherited Serializable.save_to_file / load_from_file API (file I/O plus
+    json_default), which the in-memory dump_object/load_object test does not cover.
+    """
+    from llmeter.callbacks.cost.dimensions import (
+        EndpointTime,
+        InputTokens,
+        OutputTokens,
+    )
+
+    model = CostModel(
+        request_dims={
+            "TokensIn": InputTokens(price_per_million=30, granularity=10),
+            "TokensOut": OutputTokens(price_per_million=60),
+        },
+        run_dims={"ComputeSeconds": EndpointTime(price_per_hour=50)},
+    )
+
+    path = tmp_path / "cost_model.json"
+    saved_path = model.save_to_file(path)
+    # save_to_file returns the (validated/normalized) path it wrote to
+    assert str(saved_path) == str(path)
+    assert path.is_file()
+
+    # The file is valid JSON tagged with the CostModel class path
+    with open(path) as f:
+        raw = json.load(f)
+    assert raw["__llmeter_class__"] == "llmeter.callbacks.cost.model.CostModel"
+
+    restored = CostModel.load_from_file(path)
+
+    # The correct concrete type is reconstructed from the file
+    assert isinstance(restored, CostModel)
+
+    # Each dimension is re-initialised as the correct type, under the same name, with values intact
+    assert set(restored.request_dims) == {"TokensIn", "TokensOut"}
+    assert set(restored.run_dims) == {"ComputeSeconds"}
+
+    tokens_in = restored.request_dims["TokensIn"]
+    assert isinstance(tokens_in, InputTokens)
+    assert tokens_in.price_per_million == 30
+    assert tokens_in.granularity == 10
+
+    tokens_out = restored.request_dims["TokensOut"]
+    assert isinstance(tokens_out, OutputTokens)
+    assert tokens_out.price_per_million == 60
+
+    compute = restored.run_dims["ComputeSeconds"]
+    assert isinstance(compute, EndpointTime)
+    assert compute.price_per_hour == 50
+
+
+def test_cost_model_load_from_file_dispatches_via_base_class(tmp_path):
+    """load_from_file resolves the concrete type from the file, even when called on Serializable
+
+    The class is detected from the ``__llmeter_class__`` marker rather than the class the
+    classmethod is invoked on, so loading via the base mixin still yields a CostModel.
+    """
+    from llmeter.callbacks.cost.dimensions import InputTokens
+    from llmeter.serialization import Serializable
+
+    model = CostModel(request_dims={"TokensIn": InputTokens(price_per_million=15)})
+
+    path = tmp_path / "cost_model.json"
+    model.save_to_file(path)
+
+    restored = Serializable.load_from_file(path)
+    assert isinstance(restored, CostModel)
+    assert restored.request_dims["TokensIn"].price_per_million == 15
+    assert restored.run_dims == {}
 
 
 def test_cost_model_detects_duplicate_cost_dim_names():
