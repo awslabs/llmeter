@@ -11,6 +11,7 @@ import importlib
 import json
 import logging
 import time
+import warnings
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
@@ -24,7 +25,6 @@ from upath.types import ReadablePathLike, WritablePathLike
 from ..serialization import (
     Serializable,
     bytes_decoder,
-    dump_object,
     json_default,
     load_object,
     restore_dataclass_types,
@@ -480,8 +480,10 @@ class Endpoint(Serializable, ABC, Generic[TRawResponse]):
     def save(self, output_path: WritablePathLike) -> Path:
         """Save the endpoint configuration to a JSON file.
 
-        This method serializes the endpoint's configuration via the ``__getstate__`` protocol
-        to a JSON file at the specified path.
+        .. deprecated::
+            Use :meth:`~llmeter.serialization.Serializable.save_to_file` instead, which
+            provides the same behavior with a consistent name across all serializable
+            LLMeter objects. This alias will be removed in a future major version.
 
         Args:
             output_path (str | UPath): The path where the configuration file will be saved.
@@ -489,12 +491,13 @@ class Endpoint(Serializable, ABC, Generic[TRawResponse]):
         Returns:
             Path: The path the file was written to.
         """
-        output_path = ensure_path(output_path)
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        data = dump_object(self)
-        with output_path.open("w") as f:
-            json.dump(data, f, indent=4, default=json_default)
-        return output_path
+        warnings.warn(
+            "Endpoint.save() is deprecated and will be removed in a future version; "
+            "use Endpoint.save_to_file() instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        return self.save_to_file(output_path)
 
     def to_dict(self) -> dict:
         """
@@ -508,7 +511,7 @@ class Endpoint(Serializable, ABC, Generic[TRawResponse]):
         return endpoint_conf
 
     @classmethod
-    def load_from_file(cls, input_path: ReadablePathLike) -> "Endpoint":
+    def load_from_file(cls, path: ReadablePathLike) -> "Endpoint":
         """Load an endpoint configuration from a JSON file.
 
         This class method reads a JSON file containing an endpoint configuration,
@@ -516,14 +519,14 @@ class Endpoint(Serializable, ABC, Generic[TRawResponse]):
         loaded configuration.
 
         Args:
-            input_path (str | UPath): The path to the JSON configuration file.
+            path (str | UPath): The path to the JSON configuration file.
 
         Returns:
             Endpoint: An instance of the appropriate endpoint class, initialized
                       with the configuration from the file.
         """
-        input_path = ensure_path(input_path)
-        with input_path.open("r") as f:
+        path = ensure_path(path)
+        with path.open("r") as f:
             data = json.load(f)
         if "__llmeter_class__" in data:
             return load_object(data)

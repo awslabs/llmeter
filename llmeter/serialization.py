@@ -200,7 +200,7 @@ class Serializable:
         deserialized = {k: _deserialize_value(v) for k, v in state.items()}
         self.__init__(**deserialized)
 
-    def save_to_file(self, path: WritablePathLike) -> None:
+    def save_to_file(self, path: WritablePathLike) -> Path:
         """Save this object to a JSON file.
 
         Uses the ``__getstate__`` protocol. Override ``__getstate__`` (not this method)
@@ -208,12 +208,16 @@ class Serializable:
 
         Args:
             path: (Local or Cloud) path where the object will be saved.
+
+        Returns:
+            The (validated/normalized) path the object was written to.
         """
         path = ensure_path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         data = dump_object(self)
         with path.open("w") as f:
             json.dump(data, f, indent=4, default=json_default)
+        return path
 
     @classmethod
     def load_from_file(cls, path: ReadablePathLike) -> "Serializable":
