@@ -27,14 +27,10 @@ class CostModel(Callback):
     def __init__(
         self,
         request_dims: (
-            dict[str, IRequestCostDimension]
-            | list[IRequestCostDimension]
-            | None
+            dict[str, IRequestCostDimension] | list[IRequestCostDimension] | None
         ) = None,
         run_dims: (
-            dict[str, IRunCostDimension]
-            | list[IRunCostDimension]
-            | None
+            dict[str, IRunCostDimension] | list[IRunCostDimension] | None
         ) = None,
     ):
         """Create a CostModel
@@ -94,8 +90,9 @@ class CostModel(Callback):
 
         Args:
             response: The InvocationResponse to estimate costs for
-            save: Set `True` to also store the result in `response.cost`, in addition to returning
-                it. Defaults to `False`
+            save: Set `True` to also store the result in `response.annotations` (under `cost_`
+                prefixed keys), in addition to returning it. Because `annotations` is a persisted
+                field, saved costs survive `Result` save/load. Defaults to `False`
         """
         dim_costs = CalculatedCostWithDimensions(
             **{
@@ -104,7 +101,10 @@ class CostModel(Callback):
             }
         )
         if save:
-            dim_costs.save_on_namespace(response, key_prefix="cost_")
+            # Store per-response costs in `response.annotations` (a declared field) so they
+            # persist through to_json/from_json and disk save/load, rather than as loose
+            # attributes on the response (which asdict-based serialization would drop).
+            dim_costs.save_on_namespace(response.annotations, key_prefix="cost_")
         return dim_costs
 
     async def calculate_run_cost(
@@ -127,10 +127,7 @@ class CostModel(Callback):
                 it. Defaults to `False`.
         """
         run_cost = CalculatedCostWithDimensions(
-            **{
-                name: await dim.calculate(result)
-                for name, dim in self.run_dims.items()
-            }
+            **{name: await dim.calculate(result) for name, dim in self.run_dims.items()}
         )
         if recalculate_request_costs:
             resp_costs = [
@@ -138,15 +135,17 @@ class CostModel(Callback):
                 for r in result.responses
             ]
         else:
-            resp_costs = list(filter(
-                lambda c: c,
-                (
-                    CalculatedCostWithDimensions.load_from_namespace(
-                        r, key_prefix="cost_"
-                    )
-                    for r in result.responses
-                ),
-            ))
+            resp_costs = list(
+                filter(
+                    lambda c: c,
+                    (
+                        CalculatedCostWithDimensions.load_from_namespace(
+                            r.annotations, key_prefix="cost_"
+                        )
+                        for r in result.responses
+                    ),
+                )
+            )
         if len(resp_costs):
             run_cost.merge(sum(resp_costs))  # type: ignore
         if save:
@@ -164,7 +163,8 @@ class CostModel(Callback):
     async def after_invoke(self, response: InvocationResponse) -> None:
         """LLMeter Callback.after_invoke hook
 
-        Calls calculate_request_cost() with `save=True` to save the cost on the InvocationResponse.
+        Calls calculate_request_cost() with `save=True` to save the per-request cost into
+        `response.annotations` (under `cost_` prefixed keys), so it persists with the response.
         """
         await self.calculate_request_cost(response, save=True)
 

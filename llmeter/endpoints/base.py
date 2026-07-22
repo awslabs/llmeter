@@ -8,13 +8,14 @@ You can also use these classes to implement your own custom `Endpoint` integrati
 import copy
 import functools
 import importlib
+import inspect
 import json
 import logging
 import time
 import warnings
 from abc import ABC, abstractmethod
 from collections.abc import Callable
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime, timezone
 from typing import Any, Generic, TypeVar
 from uuid import uuid4
@@ -57,6 +58,12 @@ class InvocationResponse:
         time_per_output_token (float): The average time taken to generate each token in the response.
         error (str): Any error that occurred during invocation.
         request_time: The wall-clock time when the request was sent.
+        annotations (dict): Free-form extra data attached to this response, for example by
+            callbacks. This is the **preferred** place for a `Callback` to store additional
+            per-response fields (rather than setting arbitrary attributes on the response), because
+            `annotations` is a declared field and therefore round-trips through
+            `to_json`/`from_json` and disk persistence. On load, any *unrecognized* top-level keys
+            (e.g. from older files or other LLMeter versions) are collected into `annotations` too.
     """
 
     response_text: str | None
@@ -73,6 +80,7 @@ class InvocationResponse:
     error: str | None = None
     retries: int | None = None
     request_time: datetime | None = None
+    annotations: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_json(cls, json_str: str) -> "InvocationResponse":
@@ -84,6 +92,12 @@ class InvocationResponse:
 
         * `datetime`-annotated fields are parsed from ISO-8601 strings back to Python `datetime`
         * `bytes`-typed fields and `__llmeter_bytes__` markers in nested payloads are restored
+
+        For legacy compatability, any top-level keys that are *not* recognized fields are currently
+        collected into [`annotations`][llmeter.endpoints.base.InvocationResponse] rather than being
+        dropped or raising an error. This supports older files where CostModel callbacks wrote
+        extra fields (such as `cost_*`) directly onto the response - but may be dropped in a future
+        version.
 
         Args:
             json_str: A JSON string representation of an InvocationResponse (produced by `to_json`
@@ -101,6 +115,18 @@ class InvocationResponse:
         """
         data = json.loads(json_str, object_hook=bytes_decoder)
         restore_dataclass_types(cls, data)
+        # Route any unrecognized top-level keys into `annotations` rather than failing. This keeps
+        # forward/backward compatibility: e.g. older files where callbacks wrote extra fields (like
+        # `cost_*`) directly onto the response, or fields written by a different LLMeter version.
+        known = {f.name for f in fields(cls)}
+        extras = {k: data.pop(k) for k in list(data) if k not in known}
+        if extras:
+            data["annotations"] = {**extras, **(data.get("annotations") or {})}
+            logger.debug(
+                "Loaded %d unrecognized InvocationResponse field(s) into `annotations`: %s",
+                len(extras),
+                ", ".join(sorted(extras)),
+            )
         return cls(**data)
 
     def to_json(self, default=json_default, **kwargs) -> str:
@@ -533,7 +559,7 @@ class Endpoint(Serializable, ABC, Generic[TRawResponse]):
         endpoint_type = data.pop("endpoint_type")
         endpoint_module = importlib.import_module("llmeter.endpoints")
         endpoint_class = getattr(endpoint_module, endpoint_type)
-        return endpoint_class(**data)
+        return endpoint_class(**_filter_legacy_ctor_kwargs(endpoint_class, data))
 
     @classmethod
     def load(cls, endpoint_config: dict) -> "Endpoint":  # type: ignore
@@ -559,4 +585,37 @@ class Endpoint(Serializable, ABC, Generic[TRawResponse]):
         endpoint_type = endpoint_config.pop("endpoint_type")
         endpoint_module = importlib.import_module("llmeter.endpoints")
         endpoint_class = getattr(endpoint_module, endpoint_type)
-        return endpoint_class(**endpoint_config)
+        return endpoint_class(
+            **_filter_legacy_ctor_kwargs(endpoint_class, endpoint_config)
+        )
+
+
+def _filter_legacy_ctor_kwargs(endpoint_class: type, config: dict) -> dict:
+    """Drop legacy config keys that the target endpoint constructor won't accept.
+
+    Older LLMeter configs persisted derived/read-only attributes (notably ``provider``,
+    which endpoints now set internally) alongside the real constructor arguments. Passing
+    those through to a modern ``__init__`` raises ``TypeError``, so we filter the dict down
+    to the parameters the constructor actually declares.
+
+    If the constructor accepts ``**kwargs`` the dict is passed through unchanged.
+
+    Args:
+        endpoint_class: The endpoint class about to be instantiated.
+        config: The legacy configuration dict (already stripped of ``endpoint_type``).
+
+    Returns:
+        A copy of ``config`` containing only keys the constructor accepts.
+    """
+    params = inspect.signature(endpoint_class.__init__).parameters
+    if any(p.kind == p.VAR_KEYWORD for p in params.values()):
+        return config
+    accepted = {name for name in params if name != "self"}
+    dropped = set(config) - accepted
+    if dropped:
+        logger.debug(
+            "Ignoring legacy config field(s) not accepted by %s.__init__: %s",
+            endpoint_class.__name__,
+            ", ".join(sorted(dropped)),
+        )
+    return {k: v for k, v in config.items() if k in accepted}

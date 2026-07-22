@@ -37,7 +37,7 @@ def mock_endpoint():
 
 @pytest.fixture
 def mock_tokenizer():
-    # Tokenizer now serializes via the Serializable mixin (__getstate__), not a
+    # Tokenizer now serializes via the Serializable mixin (_get_llmeter_state), not a
     # to_dict() method. These tests run without an output_path, so the tokenizer
     # is never actually serialized — a bare spec'd mock is all that's needed.
     yield MagicMock(spec=Tokenizer)
@@ -380,9 +380,6 @@ class TestTwoPhaseFlow:
             )
 
         mock_endpoint.invoke.side_effect = slow_invoke
-
-        backlog_bar_created = [False]
-        original_run = run._run
 
         # Patch tqdm to track if a "Processing backlog" bar is created
         with patch("llmeter.runner.tqdm") as mock_tqdm:

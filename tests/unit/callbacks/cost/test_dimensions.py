@@ -33,7 +33,9 @@ async def test_cost_per_input_token():
         "price_per_million": 30,
         "granularity": 10,
     }
-    dim_valid = InputTokens(price_per_million=spec["price_per_million"], granularity=spec["granularity"])
+    dim_valid = InputTokens(
+        price_per_million=spec["price_per_million"], granularity=spec["granularity"]
+    )
 
     success_response = InvocationResponse(response_text="hi", num_tokens_input=199999)
     assert await dim_valid.calculate(success_response) == 6
@@ -46,7 +48,7 @@ async def test_cost_per_input_token():
     err_response = InvocationResponse.error_output()
     assert await dim_valid.calculate(err_response) is None
 
-    assert dim_valid.__getstate__() == {
+    assert dim_valid._get_llmeter_state() == {
         "price_per_million": 30,
         "granularity": 10,
     }
@@ -58,7 +60,9 @@ async def test_cost_per_output_token():
         "price_per_million": 40,
         "granularity": 10,
     }
-    dim_valid = OutputTokens(price_per_million=spec["price_per_million"], granularity=spec["granularity"])
+    dim_valid = OutputTokens(
+        price_per_million=spec["price_per_million"], granularity=spec["granularity"]
+    )
 
     success_response = InvocationResponse(response_text="hi", num_tokens_output=199999)
     assert await dim_valid.calculate(success_response) == 8
@@ -71,7 +75,7 @@ async def test_cost_per_output_token():
     err_response = InvocationResponse.error_output()
     assert await dim_valid.calculate(err_response) is None
 
-    assert dim_valid.__getstate__() == {
+    assert dim_valid._get_llmeter_state() == {
         "price_per_million": 40,
         "granularity": 10,
     }
@@ -83,7 +87,9 @@ async def test_cost_per_hour():
         "price_per_hour": 30,
         "granularity_secs": 60,
     }
-    dim_valid = EndpointTime(price_per_hour=spec["price_per_hour"], granularity_secs=spec["granularity_secs"])
+    dim_valid = EndpointTime(
+        price_per_hour=spec["price_per_hour"], granularity_secs=spec["granularity_secs"]
+    )
 
     result = Result(
         [],
@@ -100,7 +106,7 @@ async def test_cost_per_hour():
     result.total_test_time = None
     assert await dim_valid.calculate(result) is None
 
-    assert dim_valid.__getstate__() == {
+    assert dim_valid._get_llmeter_state() == {
         "price_per_hour": 30,
         "granularity_secs": 60,
     }

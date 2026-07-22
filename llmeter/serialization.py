@@ -6,8 +6,10 @@ This module is the single source of truth for serialization in LLMeter.
 
 Key components:
 
-- :class:`Serializable` — Mixin that gives any class automatic
-  ``__getstate__``/``__setstate__`` by introspecting ``__init__``.
+- :class:`Serializable` — Mixin that gives any class an automatic *state* protocol
+  (``_get_llmeter_state``/``_set_llmeter_state``) by introspecting ``__init__``.
+  Deliberately distinct from the pickle protocol so ``pickle`` / ``copy`` /
+  ``deepcopy`` keep their native behavior.
 
 - :func:`dump_object` / :func:`load_object` — Full round-trip persistence
   using a ``{"__llmeter_class__": ..., "__llmeter_state__": ...}`` envelope.
@@ -21,10 +23,29 @@ Key components:
 - :func:`datetime_to_str` / :func:`str_to_datetime` — Standardized
   datetime ↔ string conversion (UTC ISO-8601 with ``Z`` suffix).
 
-.. warning:: Security
+!!! warning "A warning on security"
 
     :func:`load_object` imports and instantiates whatever class path is in the
     ``__llmeter_class__`` field. Do not load configs from untrusted sources.
+
+### Implementation details to be aware of
+
+**State vs. identity:** We split an object's serialized form into two layers. The
+*state* (``_get_llmeter_state``) contains the object's own field values and does *not*
+describe which class those values belong to. The **envelope** built by
+:func:`dump_object` adds the identity (``__llmeter_class__``) around that state.
+This is why the state methods are named ``_get_llmeter_state`` /
+``_set_llmeter_state``: the dict they handle is not a self-describing representation
+of the object, only of its state, so a for example a public ``to_dict`` name would
+over-promise. Keeping identity out of the state dict also avoids polluting the user's
+field namespace and lets nested polymorphic values each carry their own envelope.
+
+**Why a base-class mixin and not a Protocol:** The value :class:`Serializable`
+provides is an *inherited implementation* (via ``__init__`` introspection), not
+merely a method contract — a class becomes serializable by inheriting it, writing
+zero serialization code. A structural ``Protocol`` could only describe the methods,
+not hand over that implementation, so it would not actually help an author satisfy
+the contract; they would inherit :class:`Serializable` regardless.
 """
 
 import base64
@@ -173,7 +194,12 @@ def restore_dataclass_types(cls, data: dict) -> None:
 
 
 class Serializable:
-    """Mixin providing automatic ``__getstate__``/``__setstate__`` via __init__ introspection.
+    """Mixin providing a state extraction protocol compatible with LLMeter serialization.
+
+    Serialization in LLMeter uses a state extraction protocol somewhat similar to, but deliberately
+    separate from, the (``__getstate__`` / ``__setstate__``) interface used by `pickle`,
+    `copy.copy`, and `copy.deepcopy`. Subclasses remain natively picklable/copyable, but can also
+    be saved to and loaded from LLMeter's JSON-based format.
 
     Works with plain classes, ``@dataclass``, and any class whose ``__init__``
     parameters correspond to instance attributes (``self.x`` or ``self._x``).
@@ -182,7 +208,17 @@ class Serializable:
     :func:`dump_object` / :func:`load_object`.
     """
 
-    def __getstate__(self) -> dict:
+    def _get_llmeter_state(self) -> dict:
+        """Extract a JSON-serializable state dict by introspecting ``__init__`` parameters.
+
+        Returns the object's constructor arguments (looked up as ``self.<name>`` or
+        ``self._<name>``), recursively serialized. Note that:
+
+        1. This is state only — it carries no class identity; :func:`dump_object` wraps it with
+            ``__llmeter_class__``.
+        2. Any properties not exposed as `__init__` arguments will not be persisted. Override your
+            class' state get and set methods if you need different behaviour.
+        """
         sig = inspect.signature(self.__init__)
         state = {}
         for name, param in sig.parameters.items():
@@ -196,15 +232,22 @@ class Serializable:
                 state[name] = _serialize_value(getattr(self, f"_{name}"))
         return state
 
-    def __setstate__(self, state: dict) -> None:
+    def _set_llmeter_state(self, state: dict) -> None:
+        """Restore this instance from a state dict produced by :meth:`_get_llmeter_state`.
+
+        Note this rebuilds the object by *calling the constructor* with the state as
+        keyword arguments (it is a ``from_dict``-style reconstruction, not pickle-style
+        state restoration onto an already-built instance). ``load_object`` first
+        creates a bare instance via ``__new__``, then calls this to populate it.
+        """
         deserialized = {k: _deserialize_value(v) for k, v in state.items()}
         self.__init__(**deserialized)
 
     def save_to_file(self, path: WritablePathLike) -> Path:
         """Save this object to a JSON file.
 
-        Uses the ``__getstate__`` protocol. Override ``__getstate__`` (not this method)
-        if custom serialization is needed.
+        Uses the :meth:`_get_llmeter_state` protocol. Override
+        :meth:`_get_llmeter_state` (not this method) if custom serialization is needed.
 
         Args:
             path: (Local or Cloud) path where the object will be saved.
@@ -249,8 +292,8 @@ def dump_object(obj: Any) -> dict:
 
     Serialization strategy (checked in order):
 
-    1. If the object has a custom ``__getstate__`` (not :func:`object.__getstate__`),
-       calls it to obtain the state dict.
+    1. If the object implements the LLMeter state protocol
+        (:meth:`Serializable._get_llmeter_state`), calls it to obtain the state dict.
     2. If the object is a dataclass, uses :func:`dataclasses.asdict`.
     3. Otherwise, takes all public (non-underscore-prefixed) entries from ``__dict__``.
 
@@ -261,11 +304,8 @@ def dump_object(obj: Any) -> dict:
         A JSON-serializable dict that :func:`load_object` can reconstruct.
     """
     class_path = f"{obj.__class__.__module__}.{obj.__class__.__qualname__}"
-    if (
-        hasattr(obj, "__getstate__")
-        and type(obj).__getstate__ is not object.__getstate__
-    ):
-        state = obj.__getstate__()
+    if hasattr(obj, "_get_llmeter_state"):
+        state = obj._get_llmeter_state()
     elif is_dataclass(obj) and not isinstance(obj, type):
         state = asdict(obj)
     elif hasattr(obj, "__dict__"):
@@ -279,8 +319,9 @@ def load_object(data: dict) -> Any:
     """Restore an object from a type-tagged dict produced by :func:`dump_object`.
 
     Imports the module identified by ``__llmeter_class__``, instantiates the class
-    (bypassing ``__init__`` via ``__new__``), and calls ``__setstate__`` with the
-    persisted state dict.
+    (bypassing ``__init__`` via ``__new__``), and restores its state via
+    :meth:`Serializable._set_llmeter_state`. Objects that do not implement the
+    protocol are restored by assigning the (deserialized) state onto ``__dict__``.
 
     Args:
         data: A dict with ``__llmeter_class__`` and ``__llmeter_state__`` keys, as
@@ -298,8 +339,19 @@ def load_object(data: dict) -> Any:
     module = importlib.import_module(module_path)
     cls = getattr(module, class_name)
 
+    state = data["__llmeter_state__"]
     obj = cls.__new__(cls)
-    obj.__setstate__(data["__llmeter_state__"])
+    if hasattr(obj, "_set_llmeter_state"):
+        obj._set_llmeter_state(state)
+    else:
+        # Fallback for non-Serializable classes (state came from dump_object's dataclass /
+        # __dict__ branches). We assign attributes directly rather than calling __setstate__:
+        # `object` has no __setstate__ (so it would raise for a plain class), and if the class
+        # *does* define one it's the pickle hook, which may expect a different state shape than
+        # our JSON dict. Direct assignment (with per-value deserialization) is the safe generic
+        # restore, and mirrors pickle's own "restore __dict__ without calling __init__" default.
+        for key, value in state.items():
+            setattr(obj, key, _deserialize_value(value))
     return obj
 
 
@@ -328,16 +380,19 @@ def _serialize_value(val: Any) -> Any:
     for types, fn in _SERIALIZERS:
         if isinstance(val, types):
             return fn(val)
-    if (
-        hasattr(val, "__getstate__")
-        and type(val).__getstate__ is not object.__getstate__
-    ):
+    if hasattr(val, "_get_llmeter_state"):
         return dump_object(val)
     if isinstance(val, dict):
         return {k: _serialize_value(v) for k, v in val.items()}
     if isinstance(val, (list, tuple)):
         return [_serialize_value(item) for item in val]
-    raise TypeError(f"Cannot serialize {type(val).__name__!r} object: {val!r}")
+    raise TypeError(
+        f"Cannot serialize {type(val).__name__!r} object: {val!r}. "
+        "Only JSON primitives, bytes, datetime, PathLike, dicts, lists/tuples, and "
+        "LLMeter-serializable objects are supported. To make a custom object "
+        "serializable (e.g. a custom cost dimension or callback), have its class "
+        "inherit from llmeter.serialization.Serializable."
+    )
 
 
 def _deserialize_value(val: Any) -> Any:

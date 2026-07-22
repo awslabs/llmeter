@@ -35,12 +35,12 @@ class TestBase:
         assert restored.nested is False
 
     def test_getstate_setstate_roundtrip(self):
-        """__getstate__ / __setstate__ round-trips correctly."""
+        """get state / set state round-trips correctly."""
         cb = MlflowCallback(step=7, nested=True)
-        state = cb.__getstate__()
+        state = cb._get_llmeter_state()
 
         restored = MlflowCallback.__new__(MlflowCallback)
-        restored.__setstate__(state)
+        restored._set_llmeter_state(state)
 
         assert restored.step == 7
         assert restored.nested is True

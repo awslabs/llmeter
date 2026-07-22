@@ -273,6 +273,40 @@ class TestRunConfigSaveLoadProperties:
             assert config_file.exists()
             assert config_file.parent.exists()
 
+    def test_run_config_save_load_roundtrip(self):
+        """save/load should round-trip a real endpoint via the ``__llmeter_class__`` envelope.
+
+        The property tests above only exercise the *save* side (with a mock endpoint), so this
+        is the coverage for ``_RunConfig.load`` reconstructing a real endpoint from the current
+        serialization format. It also pins that format (no legacy ``endpoint_type`` key), so a
+        future backward-compat change can't silently break current-format loading. Legacy-format
+        loading is covered separately in ``test_legacy_data_load.py``.
+        """
+        from llmeter.endpoints.bedrock import BedrockConverseStream
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir)
+            config = _RunConfig(
+                endpoint=BedrockConverseStream(
+                    model_id="apac.amazon.nova-pro-v1:0", region="us-east-1"
+                ),
+                clients=3,
+                n_requests=7,
+            )
+            config.save(output_path)
+
+            # New saves use the type-tagged envelope, not the legacy endpoint_type key
+            saved = json.loads((output_path / "run_config.json").read_text())
+            assert "__llmeter_class__" in saved["endpoint"]
+            assert "endpoint_type" not in saved["endpoint"]
+
+            loaded = _RunConfig.load(output_path)
+            assert isinstance(loaded._endpoint, BedrockConverseStream)
+            assert loaded._endpoint.model_id == "apac.amazon.nova-pro-v1:0"
+            assert loaded._endpoint.region == "us-east-1"
+            assert loaded.clients == 3
+            assert loaded.n_requests == 7
+
 
 # Result save/load property tests
 class TestResultSaveLoadProperties:

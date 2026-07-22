@@ -44,7 +44,7 @@ async def test_real_time_endpoint_compute_explicit_price():
     result.total_test_time = None
     assert await dim.calculate(result) is None
 
-    dim_ser = dim.__getstate__()
+    dim_ser = dim._get_llmeter_state()
     assert dim_ser == {
         "instance_count": 1,
         "instance_type": "ml.doesnotexist",
@@ -237,7 +237,7 @@ async def test_real_time_endpoint_storage_explicit_price():
     result.total_test_time = None
     assert await dim.calculate(result) is None
 
-    dim_ser = dim.__getstate__()
+    dim_ser = dim._get_llmeter_state()
     assert dim_ser == {
         "gbs_provisioned": 5,
         "price_per_gb_hour": 9,

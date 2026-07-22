@@ -172,7 +172,8 @@ class _RunConfig:
     ):
         """Save the configuration to a disk or cloud storage.
 
-        Uses the ``__getstate__``/``__setstate__`` protocol for Endpoint, Tokenizer,
+        Uses the LLMeter state-based serialization protocol
+        (``_get_llmeter_state``/``_set_llmeter_state``) for Endpoint, Tokenizer,
         and Callback serialization.
 
         Args:
@@ -199,9 +200,7 @@ class _RunConfig:
             config_copy.callbacks = [dump_object(cb) for cb in self.callbacks]
 
         with run_config_path.open("w") as f:
-            json.dump(
-                asdict(config_copy), f, default=json_default, indent=4
-            )
+            json.dump(asdict(config_copy), f, default=json_default, indent=4)
 
     @classmethod
     def load(cls, load_path: ReadablePathLike, file_name: str = "run_config.json"):
@@ -218,21 +217,25 @@ class _RunConfig:
         with (load_path / file_name).open() as f:
             config = json.load(f)
 
-        # Restore endpoint
+        # Restore endpoint and tokenizer. Only unwrap the new-format
+        # (``__llmeter_class__``) envelope here; legacy dicts (``endpoint_type`` /
+        # ``tokenizer_module``) are passed through untouched so ``__post_init__`` can
+        # route them to ``Endpoint.load`` / ``Tokenizer.load``.
         ep = config.get("endpoint")
-        if isinstance(ep, dict):
+        if isinstance(ep, dict) and "__llmeter_class__" in ep:
             config["endpoint"] = load_object(ep)
 
-        # Restore tokenizer
         tok = config.get("tokenizer")
-        if isinstance(tok, dict):
+        if isinstance(tok, dict) and "__llmeter_class__" in tok:
             config["tokenizer"] = load_object(tok)
 
-        # Restore callbacks
+        # Restore callbacks (new-format envelopes only; anything else is left as-is)
         cbs = config.get("callbacks")
         if isinstance(cbs, list):
             config["callbacks"] = [
-                load_object(cb) if isinstance(cb, dict) else cb
+                load_object(cb)
+                if isinstance(cb, dict) and "__llmeter_class__" in cb
+                else cb
                 for cb in cbs
             ]
 

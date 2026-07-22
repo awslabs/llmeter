@@ -1,6 +1,8 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import json
+
 import pytest
 
 import llmeter
@@ -184,6 +186,57 @@ def test_endpoint_load_from_dict():
     assert loaded_endpoint.endpoint_name == "test_endpoint"
     assert loaded_endpoint.model_id == "test_model"
     assert loaded_endpoint.provider == "test_provider"
+
+
+def test_invocation_response_annotations_roundtrip():
+    """The `annotations` dict round-trips through to_json/from_json."""
+    resp = InvocationResponse(
+        response_text="hi", annotations={"cost_total": 0.01, "label": "x"}
+    )
+    restored = InvocationResponse.from_json(resp.to_json())
+    assert restored.annotations == {"cost_total": 0.01, "label": "x"}
+
+
+def test_invocation_response_annotations_default_is_empty_dict():
+    """annotations defaults to an independent empty dict per instance."""
+    a = InvocationResponse(response_text="a")
+    b = InvocationResponse(response_text="b")
+    assert a.annotations == {}
+    a.annotations["x"] = 1
+    assert b.annotations == {}  # no shared mutable default
+
+
+def test_from_json_collects_unknown_fields_into_annotations():
+    """Unknown top-level keys (e.g. legacy callback-written fields) are captured into annotations."""
+    raw = json.dumps(
+        {
+            "response_text": "hi",
+            "id": "r1",
+            "num_tokens_input": 10,
+            "cost_total": 0.02,  # legacy callback-written field
+            "cost_InputTokens": 0.01,
+            "end_time": "2024-01-01T00:00:00Z",  # since-removed field
+        }
+    )
+    resp = InvocationResponse.from_json(raw)
+
+    # Known fields are parsed normally
+    assert resp.response_text == "hi"
+    assert resp.id == "r1"
+    assert resp.num_tokens_input == 10
+    # Unknown fields are preserved (not dropped, not raising) under annotations
+    assert resp.annotations == {
+        "cost_total": 0.02,
+        "cost_InputTokens": 0.01,
+        "end_time": "2024-01-01T00:00:00Z",
+    }
+
+
+def test_from_json_merges_unknown_fields_with_existing_annotations():
+    """Explicit annotations and stray unknown keys both survive load."""
+    raw = json.dumps({"response_text": "hi", "annotations": {"kept": 1}, "stray": 2})
+    resp = InvocationResponse.from_json(raw)
+    assert resp.annotations == {"kept": 1, "stray": 2}
 
 
 def test_invocation_response_to_dict():

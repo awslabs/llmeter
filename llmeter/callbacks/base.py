@@ -20,8 +20,11 @@ class Callback(Serializable, ABC):
     associated with test runs or individual model invocations.
 
     A Callback object may implement multiple of the defined lifecycle hooks (such as
-    `before_invoke`, `after_run`, etc). Serialization to/from file is inherited from
-    :class:`~llmeter.serialization.Serializable`.
+    `before_invoke`, `after_run`, etc) - which have no-op implementations by default. Serialization
+    to/from file is inherited from `llmeter.serialization.Serializable`, and is necessary so your
+    callback(s) can be saved to file (and restored) as part of a Run configuration. Any custom
+    callback class that is *not* LLMeter-serializable will raise a `TypeError` when the run config
+    it belongs to is saved.
     """
 
     async def before_invoke(self, payload: dict) -> None:
@@ -42,7 +45,10 @@ class Callback(Serializable, ABC):
                 timing and token counts)
         Returns:
             None: If you'd like to add information to the `response` logged in the Run, modify it
-                in-place.
+                in-place. To attach **extra custom fields**, store them in `response.annotations`
+                (a dict) rather than setting arbitrary attributes on the response: `annotations`
+                is a declared field, so it is preserved through `Result` save/load, whereas loose
+                attributes are dropped on serialization.
         """
         pass
 
@@ -68,4 +74,3 @@ class Callback(Serializable, ABC):
             None: If you'd like to modify the run `result`, edit the argument in-place.
         """
         pass
-

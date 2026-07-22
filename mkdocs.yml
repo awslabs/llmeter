@@ -42,7 +42,7 @@ nav:
       - user_guide/callbacks/cache_buster.md
       - user_guide/callbacks/cost.md
       - user_guide/callbacks/mlflow.md
-    - Serialization: serialization.md
+    - Save (and Reload) Results: user_guide/serialization.md
   - API Reference:
     - reference/index.md
     - callbacks:

@@ -36,3 +36,16 @@ results = await runner.run(
 ```
 
 Each callback will be processed in the **same order** as you provide them to the runner. This is important to remember and configure properly, if you're stacking multiple callbacks that access the same data (for example - transforming an invocation response *then* logging/exporting it somewhere, both using `after_invoke`).
+
+### Storing extra data on responses and results
+
+If your callback needs to attach **extra fields** on your `InvocationResponse`s (for example, a computed cost or a custom label), store them in the response's `annotations` dictionary:
+
+```python
+async def after_invoke(self, response):
+    response.annotations["my_metric"] = compute_something(response)
+```
+
+Any extra fields added directly to the `InvocationResponse` object itself will *not* be preserved when the responses are saved to file. For legacy compatability, any unrecognized fields found in older responses.jsonl files are *currently* callected back to `annotations`, but this behaviour may be dropped in future.
+
+Likewise for extra **run-level** data, `after_run` can add numeric statistics to the `Result` via [`_update_contributed_stats`](../../reference/results/#llmeter.results.Result), which are persisted alongside the run's other stats. (This is how the built-in [cost callback](cost.md) records run-level cost metrics.)

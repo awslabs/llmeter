@@ -124,7 +124,7 @@ class TestPathSerialization:
 
 class TestSerializableWithDatetimeAndBytes:
     """End-to-end: a Serializable class with datetime/bytes fields round-trips
-    via __getstate__/__setstate__."""
+    via _get_llmeter_state/_set_llmeter_state."""
 
     def test_serializable_with_datetime_field(self):
         class MyObj(Serializable):
@@ -134,10 +134,10 @@ class TestSerializableWithDatetimeAndBytes:
 
         dt = datetime(2024, 6, 15, 10, 30, 0, tzinfo=timezone.utc)
         obj = MyObj(created_at=dt, name="hello")
-        state = obj.__getstate__()
+        state = obj._get_llmeter_state()
 
         restored = MyObj.__new__(MyObj)
-        restored.__setstate__(state)
+        restored._set_llmeter_state(state)
 
         assert restored.created_at == dt
         assert isinstance(restored.created_at, datetime)
@@ -150,10 +150,10 @@ class TestSerializableWithDatetimeAndBytes:
                 self.label = label
 
         obj = MyObj(payload=b"\xde\xad\xbe\xef", label="binary")
-        state = obj.__getstate__()
+        state = obj._get_llmeter_state()
 
         restored = MyObj.__new__(MyObj)
-        restored.__setstate__(state)
+        restored._set_llmeter_state(state)
 
         assert restored.payload == b"\xde\xad\xbe\xef"
         assert isinstance(restored.payload, bytes)
@@ -168,10 +168,10 @@ class TestSerializableWithDatetimeAndBytes:
 
         dt = datetime(2024, 1, 1, tzinfo=timezone.utc)
         obj = MyObj(ts=dt, data=b"raw", info={"nested_bytes": b"\x01", "nested_ts": dt})
-        state = obj.__getstate__()
+        state = obj._get_llmeter_state()
 
         restored = MyObj.__new__(MyObj)
-        restored.__setstate__(state)
+        restored._set_llmeter_state(state)
 
         assert restored.ts == dt
         assert restored.data == b"raw"
