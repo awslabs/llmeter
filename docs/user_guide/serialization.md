@@ -3,7 +3,7 @@
 !!! warning "Important security warning"
     Do not use LLMeter file load functions on data from untrusted sources! For more details on why, see the following section.
 
-With LLMeter, you can save comprehensive test configuration and result information to files - whether locally or on the Cloud - and load past runs back into Python for analysis later. For example:
+LLMeter can save your test configurations and results to files - whether locally or on the Cloud - and load past runs back into Python for analysis later. For example:
 
 ```python
 from llmeter.results import Result
@@ -31,7 +31,7 @@ results = Result.load(f"{base_output_path}/my-cool-run")
 ```
 
 !!! note "A note on performance"
-    While it's possible for LLMeter to write run outputs directly to Cloud object stores like
+    While it's *possible* for LLMeter to write run outputs directly to Cloud object stores like
     [Amazon S3](https://aws.amazon.com/s3/), remember it might reduce the maximum throughput you
     can drive in *high-volume* tests, since it will consume network bandwidth.
 
@@ -41,7 +41,7 @@ individual responses). However, LLMeter also handles some more complex data type
 - Binary data in request/response payloads (such as images)
 - [Callbacks](./callbacks) configured on the test Run, including LLMeter built-ins as well as *your custom* callback classes
 
-Implementation of de/serialization functionality is centralized in the [`llmeter.serialization`](../reference/serialization) module.
+This core de/serialization functionality is implemented in the [`llmeter.serialization`](../reference/serialization) module.
 
 
 ## How complex data types are represented and loaded
@@ -55,11 +55,11 @@ Objects that are not natively JSON serializable (but support LLMeter's serializa
 }
 ```
 
-- `datetime` objects are serialized to ISO8601 format strings converted to UTC timezone, like `2024-01-01T00:00:00Z`.
+- `datetime` objects are stored as ISO-8601 format strings in UTC timezone, like `2024-01-01T00:00:00Z`.
 - `bytes` objects are serialized to base64 strings in a special `{"__llmeter_bytes__": "<base64>"}` wrapper.
-- Objects implementing LLMeter's [Serializable](../reference/serialization.md#llmeter.serialization.Serializable) interface (including for example Endpoints and Callbacks) are represented as dicts with the `__llmeter_{class/state}__` properties as shown above
+- Objects implementing LLMeter's [`Serializable`](../reference/serialization.md#llmeter.serialization.Serializable) interface (including for example Endpoints and Callbacks) are represented as dicts with the `__llmeter_{class/state}__` properties as shown above
 
-When **loading** these objects back from file, LLMeter will import and instantiate whatever class path is found in the `__llmeter_class__` field.
+When **loading** these objects back from file, LLMeter will try to import and instantiate **any** class path saved in the `__llmeter_class__` field.
 
 This is the same trust model as Python's native [pickle](https://docs.python.org/3/library/pickle.html) library: It is possible to construct malicious data which will run arbitrary code during loading, so **only load data that you trust**.
 
@@ -184,7 +184,7 @@ runner = Runner(endpoint=BedrockConverse(...), callbacks=[MlflowCallback(step=1)
 runner.save(output_path="/tmp/run")   # writes /tmp/run/run_config.json
 ```
 
-If a callback (or any other configured object) can't be serialized because its class doesn't inherit `Serializable`, saving raises a `TypeError`. This is why custom callbacks and cost dimensions should subclass the relevant LLMeter base class - see [`Callback`](../reference/callbacks/base.md) and the [cost dimension base classes](../reference/callbacks/cost/dimensions.md).
+If a callback (or any other configured object) can't be serialized because its class doesn't inherit `Serializable`, saving raises a `TypeError`. This is why custom callbacks and cost dimensions should subclass the relevant LLMeter base class - see [`Callback`](../reference/callbacks/base.md#llmeter.callbacks.base.Callback) and the [cost dimension base classes](../reference/callbacks/cost/dimensions.md).
 
 ### Dataclasses work automatically
 

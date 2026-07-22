@@ -3,7 +3,7 @@
 
 import json
 import logging
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from numbers import Number
@@ -119,7 +119,9 @@ class Result:
                 for response in self.responses:
                     f.write(json.dumps(asdict(response), default=json_default) + "\n")
 
-    def to_json(self, default=json_default, **kwargs) -> str:
+    def to_json(
+        self, default: Callable[[Any], Any] | None = json_default, **kwargs: Any
+    ) -> str:
         """Return the results as a JSON string.
 
         Args:

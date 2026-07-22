@@ -46,6 +46,6 @@ async def after_invoke(self, response):
     response.annotations["my_metric"] = compute_something(response)
 ```
 
-Any extra fields added directly to the `InvocationResponse` object itself will *not* be preserved when the responses are saved to file. For legacy compatability, any unrecognized fields found in older responses.jsonl files are *currently* callected back to `annotations`, but this behaviour may be dropped in future.
+Any extra fields added directly to the `InvocationResponse` object itself will *not* be preserved when the responses are saved to file. For legacy compatability, any unrecognized fields found in older responses.jsonl files are *currently* collected back to `annotations`, but this behaviour may be dropped in future.
 
-Likewise for extra **run-level** data, `after_run` can add numeric statistics to the `Result` via [`_update_contributed_stats`](../../reference/results/#llmeter.results.Result), which are persisted alongside the run's other stats. (This is how the built-in [cost callback](cost.md) records run-level cost metrics.)
+Likewise for extra **run-level** data, `after_run` can add numeric statistics to the `Result` via [`_update_contributed_stats`](../../reference/results/#llmeter.results.Result), which are persisted alongside the run's other stats. (This is how the built-in [cost modelling callback](cost.md) records run-level cost metrics.)

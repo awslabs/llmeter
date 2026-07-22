@@ -157,7 +157,7 @@ def _get_type_args(tp) -> tuple:
     return (tp,) if isinstance(tp, type) else ()
 
 
-def restore_dataclass_types(cls, data: dict) -> None:
+def restore_dataclass_types(cls: type, data: dict) -> None:
     """Restore typed fields in a dict destined for a dataclass constructor.
 
     Introspects ``cls`` (a dataclass) and converts JSON-native values back to their

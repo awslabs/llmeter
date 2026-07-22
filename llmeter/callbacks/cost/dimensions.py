@@ -35,12 +35,12 @@ class IRequestCostDimension(Protocol):
     !!! warning
         This interface describes only the *calculation* behavior. It intentionally says nothing
         about serialization: a dimension used purely in-memory need not be serializable. However,
-        to be usable inside a :class:`~llmeter.callbacks.cost.model.CostModel` that gets **saved**
-        (e.g. as a run callback, or via ``save_to_file``), a dimension must **additionally** be
-        LLMeter-serializable. The supported way to get that is to subclass
-        :class:`RequestCostDimensionBase` (which mixes in
-        :class:`~llmeter.serialization.Serializable`); implementing this Protocol alone is not
-        sufficient for persistence.
+        to be usable inside a [`CostModel`][llmeter.callbacks.cost.model.CostModel] that gets
+        **saved** (e.g. as a run callback, or via ``save_to_file``), a dimension must
+        **additionally** be LLMeter-serializable. The supported way to get that is to subclass
+        [`RequestCostDimensionBase`][llmeter.callbacks.cost.dimensions.RequestCostDimensionBase]
+        (which mixes in [`Serializable`][llmeter.serialization.Serializable]; implementing this
+        Protocol alone is not sufficient for persistence.
     """
 
     async def calculate(self, response: InvocationResponse) -> float | None:
@@ -57,10 +57,12 @@ class IRunCostDimension(Protocol):
     (request-independent) cost-per-hour are important.
 
     !!! warning
-        As with :class:`IRequestCostDimension`, this interface covers only calculation behavior and
-        not serialization. To be usable inside a :class:`~llmeter.callbacks.cost.model.CostModel`
-        that gets saved, subclass :class:`RunCostDimensionBase` (which mixes in
-        :class:`~llmeter.serialization.Serializable`) rather than implementing this Protocol alone.
+        As with `IRequestCostDimension`, this interface covers only calculation behavior and not
+        serialization. To be usable inside a
+        [`CostModel`][llmeter.callbacks.cost.model.CostModel] that gets saved, subclass
+        [`RunCostDimensionBase`][llmeter.callbacks.cost.dimensions.RunCostDimensionBase] (which
+        mixes in [`Serializable`][llmeter.serialization.Serializable]) rather than implementing
+        this Protocol alone.
     """
 
     async def before_run_start(self, run_config: _RunConfig) -> None:
@@ -88,7 +90,7 @@ class RequestCostDimensionBase(Serializable, ABC):
     """Base class for implementing per-request cost model dimensions
 
     This class provides a default implementation of serialization (via
-    :class:`~llmeter.serialization.Serializable`) and sets up an abstract method for
+    [`Serializable`][llmeter.serialization.Serializable]) and sets up an abstract method for
     `calculate()`.
     """
 
@@ -102,7 +104,7 @@ class RunCostDimensionBase(Serializable, ABC):
     """Base class for implementing per-run cost model dimensions
 
     This class provides a default implementation of serialization (via
-    :class:`~llmeter.serialization.Serializable`), a default empty `before_run_start`
+    [`Serializable`][llmeter.serialization.Serializable]), a default empty `before_run_start`
     implementation, and abstract methods for the other requirements of the `IRunCostDimension`
     protocol.
     """

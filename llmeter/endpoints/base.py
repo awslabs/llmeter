@@ -101,7 +101,7 @@ class InvocationResponse:
 
         Args:
             json_str: A JSON string representation of an InvocationResponse (produced by `to_json`
-            or similar).
+                or similar).
 
         Returns:
             InvocationResponse: The deserialized response.
@@ -129,7 +129,9 @@ class InvocationResponse:
             )
         return cls(**data)
 
-    def to_json(self, default=json_default, **kwargs) -> str:
+    def to_json(
+        self, default: Callable[[Any], Any] | None = json_default, **kwargs: Any
+    ) -> str:
         """Serialize this response to a JSON string.
 
         Uses [`json_default`][llmeter.serialization.json_default] by
@@ -569,14 +571,14 @@ class Endpoint(Serializable, ABC, Generic[TRawResponse]):
         determines the appropriate endpoint class, and instantiates it with the
         loaded configuration.
 
-        .. deprecated::
-            This supports the legacy ``{"endpoint_type": ...}`` format. New code should
-            use :func:`~llmeter.serialization.load_object` with dicts produced by
-            :func:`~llmeter.serialization.dump_object`.
+        !!! warning "Deprecated"
+            This supports the legacy `{"endpoint_type": ...}` format. New code should
+            use [`load_object`][llmeter.serialization.load_object] with dicts produced by
+            [`dump_object`][llmeter.serialization.dump_object].
 
         Args:
             endpoint_config (dict): A dictionary containing the endpoint configuration.
-                Must include at minimum an ``endpoint_type`` key.
+                Must include at minimum an `endpoint_type` key.
 
         Returns:
             Endpoint: An instance of the appropriate endpoint class, initialized
@@ -593,19 +595,19 @@ class Endpoint(Serializable, ABC, Generic[TRawResponse]):
 def _filter_legacy_ctor_kwargs(endpoint_class: type, config: dict) -> dict:
     """Drop legacy config keys that the target endpoint constructor won't accept.
 
-    Older LLMeter configs persisted derived/read-only attributes (notably ``provider``,
-    which endpoints now set internally) alongside the real constructor arguments. Passing
-    those through to a modern ``__init__`` raises ``TypeError``, so we filter the dict down
-    to the parameters the constructor actually declares.
+    Older LLMeter configs persisted derived/read-only attributes (notably `provider`, which
+    endpoints now set internally) alongside the real constructor arguments. Passing those through
+    to a modern `__init__` raises `TypeError`, so we filter the dict down to the parameters the
+    constructor actually declares.
 
-    If the constructor accepts ``**kwargs`` the dict is passed through unchanged.
+    If the constructor accepts `**kwargs` the dict is passed through unchanged.
 
     Args:
         endpoint_class: The endpoint class about to be instantiated.
         config: The legacy configuration dict (already stripped of ``endpoint_type``).
 
     Returns:
-        A copy of ``config`` containing only keys the constructor accepts.
+        A copy of `config` containing only keys the constructor accepts.
     """
     params = inspect.signature(endpoint_class.__init__).parameters
     if any(p.kind == p.VAR_KEYWORD for p in params.values()):
