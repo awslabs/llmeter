@@ -444,9 +444,7 @@ class TestBackwardCompatibilityProperties:
         # Feature: json-serialization-optimization, Property 7: Non-binary payloads are backward compatible
         """
         # Serialize with the new encoder
-        serialized_with_encoder = json.dumps(
-            payload, default=json_default
-        )
+        serialized_with_encoder = json.dumps(payload, default=json_default)
 
         # Serialize with standard json.dumps
         serialized_standard = json.dumps(payload)
@@ -811,7 +809,9 @@ class TestJsonDefaultFallback:
             def __str__(self):
                 return "custom_string_representation"
 
-        decoded = json.loads(json.dumps({"custom": CustomObject()}, default=json_default))
+        decoded = json.loads(
+            json.dumps({"custom": CustomObject()}, default=json_default)
+        )
         assert decoded["custom"] == "custom_string_representation"
 
     def test_none_when_str_conversion_fails(self):
@@ -821,7 +821,7 @@ class TestJsonDefaultFallback:
             def __str__(self):
                 raise RuntimeError("Cannot convert to string")
 
-        decoded = json.loads(json.dumps({"failing": FailingObject()}, default=json_default))
+        decoded = json.loads(
+            json.dumps({"failing": FailingObject()}, default=json_default)
+        )
         assert decoded["failing"] is None
-
-

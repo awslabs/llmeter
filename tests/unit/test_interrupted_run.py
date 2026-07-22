@@ -29,9 +29,7 @@ def sample_responses():
             time_to_last_token=0.3 * (i + 1),
             num_tokens_input=10 * (i + 1),
             num_tokens_output=20 * (i + 1),
-            request_time=datetime(
-                2025, 6, 1, 10, 0, i * 2, tzinfo=timezone.utc
-            ),
+            request_time=datetime(2025, 6, 1, 10, 0, i * 2, tzinfo=timezone.utc),
         )
         for i in range(5)
     ]
@@ -123,9 +121,7 @@ class TestLoadWithoutSummary:
         assert result.last_request_time == datetime(
             2025, 6, 1, 10, 0, 8, tzinfo=timezone.utc
         )
-        assert result.end_time == datetime(
-            2025, 6, 1, 10, 0, 8, tzinfo=timezone.utc
-        )
+        assert result.end_time == datetime(2025, 6, 1, 10, 0, 8, tzinfo=timezone.utc)
 
     def test_load_sets_total_requests_from_responses(self, interrupted_run_dir):
         """total_requests should be set to the number of recovered responses."""
@@ -686,9 +682,7 @@ class TestRunnerInterruptFlow:
             import time
 
             time.sleep(0.05)
-            return InvocationResponse(
-                id="x", input_prompt="test", response_text="resp"
-            )
+            return InvocationResponse(id="x", input_prompt="test", response_text="resp")
 
         mock_endpoint.invoke = slow_invoke
 
