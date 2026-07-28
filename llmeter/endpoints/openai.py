@@ -2,13 +2,18 @@
 # SPDX-License-Identifier: Apache-2.0
 """LLMeter targets for testing OpenAI ChatCompletions-compatible endpoints (wherever they're hosted)"""
 
+# Python Built-Ins:
 import base64
 import logging
 import os
 import time
+from collections.abc import Mapping
 from typing import Any, Literal, Generic, Iterable, TypeVar, cast
 
+# External Dependencies:
+import httpx  # (Indirect dependency of OpenAI)
 from openai import OpenAI
+from openai._constants import DEFAULT_MAX_RETRIES
 from openai.types.chat import (
     ChatCompletion,
     ChatCompletionChunk,
@@ -23,6 +28,7 @@ from openai.types.chat.chat_completion_content_part_param import (
     File as ChatCompletionFile,
 )
 
+# Local Dependencies:
 from ..prompt_utils import (
     ContentItem,
     MediaContent,
@@ -123,6 +129,14 @@ class OpenAIEndpoint(Endpoint[TOpenAICompletionBase], Generic[TOpenAICompletionB
         endpoint_name: str = "openai",
         api_key: str | None = None,
         provider: str = "openai",
+        organization: str | None = None,
+        project: str | None = None,
+        base_url: str | httpx.URL | None = None,
+        websocket_base_url: str | httpx.URL | None = None,
+        timeout: float | httpx.Timeout | dict | None = None,
+        max_retries: int = DEFAULT_MAX_RETRIES,
+        default_headers: Mapping[str, str] | None = None,
+        default_query: Mapping[str, object] | None = None,
         **kwargs: Any,
     ):
         """Initialize OpenAI endpoint.
@@ -130,12 +144,77 @@ class OpenAIEndpoint(Endpoint[TOpenAICompletionBase], Generic[TOpenAICompletionB
         Args:
             model_id: ID of the OpenAI model to use
             endpoint_name: Name of the endpoint. Defaults to "openai".
-            api_key: OpenAI API key. Defaults to None.
+            api_key: OpenAI API key. Defaults to None (reads from OPENAI_API_KEY env var).
             provider: Provider name. Defaults to "openai".
+            organization: OpenAI organization ID. Defaults to None.
+            project: OpenAI project ID. Defaults to None.
+            base_url: Override the default base URL for the API.
+            websocket_base_url: Override the default base URL for websocket connections.
+            timeout: Request timeout in seconds, or an httpx.Timeout for granular control. If a
+                dict is passed (as is the case after serialization), it'll be interpreted as a set
+                of arguments to create an httpx.Timeout
+            max_retries: Maximum number of retries for failed requests.
+            default_headers: Additional headers to send with every request.
+            default_query: Additional query parameters to send with every request.
             **kwargs: Additional arguments passed to OpenAI client
         """
         super().__init__(endpoint_name, model_id, provider=provider)
-        self._client = OpenAI(api_key=api_key, **kwargs)
+        client_kwargs: dict[str, Any] = {
+            "api_key": api_key,
+            "organization": organization,
+            "project": project,
+            "max_retries": max_retries,
+            **kwargs,
+        }
+        if base_url is not None:
+            client_kwargs["base_url"] = base_url
+        if websocket_base_url is not None:
+            client_kwargs["websocket_base_url"] = websocket_base_url
+        if timeout is not None:
+            if isinstance(timeout, dict):
+                timeout = httpx.Timeout(**timeout)
+            client_kwargs["timeout"] = timeout
+        if default_headers is not None:
+            client_kwargs["default_headers"] = default_headers
+        if default_query is not None:
+            client_kwargs["default_query"] = default_query
+        self._client = OpenAI(**client_kwargs)
+
+    @property
+    def project(self) -> str | None:
+        """The OpenAI project ID configured on the client."""
+        return self._client.project
+
+    def _get_llmeter_state(self) -> dict:
+        """Extract serializable state from the endpoint and its underlying client.
+
+        This override extends the default state (which pulls immediate properties of the Endpoint)
+        to include other params set on the OpenAI client but *not* persisted directly on the
+        Endpoint object. Any config we don't persist will get lost on a serialization round trip,
+        but anything we pull in should be restored because __init__ passes extra **kwargs to the
+        OpenAI client constructor.
+        """
+        state = super()._get_llmeter_state()
+        state["organization"] = self._client.organization
+        state["base_url"] = str(self._client.base_url)
+        state["max_retries"] = self._client.max_retries
+        if self._client.websocket_base_url is not None:
+            state["websocket_base_url"] = str(self._client.websocket_base_url)
+        timeout = self._client.timeout
+        if isinstance(timeout, httpx.Timeout):
+            state["timeout"] = {
+                "connect": timeout.connect,
+                "read": timeout.read,
+                "write": timeout.write,
+                "pool": timeout.pool,
+            }
+        elif timeout is not None:
+            state["timeout"] = timeout
+        if self._client._custom_headers:
+            state["default_headers"] = dict(self._client._custom_headers)
+        if self._client._custom_query:
+            state["default_query"] = dict(self._client._custom_query)
+        return state
 
     def _parse_payload(self, payload: CompletionCreateParams | dict) -> str:
         """Extract the user message text from a ChatCompletions request payload

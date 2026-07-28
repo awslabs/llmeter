@@ -1,18 +1,23 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+# Python Built-Ins:
 import logging
 import time
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any, Generic, Iterable, TypeVar, cast
 
+# External Dependencies:
+import httpx  # (Indirect dependency of OpenAI)
 from openai import OpenAI
+from openai._constants import DEFAULT_MAX_RETRIES
 from openai.types.responses import Response, ResponseCreateParams, ResponseStreamEvent
 from openai.types.responses.response_create_params import (
     ResponseCreateParamsNonStreaming,
     ResponseCreateParamsStreaming,
 )
 
+# Local Dependencies:
 from .base import Endpoint, InvocationResponse
 
 logger = logging.getLogger(__name__)
@@ -31,6 +36,14 @@ class OpenAIEndpointBase(Endpoint[TOpenAIResponseBase], Generic[TOpenAIResponseB
         model_id: str,
         api_key: str | None = None,
         provider: str = "openai",
+        organization: str | None = None,
+        project: str | None = None,
+        base_url: str | httpx.URL | None = None,
+        websocket_base_url: str | httpx.URL | None = None,
+        timeout: float | httpx.Timeout | dict | None = None,
+        max_retries: int = DEFAULT_MAX_RETRIES,
+        default_headers: Mapping[str, str] | None = None,
+        default_query: Mapping[str, object] | None = None,
         **kwargs: Any,
     ):
         """Initialize Response API endpoint.
@@ -40,10 +53,73 @@ class OpenAIEndpointBase(Endpoint[TOpenAIResponseBase], Generic[TOpenAIResponseB
             model_id: ID of the OpenAI model to use
             api_key: OpenAI API key (optional, uses OPENAI_API_KEY env var if not provided)
             provider: Provider name (default: "openai")
+            organization: OpenAI organization ID. Defaults to None.
+            project: OpenAI project ID. Defaults to None.
+            base_url: Override the default base URL for the API.
+            websocket_base_url: Override the default base URL for websocket connections.
+            timeout: Request timeout in seconds, or an httpx.Timeout for granular control. If a
+                dict is passed (as is the case after serialization), it'll be interpreted as a set
+                of arguments to create an httpx.Timeout.
+            max_retries: Maximum number of retries for failed requests.
+            default_headers: Additional headers to send with every request.
+            default_query: Additional query parameters to send with every request.
             **kwargs: Additional arguments passed to OpenAI client
         """
         super().__init__(endpoint_name, model_id, provider=provider)
-        self._client = OpenAI(api_key=api_key, **kwargs)
+        client_kwargs: dict[str, Any] = {
+            "api_key": api_key,
+            "organization": organization,
+            "project": project,
+            "max_retries": max_retries,
+            **kwargs,
+        }
+        if base_url is not None:
+            client_kwargs["base_url"] = base_url
+        if websocket_base_url is not None:
+            client_kwargs["websocket_base_url"] = websocket_base_url
+        if timeout is not None:
+            if isinstance(timeout, dict):
+                timeout = httpx.Timeout(**timeout)
+            client_kwargs["timeout"] = timeout
+        if default_headers is not None:
+            client_kwargs["default_headers"] = default_headers
+        if default_query is not None:
+            client_kwargs["default_query"] = default_query
+        self._client = OpenAI(**client_kwargs)
+
+    @property
+    def project(self) -> str | None:
+        """The OpenAI project ID configured on the client."""
+        return self._client.project
+
+    def _get_llmeter_state(self) -> dict:
+        """Extract serializable state from the endpoint and its underlying client.
+
+        This override extends the default state (which pulls immediate properties of the Endpoint)
+        to include other params set on the OpenAI client but *not* persisted directly on the
+        Endpoint object.
+        """
+        state = super()._get_llmeter_state()
+        state["organization"] = self._client.organization
+        state["base_url"] = str(self._client.base_url)
+        state["max_retries"] = self._client.max_retries
+        if self._client.websocket_base_url is not None:
+            state["websocket_base_url"] = str(self._client.websocket_base_url)
+        timeout = self._client.timeout
+        if isinstance(timeout, httpx.Timeout):
+            state["timeout"] = {
+                "connect": timeout.connect,
+                "read": timeout.read,
+                "write": timeout.write,
+                "pool": timeout.pool,
+            }
+        elif timeout is not None:
+            state["timeout"] = timeout
+        if self._client._custom_headers:
+            state["default_headers"] = dict(self._client._custom_headers)
+        if self._client._custom_query:
+            state["default_query"] = dict(self._client._custom_query)
+        return state
 
     @staticmethod
     def create_payload(
@@ -129,6 +205,14 @@ class OpenAIResponseEndpoint(OpenAIEndpointBase[Response]):
         endpoint_name: str = "openai-response",
         api_key: str | None = None,
         provider: str = "openai",
+        organization: str | None = None,
+        project: str | None = None,
+        base_url: str | httpx.URL | None = None,
+        websocket_base_url: str | httpx.URL | None = None,
+        timeout: float | httpx.Timeout | dict | None = None,
+        max_retries: int = DEFAULT_MAX_RETRIES,
+        default_headers: Mapping[str, str] | None = None,
+        default_query: Mapping[str, object] | None = None,
         **kwargs: Any,
     ):
         """Initialize Response API endpoint.
@@ -138,10 +222,30 @@ class OpenAIResponseEndpoint(OpenAIEndpointBase[Response]):
             endpoint_name: Name of the endpoint (default: "openai-response")
             api_key: OpenAI API key (optional, uses OPENAI_API_KEY env var if not provided)
             provider: Provider name (default: "openai")
+            organization: OpenAI organization ID. Defaults to None.
+            project: OpenAI project ID. Defaults to None.
+            base_url: Override the default base URL for the API.
+            websocket_base_url: Override the default base URL for websocket connections.
+            timeout: Request timeout in seconds, or an httpx.Timeout for granular control.
+            max_retries: Maximum number of retries for failed requests.
+            default_headers: Additional headers to send with every request.
+            default_query: Additional query parameters to send with every request.
             **kwargs: Additional arguments passed to OpenAI client
         """
         super().__init__(
-            endpoint_name, model_id, api_key=api_key, provider=provider, **kwargs
+            endpoint_name,
+            model_id,
+            api_key=api_key,
+            provider=provider,
+            organization=organization,
+            project=project,
+            base_url=base_url,
+            websocket_base_url=websocket_base_url,
+            timeout=timeout,
+            max_retries=max_retries,
+            default_headers=default_headers,
+            default_query=default_query,
+            **kwargs,
         )
 
     @OpenAIEndpointBase.llmeter_invoke
@@ -216,6 +320,14 @@ class OpenAIResponseStreamEndpoint(OpenAIEndpointBase[Iterable[ResponseStreamEve
         api_key: str | None = None,
         provider: str = "openai",
         ttft_visible_tokens_only: bool = True,
+        organization: str | None = None,
+        project: str | None = None,
+        base_url: str | httpx.URL | None = None,
+        websocket_base_url: str | httpx.URL | None = None,
+        timeout: float | httpx.Timeout | dict | None = None,
+        max_retries: int = DEFAULT_MAX_RETRIES,
+        default_headers: Mapping[str, str] | None = None,
+        default_query: Mapping[str, object] | None = None,
         **kwargs,
     ):
         """Initialize streaming Response API endpoint.
@@ -227,13 +339,29 @@ class OpenAIResponseStreamEndpoint(OpenAIEndpointBase[Iterable[ResponseStreamEve
             provider: Provider name (default: "openai")
             ttft_visible_tokens_only: When True (default), TTFT measures time to first visible text
                 token. When False, TTFT includes reasoning token events.
+            organization: OpenAI organization ID. Defaults to None.
+            project: OpenAI project ID. Defaults to None.
+            base_url: Override the default base URL for the API.
+            websocket_base_url: Override the default base URL for websocket connections.
+            timeout: Request timeout in seconds, or an httpx.Timeout for granular control.
+            max_retries: Maximum number of retries for failed requests.
+            default_headers: Additional headers to send with every request.
+            default_query: Additional query parameters to send with every request.
             **kwargs: Additional arguments passed to OpenAI client
         """
         super().__init__(
-            model_id=model_id,
-            endpoint_name=endpoint_name,
+            endpoint_name,
+            model_id,
             api_key=api_key,
             provider=provider,
+            organization=organization,
+            project=project,
+            base_url=base_url,
+            websocket_base_url=websocket_base_url,
+            timeout=timeout,
+            max_retries=max_retries,
+            default_headers=default_headers,
+            default_query=default_query,
             **kwargs,
         )
         self.ttft_visible_tokens_only = ttft_visible_tokens_only
@@ -270,10 +398,12 @@ class OpenAIResponseStreamEndpoint(OpenAIEndpointBase[Iterable[ResponseStreamEve
           `response.reasoning_text.delta`): when `ttft_visible_tokens_only` is ``False``, these set
           TTFT on the first reasoning token.
         """
-        _REASONING_DELTA_TYPES = frozenset((
-            "response.reasoning_summary_text.delta",
-            "response.reasoning_text.delta",
-        ))
+        _REASONING_DELTA_TYPES = frozenset(
+            (
+                "response.reasoning_summary_text.delta",
+                "response.reasoning_text.delta",
+            )
+        )
 
         for event in raw_response:
             now = time.perf_counter()
@@ -315,9 +445,7 @@ class OpenAIResponseStreamEndpoint(OpenAIEndpointBase[Iterable[ResponseStreamEve
             elif event.type == "response.failed":
                 error_obj = getattr(event.response, "error", None)
                 if error_obj is not None:
-                    error_msg = (
-                        getattr(error_obj, "message", None) or str(error_obj)
-                    )
+                    error_msg = getattr(error_obj, "message", None) or str(error_obj)
                     error_code = getattr(error_obj, "code", None)
                     if error_code:
                         error_msg = f"{error_code}: {error_msg}"

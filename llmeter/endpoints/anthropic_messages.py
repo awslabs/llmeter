@@ -66,10 +66,14 @@ mode captures the first thinking token, while omitted mode captures the signatur
 after all thinking is complete.
 """
 
+# Python Built-Ins:
+import inspect
 import logging
 import time
 from typing import Any, Generic, Iterable, TypeVar
 
+# External Dependencies:
+import httpx  # (Indirect dependency of anthropic)
 import anthropic
 from anthropic.types import (
     Message,
@@ -77,6 +81,7 @@ from anthropic.types import (
     RawMessageStreamEvent,
 )
 
+# Local Dependencies:
 from .base import Endpoint, InvocationResponse
 
 logger = logging.getLogger(__name__)
@@ -142,7 +147,63 @@ class AnthropicMessagesEndpoint(
             kwargs["api_key"] = api_key
         if aws_region is not None:
             kwargs["aws_region"] = aws_region
+        if isinstance(kwargs.get("timeout"), dict):
+            kwargs["timeout"] = httpx.Timeout(**kwargs["timeout"])
         self._client = client_cls(**kwargs)
+
+    def _get_llmeter_state(self) -> dict:
+        """Extract serializable state by introspecting the underlying client.
+
+        Since some constructor params are set on the underlying Anthropic client but *not*
+        persisted directly on the Endpoint object, we need to extend the default serialization
+        behaviour to preserve these extra config fields so they survive a serialization round trip.
+
+        Rather than hardcoding per-provider fields (since there are different ANTHROPIC_CLIENTS
+        classes), we inspect the actual client class's __init__ signature and capture any matching
+        instance attributes — automatically adapting to whichever provider is in use.  Secrets
+        (params containing 'key', 'token', or 'credential') and non-serializable objects are
+        excluded.
+        """
+        skip_params = frozenset(
+            {
+                "http_client",
+                "_strict_response_validation",
+                # default_headers/default_query properties return merged SDK headers including
+                # secrets; we read _custom_headers/_custom_query directly below instead.
+                "default_headers",
+                "default_query",
+            }
+        )
+        skip_substrings = ("key", "token", "credential")
+
+        state = super()._get_llmeter_state()
+        sig = inspect.signature(type(self._client).__init__)
+        for name, param in sig.parameters.items():
+            if name == "self" or param.kind in (
+                param.VAR_POSITIONAL,
+                param.VAR_KEYWORD,
+            ):
+                continue
+            if name in skip_params or any(s in name for s in skip_substrings):
+                continue
+            if not hasattr(self._client, name):
+                continue
+            val = getattr(self._client, name)
+            if isinstance(val, httpx.URL):
+                val = str(val)
+            elif isinstance(val, httpx.Timeout):
+                val = {
+                    "connect": val.connect,
+                    "read": val.read,
+                    "write": val.write,
+                    "pool": val.pool,
+                }
+            state[name] = val
+        if self._client._custom_headers:
+            state["default_headers"] = dict(self._client._custom_headers)
+        if self._client._custom_query:
+            state["default_query"] = dict(self._client._custom_query)
+        return state
 
     def _parse_payload(self, payload: MessageCreateParams | dict) -> str:
         """Extract user message text from an Anthropic Messages API payload.

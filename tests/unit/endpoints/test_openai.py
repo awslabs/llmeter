@@ -1,6 +1,8 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+from pathlib import Path
+import tempfile
 import time
 from unittest.mock import MagicMock, Mock, patch
 
@@ -35,6 +37,8 @@ class TestOpenAIEndpoint:
         assert endpoint.endpoint_name == "test_openai"
         assert endpoint.provider == "openai"
         assert endpoint._client is not None
+        assert endpoint._client.project is None
+        assert endpoint.project is None
 
     def test_initialization_with_custom_provider(self):
         """Test OpenAI endpoint initialization with custom provider."""
@@ -46,6 +50,18 @@ class TestOpenAIEndpoint:
 
         assert endpoint.provider == "custom_openai"
         assert endpoint.model_id == "gpt-4"
+
+    def test_initialization_with_project_id(self):
+        """Test OpenAI endpoint initialization with custom project ID."""
+        endpoint = OpenAICompletionEndpoint(
+            model_id="openai.glm-5",
+            api_key="test_key",
+            project="proj_DUMMY",
+        )
+
+        assert endpoint.model_id == "openai.glm-5"
+        assert endpoint._client.project == "proj_DUMMY"
+        assert endpoint.project == "proj_DUMMY"
 
     def test_initialization_without_api_key(self):
         """Test OpenAI endpoint initialization without API key."""
@@ -756,6 +772,193 @@ class TestOpenAIEndpointEdgeCases:
             assert response.response_text == "Hello world"
             assert response.num_tokens_input is None
             assert response.num_tokens_output is None
+
+
+class TestOpenAIEndpointSerialization:
+    """Test serialization behaves as expected for both endpoint types."""
+
+    def test_completion_endpoint_serializes_basic_fields(self):
+        """Test sync endpoint serialized state when optional parameters not set."""
+        from llmeter.serialization import dump_object
+
+        endpoint = OpenAICompletionEndpoint(model_id="gpt-4")
+        state = dump_object(endpoint)["__llmeter_state__"]
+        assert "api_key" not in state
+        assert state["endpoint_name"] == "openai"
+        assert state["model_id"] == "gpt-4"
+        assert state.get("project") is None
+        assert state.get("organization") is None
+        assert state["provider"] == "openai"
+        assert "base_url" in state
+        assert state["max_retries"] == 2
+        # timeout is always serialized (as dict when it's an httpx.Timeout)
+        assert "timeout" in state
+
+    def test_completion_endpoint_serializes_all_client_fields(self):
+        """Test sync endpoint serializes all client configuration fields."""
+        from llmeter.serialization import dump_object
+
+        endpoint = OpenAICompletionEndpoint(
+            model_id="openai.gpt-oss-120b",
+            api_key="test_key",
+            endpoint_name="test-endpoint",
+            organization="org-abc",
+            project="proj_TEST",
+            base_url="https://custom.example.com/v1",
+            websocket_base_url="wss://custom.example.com/ws",
+            timeout=30.0,
+            max_retries=5,
+            default_headers={"X-Custom": "val"},
+            default_query={"version": "2"},
+            provider="test-provider",
+        )
+        state = dump_object(endpoint)["__llmeter_state__"]
+        assert "api_key" not in state
+        assert state["endpoint_name"] == "test-endpoint"
+        assert state["model_id"] == "openai.gpt-oss-120b"
+        assert state["organization"] == "org-abc"
+        assert state["project"] == "proj_TEST"
+        assert "custom.example.com" in state["base_url"]
+        assert state["websocket_base_url"] == "wss://custom.example.com/ws"
+        assert state["timeout"] == 30.0
+        assert state["max_retries"] == 5
+        assert state["default_headers"] == {"X-Custom": "val"}
+        assert state["default_query"] == {"version": "2"}
+        assert state["provider"] == "test-provider"
+
+    def test_timeout_serialized_as_dict_when_granular(self):
+        """Test httpx.Timeout is serialized as a dict with connect/read/write/pool."""
+        import httpx
+
+        from llmeter.serialization import dump_object
+
+        endpoint = OpenAICompletionEndpoint(
+            model_id="gpt-4",
+            timeout=httpx.Timeout(10.0, connect=5.0),
+        )
+        state = dump_object(endpoint)["__llmeter_state__"]
+        assert state["timeout"] == {
+            "connect": 5.0,
+            "read": 10.0,
+            "write": 10.0,
+            "pool": 10.0,
+        }
+
+    def test_completion_endpoint_round_trip(self):
+        """Test save/load round-trip preserves all fields for completion endpoint."""
+        from llmeter.endpoints.base import Endpoint
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            original = OpenAICompletionEndpoint(
+                model_id="gpt-4",
+                api_key="test_key",
+                endpoint_name="proj-test",
+                organization="org-rt",
+                project="proj_roundtrip",
+                base_url="https://custom.test/v1",
+                websocket_base_url="wss://custom.test/ws",
+                timeout=45.0,
+                max_retries=3,
+                default_headers={"X-Foo": "bar"},
+                default_query={"q": "1"},
+                provider="test-provider",
+            )
+            output_path = Path(tmpdir) / "endpoint.json"
+            original.save(output_path)
+
+            loaded = Endpoint.load_from_file(output_path)
+
+            assert isinstance(loaded, OpenAICompletionEndpoint)
+            assert loaded.model_id == "gpt-4"
+            assert loaded.endpoint_name == "proj-test"
+            assert loaded._client.organization == "org-rt"
+            assert loaded.project == "proj_roundtrip"
+            assert "custom.test" in str(loaded._client.base_url)
+            assert loaded._client.websocket_base_url == "wss://custom.test/ws"
+            assert loaded._client.timeout == 45.0
+            assert loaded._client.max_retries == 3
+            assert loaded._client._custom_headers == {"X-Foo": "bar"}
+            assert loaded._client._custom_query == {"q": "1"}
+            assert loaded.provider == "test-provider"
+
+    def test_round_trip_with_granular_timeout(self):
+        """Test that httpx.Timeout round-trips correctly through dict serialization."""
+        import httpx
+
+        from llmeter.endpoints.base import Endpoint
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            original = OpenAICompletionEndpoint(
+                model_id="gpt-4",
+                timeout=httpx.Timeout(10.0, connect=2.0),
+            )
+            output_path = Path(tmpdir) / "endpoint.json"
+            original.save(output_path)
+
+            loaded = Endpoint.load_from_file(output_path)
+
+            assert isinstance(loaded, OpenAICompletionEndpoint)
+            assert loaded._client.timeout == httpx.Timeout(10.0, connect=2.0)
+
+    def test_stream_endpoint_serializes_basic_fields(self):
+        """Test stream endpoint serialized state when optional parameters not set."""
+        from llmeter.serialization import dump_object
+
+        endpoint = OpenAICompletionStreamEndpoint(model_id="gpt-4")
+        state = dump_object(endpoint)["__llmeter_state__"]
+        assert "api_key" not in state
+        assert state["endpoint_name"] == "openai"
+        assert state["model_id"] == "gpt-4"
+        assert state.get("project") is None
+        assert state.get("organization") is None
+        assert state["provider"] == "openai"
+
+    def test_stream_endpoint_round_trip(self):
+        """Test save/load round-trip preserves all fields for streaming endpoint."""
+        from llmeter.endpoints.base import Endpoint
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            original = OpenAICompletionStreamEndpoint(
+                model_id="zai.glm-5",
+                api_key="test_key",
+                endpoint_name="proj-test-stream",
+                organization="org-stream",
+                project="proj_roundtrip_stream",
+                base_url="https://stream.test/v1",
+                max_retries=4,
+                default_headers={"X-Stream": "yes"},
+                provider="test-provider-stream",
+            )
+            output_path = Path(tmpdir) / "endpoint.json"
+            original.save(output_path)
+
+            loaded = Endpoint.load_from_file(output_path)
+
+            assert isinstance(loaded, OpenAICompletionStreamEndpoint)
+            assert loaded.model_id == "zai.glm-5"
+            assert loaded.endpoint_name == "proj-test-stream"
+            assert loaded._client.organization == "org-stream"
+            assert loaded.project == "proj_roundtrip_stream"
+            assert "stream.test" in str(loaded._client.base_url)
+            assert loaded._client.max_retries == 4
+            assert loaded._client._custom_headers == {"X-Stream": "yes"}
+            assert loaded.provider == "test-provider-stream"
+
+    def test_round_trip_without_optional_fields(self):
+        """Test save/load round-trip works when only required params are set."""
+        from llmeter.endpoints.base import Endpoint
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            original = OpenAICompletionEndpoint(model_id="gpt-4", api_key="test_key")
+            output_path = Path(tmpdir) / "endpoint.json"
+            original.save(output_path)
+
+            loaded = Endpoint.load_from_file(output_path)
+
+            assert isinstance(loaded, OpenAICompletionEndpoint)
+            assert loaded.model_id == "gpt-4"
+            assert loaded.project is None
+            assert loaded._client.organization is None
 
 
 class TestStreamMidStreamErrors:

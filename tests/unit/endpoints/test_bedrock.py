@@ -833,3 +833,106 @@ class TestBedrock:
         assert response.error is not None
         assert "connection" in response.error.lower()
         assert response.input_payload is not None
+
+
+# ---------------------------------------------------------------------------
+# Tests: Serialization
+# ---------------------------------------------------------------------------
+
+
+class TestBedrockSerialization:
+    """Test that Bedrock endpoint configuration round-trips through serialization."""
+
+    def test_serializes_basic_fields(self):
+        """Test serialized state when only required params are set."""
+        from llmeter.serialization import dump_object
+
+        endpoint = BedrockConverse(model_id="test-model")
+        state = dump_object(endpoint)["__llmeter_state__"]
+        assert state["model_id"] == "test-model"
+        assert state["max_attempts"] == 3
+        assert state["inference_config"] is None
+        assert "region" in state
+
+    def test_serializes_all_fields(self):
+        """Test serialized state includes all optional fields when set."""
+        from llmeter.serialization import dump_object
+
+        endpoint = BedrockConverse(
+            model_id="amazon.nova-pro-v1:0",
+            region="us-west-2",
+            max_attempts=7,
+            inference_config={"maxTokens": 512, "temperature": 0.7},
+        )
+        state = dump_object(endpoint)["__llmeter_state__"]
+        assert state["model_id"] == "amazon.nova-pro-v1:0"
+        assert state["region"] == "us-west-2"
+        assert state["max_attempts"] == 7
+        assert state["inference_config"] == {"maxTokens": 512, "temperature": 0.7}
+
+    def test_round_trip_converse_all_fields(self):
+        """Test save/load round-trip preserves all fields for BedrockConverse."""
+        import tempfile
+        from pathlib import Path
+
+        from llmeter.endpoints.base import Endpoint
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            original = BedrockConverse(
+                model_id="amazon.nova-pro-v1:0",
+                region="us-west-2",
+                max_attempts=5,
+                inference_config={"maxTokens": 1024},
+            )
+            path = Path(tmpdir) / "endpoint.json"
+            original.save_to_file(path)
+
+            loaded = Endpoint.load_from_file(path)
+
+            assert isinstance(loaded, BedrockConverse)
+            assert loaded.model_id == "amazon.nova-pro-v1:0"
+            assert loaded.region == "us-west-2"
+            assert loaded._max_attempts == 5
+            assert loaded._inference_config == {"maxTokens": 1024}
+
+    def test_round_trip_converse_stream(self):
+        """Test save/load round-trip preserves all fields for BedrockConverseStream."""
+        import tempfile
+        from pathlib import Path
+
+        from llmeter.endpoints.base import Endpoint
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            original = BedrockConverseStream(
+                model_id="amazon.nova-lite-v1:0",
+                region="eu-west-1",
+                max_attempts=10,
+            )
+            path = Path(tmpdir) / "endpoint.json"
+            original.save_to_file(path)
+
+            loaded = Endpoint.load_from_file(path)
+
+            assert isinstance(loaded, BedrockConverseStream)
+            assert loaded.model_id == "amazon.nova-lite-v1:0"
+            assert loaded.region == "eu-west-1"
+            assert loaded._max_attempts == 10
+
+    def test_round_trip_without_optional_fields(self):
+        """Test save/load works with only required params."""
+        import tempfile
+        from pathlib import Path
+
+        from llmeter.endpoints.base import Endpoint
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            original = BedrockConverse(model_id="test-model")
+            path = Path(tmpdir) / "endpoint.json"
+            original.save_to_file(path)
+
+            loaded = Endpoint.load_from_file(path)
+
+            assert isinstance(loaded, BedrockConverse)
+            assert loaded.model_id == "test-model"
+            assert loaded._max_attempts == 3
+            assert loaded._inference_config is None

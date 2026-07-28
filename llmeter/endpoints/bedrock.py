@@ -161,6 +161,8 @@ class BedrockBase(
         )
 
         self.region = region or boto3.session.Session().region_name
+        # Persist extra config on the class just so de/serialization catches it:
+        self._max_attempts = max_attempts
         logger.info(f"Using AWS region: {self.region}")
 
         self._bedrock_client = bedrock_boto3_client

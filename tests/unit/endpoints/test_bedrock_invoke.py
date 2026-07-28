@@ -655,3 +655,104 @@ class TestBedrockInvokeStream:
         assert response.error is not None
         assert "connection" in response.error.lower()
         assert response.input_payload is not None
+
+
+# ---------------------------------------------------------------------------
+# Tests: Serialization
+# ---------------------------------------------------------------------------
+
+
+class TestBedrockInvokeSerialization:
+    """Test that BedrockInvoke endpoint configuration round-trips through serialization."""
+
+    def test_serializes_basic_fields(self):
+        """Test serialized state includes required fields with defaults."""
+        from llmeter.serialization import dump_object
+
+        endpoint = BedrockInvoke(model_id="test-model")
+        state = dump_object(endpoint)["__llmeter_state__"]
+        assert state["model_id"] == "test-model"
+        assert state["generated_text_jmespath"] == "choices[0].message.content"
+        assert state["input_text_jmespath"] == "messages[].content[].text"
+        assert state["max_attempts"] == 3
+        assert state["generated_token_count_jmespath"] == "usage.completion_tokens"
+        assert state["input_token_count_jmespath"] == "usage.prompt_tokens"
+        assert "region" in state
+
+    def test_serializes_all_fields(self):
+        """Test serialized state includes all optional fields when set."""
+        from llmeter.serialization import dump_object
+
+        endpoint = BedrockInvoke(
+            model_id="amazon.titan-text-v1",
+            generated_text_jmespath="results[0].outputText",
+            input_text_jmespath="inputText",
+            generated_token_count_jmespath="results[0].tokenCount",
+            input_token_count_jmespath="inputTokenCount",
+            region="us-west-2",
+            max_attempts=7,
+        )
+        state = dump_object(endpoint)["__llmeter_state__"]
+        assert state["model_id"] == "amazon.titan-text-v1"
+        assert state["generated_text_jmespath"] == "results[0].outputText"
+        assert state["input_text_jmespath"] == "inputText"
+        assert state["generated_token_count_jmespath"] == "results[0].tokenCount"
+        assert state["input_token_count_jmespath"] == "inputTokenCount"
+        assert state["region"] == "us-west-2"
+        assert state["max_attempts"] == 7
+
+    def test_round_trip_invoke_all_fields(self):
+        """Test save/load round-trip preserves all fields for BedrockInvoke."""
+        import tempfile
+        from pathlib import Path
+
+        from llmeter.endpoints.base import Endpoint
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            original = BedrockInvoke(
+                model_id="amazon.titan-text-v1",
+                generated_text_jmespath="results[0].outputText",
+                input_text_jmespath="inputText",
+                generated_token_count_jmespath="results[0].tokenCount",
+                region="us-west-2",
+                max_attempts=5,
+            )
+            path = Path(tmpdir) / "endpoint.json"
+            original.save_to_file(path)
+
+            loaded = Endpoint.load_from_file(path)
+
+            assert isinstance(loaded, BedrockInvoke)
+            assert loaded.model_id == "amazon.titan-text-v1"
+            assert loaded.generated_text_jmespath == "results[0].outputText"
+            assert loaded.input_text_jmespath == "inputText"
+            assert loaded.generated_token_count_jmespath == "results[0].tokenCount"
+            assert loaded.region == "us-west-2"
+            assert loaded._max_attempts == 5
+
+    def test_round_trip_invoke_stream(self):
+        """Test save/load round-trip preserves all fields for BedrockInvokeStream."""
+        import tempfile
+        from pathlib import Path
+
+        from llmeter.endpoints.base import Endpoint
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            original = BedrockInvokeStream(
+                model_id="amazon.titan-text-v1",
+                generated_text_jmespath="outputText",
+                input_text_jmespath="inputText",
+                region="eu-west-1",
+                max_attempts=8,
+            )
+            path = Path(tmpdir) / "endpoint.json"
+            original.save_to_file(path)
+
+            loaded = Endpoint.load_from_file(path)
+
+            assert isinstance(loaded, BedrockInvokeStream)
+            assert loaded.model_id == "amazon.titan-text-v1"
+            assert loaded.generated_text_jmespath == "outputText"
+            assert loaded.input_text_jmespath == "inputText"
+            assert loaded.region == "eu-west-1"
+            assert loaded._max_attempts == 8

@@ -1,11 +1,16 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+# Python Built-Ins:
+from pathlib import Path
+import tempfile
 import time
 from unittest.mock import Mock, patch
 
+# External Dependencies:
 import pytest
 
+# Local Dependencies:
 from llmeter.endpoints.anthropic_messages import (
     _ANTHROPIC_CLIENTS,
     AnthropicMessages,
@@ -457,9 +462,7 @@ class TestAnthropicMessagesStream:
         assert result.error is None
 
     def test_invoke_api_error(self, mock_client):
-        mock_client.return_value.messages.create.side_effect = Exception(
-            "Stream error"
-        )
+        mock_client.return_value.messages.create.side_effect = Exception("Stream error")
 
         endpoint = AnthropicMessagesStream(model_id="test-model")
         result = endpoint.invoke(
@@ -705,3 +708,172 @@ class TestEndpointInit:
             model_id="test-model", endpoint_name="my-custom-endpoint"
         )
         assert endpoint.endpoint_name == "my-custom-endpoint"
+
+
+# ---------------------------------------------------------------------------
+# Tests: Serialization
+# ---------------------------------------------------------------------------
+
+
+class TestAnthropicSerialization:
+    """Test that client configuration round-trips through serialization."""
+
+    def test_serializes_basic_fields(self):
+        """Test serialized state includes provider and model."""
+        from llmeter.serialization import dump_object
+
+        endpoint = AnthropicMessages(model_id="claude-opus-4-7", api_key="test")
+        state = dump_object(endpoint)["__llmeter_state__"]
+        assert state["model_id"] == "claude-opus-4-7"
+        assert state["provider"] == "anthropic"
+        assert state["endpoint_name"] == "anthropic-messages"
+        assert state["max_retries"] == 2
+        assert "base_url" in state
+
+    def test_secrets_excluded(self):
+        """Test that secrets (keys, tokens) are not persisted."""
+        from llmeter.serialization import dump_object
+
+        endpoint = AnthropicMessages(model_id="claude-opus-4-7", api_key="sk-secret")
+        state = dump_object(endpoint)["__llmeter_state__"]
+        for key in state:
+            assert "key" not in key, f"Secret-like key '{key}' found in state"
+            assert "token" not in key, f"Secret-like key '{key}' found in state"
+        assert "sk-secret" not in str(state.values())
+
+    def test_bedrock_mantle_serializes_region(self):
+        """Test Bedrock Mantle provider captures aws_region."""
+        from llmeter.serialization import dump_object
+
+        endpoint = AnthropicMessages(
+            model_id="anthropic.claude-opus-4-7",
+            provider="bedrock-mantle",
+            aws_region="us-west-2",
+        )
+        state = dump_object(endpoint)["__llmeter_state__"]
+        assert state["aws_region"] == "us-west-2"
+        assert state["provider"] == "bedrock-mantle"
+        assert "aws_secret_key" not in state
+        assert "aws_access_key" not in state
+        assert "aws_session_token" not in state
+
+    def test_custom_headers_serialized(self):
+        """Test that user-supplied headers round-trip but SDK headers don't."""
+        from llmeter.serialization import dump_object
+
+        endpoint = AnthropicMessages(
+            model_id="claude-opus-4-7",
+            api_key="test",
+            default_headers={"X-Custom": "val"},
+        )
+        state = dump_object(endpoint)["__llmeter_state__"]
+        assert state["default_headers"] == {"X-Custom": "val"}
+
+    def test_no_headers_when_none_custom(self):
+        """Test that default_headers is absent when no custom headers set."""
+        from llmeter.serialization import dump_object
+
+        endpoint = AnthropicMessages(model_id="claude-opus-4-7", api_key="test")
+        state = dump_object(endpoint)["__llmeter_state__"]
+        assert "default_headers" not in state
+
+    def test_timeout_serialized_as_dict(self):
+        """Test httpx.Timeout is serialized as a dict."""
+        import httpx
+
+        from llmeter.serialization import dump_object
+
+        endpoint = AnthropicMessages(
+            model_id="claude-opus-4-7",
+            api_key="test",
+            timeout=httpx.Timeout(30.0, connect=5.0),
+        )
+        state = dump_object(endpoint)["__llmeter_state__"]
+        assert state["timeout"] == {
+            "connect": 5.0,
+            "read": 30.0,
+            "write": 30.0,
+            "pool": 30.0,
+        }
+
+    def test_round_trip_direct_provider(self):
+        """Test save/load round-trip for direct Anthropic provider."""
+        from llmeter.endpoints.base import Endpoint
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            original = AnthropicMessages(
+                model_id="claude-opus-4-7",
+                api_key="test",
+                max_retries=5,
+                base_url="https://custom.anthropic.com",
+                default_headers={"X-Foo": "bar"},
+            )
+            path = Path(tmpdir) / "endpoint.json"
+            original.save_to_file(path)
+
+            loaded = Endpoint.load_from_file(path)
+
+            assert isinstance(loaded, AnthropicMessages)
+            assert loaded.model_id == "claude-opus-4-7"
+            assert loaded.provider == "anthropic"
+            assert loaded._client.max_retries == 5
+            assert "custom.anthropic.com" in str(loaded._client.base_url)
+            assert loaded._client._custom_headers == {"X-Foo": "bar"}
+
+    def test_round_trip_bedrock_mantle(self):
+        """Test save/load round-trip for Bedrock Mantle provider."""
+        from llmeter.endpoints.base import Endpoint
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            original = AnthropicMessages(
+                model_id="anthropic.claude-opus-4-7",
+                provider="bedrock-mantle",
+                aws_region="eu-west-1",
+            )
+            path = Path(tmpdir) / "endpoint.json"
+            original.save_to_file(path)
+
+            loaded = Endpoint.load_from_file(path)
+
+            assert isinstance(loaded, AnthropicMessages)
+            assert loaded.provider == "bedrock-mantle"
+            assert loaded._client.aws_region == "eu-west-1"
+
+    def test_round_trip_stream_endpoint(self):
+        """Test save/load round-trip for streaming endpoint."""
+        from llmeter.endpoints.base import Endpoint
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            original = AnthropicMessagesStream(
+                model_id="claude-opus-4-7",
+                api_key="test",
+                ttft_visible_tokens_only=False,
+                max_retries=4,
+            )
+            path = Path(tmpdir) / "endpoint.json"
+            original.save_to_file(path)
+
+            loaded = Endpoint.load_from_file(path)
+
+            assert isinstance(loaded, AnthropicMessagesStream)
+            assert loaded.ttft_visible_tokens_only is False
+            assert loaded._client.max_retries == 4
+
+    def test_round_trip_with_granular_timeout(self):
+        """Test httpx.Timeout round-trips correctly through dict serialization."""
+        import httpx
+
+        from llmeter.endpoints.base import Endpoint
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            original = AnthropicMessages(
+                model_id="claude-opus-4-7",
+                api_key="test",
+                timeout=httpx.Timeout(10.0, connect=2.0),
+            )
+            path = Path(tmpdir) / "endpoint.json"
+            original.save_to_file(path)
+
+            loaded = Endpoint.load_from_file(path)
+
+            assert loaded._client.timeout == httpx.Timeout(10.0, connect=2.0)

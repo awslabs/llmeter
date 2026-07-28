@@ -224,6 +224,167 @@ class TestStreamEndpointSerialization:
             assert loaded.provider == original.provider
 
 
+class TestOpenAIResponseEndpointSerialization:
+    """Test that OpenAI client configuration round-trips through serialization."""
+
+    def test_response_endpoint_serializes_all_client_fields(self):
+        """Test all client config fields appear in serialized state."""
+        from llmeter.serialization import dump_object
+
+        endpoint = OpenAIResponseEndpoint(
+            model_id="gpt-4",
+            endpoint_name="test-response",
+            organization="org-abc",
+            project="proj_TEST",
+            base_url="https://custom.example.com/v1",
+            websocket_base_url="wss://custom.example.com/ws",
+            timeout=30.0,
+            max_retries=5,
+            default_headers={"X-Custom": "val"},
+            default_query={"version": "2"},
+            provider="test-provider",
+        )
+        state = dump_object(endpoint)["__llmeter_state__"]
+        assert "api_key" not in state
+        assert state["model_id"] == "gpt-4"
+        assert state["organization"] == "org-abc"
+        assert state["project"] == "proj_TEST"
+        assert "custom.example.com" in state["base_url"]
+        assert state["websocket_base_url"] == "wss://custom.example.com/ws"
+        assert state["timeout"] == 30.0
+        assert state["max_retries"] == 5
+        assert state["default_headers"] == {"X-Custom": "val"}
+        assert state["default_query"] == {"version": "2"}
+        assert state["provider"] == "test-provider"
+
+    def test_response_endpoint_serializes_defaults(self):
+        """Test serialized state is correct when only required params are set."""
+        from llmeter.serialization import dump_object
+
+        endpoint = OpenAIResponseEndpoint(model_id="gpt-4")
+        state = dump_object(endpoint)["__llmeter_state__"]
+        assert "api_key" not in state
+        assert state["model_id"] == "gpt-4"
+        assert state.get("project") is None
+        assert state.get("organization") is None
+        assert state["provider"] == "openai"
+        assert state["max_retries"] == 2
+        assert "base_url" in state
+
+    def test_timeout_serialized_as_dict_when_granular(self):
+        """Test httpx.Timeout is serialized as a dict with connect/read/write/pool."""
+        import httpx
+
+        from llmeter.serialization import dump_object
+
+        endpoint = OpenAIResponseEndpoint(
+            model_id="gpt-4",
+            timeout=httpx.Timeout(10.0, connect=5.0),
+        )
+        state = dump_object(endpoint)["__llmeter_state__"]
+        assert state["timeout"] == {
+            "connect": 5.0,
+            "read": 10.0,
+            "write": 10.0,
+            "pool": 10.0,
+        }
+
+    def test_response_endpoint_round_trip_with_all_fields(self):
+        """Test save/load round-trip preserves all client config fields."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            original = OpenAIResponseEndpoint(
+                model_id="gpt-4",
+                api_key="test_key",
+                endpoint_name="rt-test",
+                organization="org-rt",
+                project="proj_roundtrip",
+                base_url="https://custom.test/v1",
+                websocket_base_url="wss://custom.test/ws",
+                timeout=45.0,
+                max_retries=3,
+                default_headers={"X-Foo": "bar"},
+                default_query={"q": "1"},
+                provider="test-provider",
+            )
+            output_path = Path(tmpdir) / "endpoint.json"
+            original.save(output_path)
+
+            loaded = Endpoint.load_from_file(output_path)
+
+            assert isinstance(loaded, OpenAIResponseEndpoint)
+            assert loaded.model_id == "gpt-4"
+            assert loaded._client.organization == "org-rt"
+            assert loaded.project == "proj_roundtrip"
+            assert "custom.test" in str(loaded._client.base_url)
+            assert loaded._client.websocket_base_url == "wss://custom.test/ws"
+            assert loaded._client.timeout == 45.0
+            assert loaded._client.max_retries == 3
+            assert loaded._client._custom_headers == {"X-Foo": "bar"}
+            assert loaded._client._custom_query == {"q": "1"}
+            assert loaded.provider == "test-provider"
+
+    def test_stream_endpoint_round_trip_with_all_fields(self):
+        """Test save/load round-trip preserves all client config for streaming endpoint."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            original = OpenAIResponseStreamEndpoint(
+                model_id="gpt-4",
+                api_key="test_key",
+                endpoint_name="stream-rt-test",
+                organization="org-stream",
+                project="proj_stream_rt",
+                base_url="https://stream.test/v1",
+                max_retries=4,
+                default_headers={"X-Stream": "yes"},
+                provider="test-stream",
+                ttft_visible_tokens_only=False,
+            )
+            output_path = Path(tmpdir) / "endpoint.json"
+            original.save(output_path)
+
+            loaded = Endpoint.load_from_file(output_path)
+
+            assert isinstance(loaded, OpenAIResponseStreamEndpoint)
+            assert loaded.model_id == "gpt-4"
+            assert loaded._client.organization == "org-stream"
+            assert loaded.project == "proj_stream_rt"
+            assert "stream.test" in str(loaded._client.base_url)
+            assert loaded._client.max_retries == 4
+            assert loaded._client._custom_headers == {"X-Stream": "yes"}
+            assert loaded.provider == "test-stream"
+            assert loaded.ttft_visible_tokens_only is False
+
+    def test_round_trip_with_granular_timeout(self):
+        """Test httpx.Timeout round-trips correctly through dict serialization."""
+        import httpx
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            original = OpenAIResponseEndpoint(
+                model_id="gpt-4",
+                timeout=httpx.Timeout(10.0, connect=2.0),
+            )
+            output_path = Path(tmpdir) / "endpoint.json"
+            original.save(output_path)
+
+            loaded = Endpoint.load_from_file(output_path)
+
+            assert isinstance(loaded, OpenAIResponseEndpoint)
+            assert loaded._client.timeout == httpx.Timeout(10.0, connect=2.0)
+
+    def test_round_trip_without_optional_fields(self):
+        """Test save/load works when only required params are set."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            original = OpenAIResponseEndpoint(model_id="gpt-4", api_key="test_key")
+            output_path = Path(tmpdir) / "endpoint.json"
+            original.save(output_path)
+
+            loaded = Endpoint.load_from_file(output_path)
+
+            assert isinstance(loaded, OpenAIResponseEndpoint)
+            assert loaded.model_id == "gpt-4"
+            assert loaded.project is None
+            assert loaded._client.organization is None
+
+
 class TestSerializationPropertyTests:
     """Property-based tests for endpoint serialization.
 
