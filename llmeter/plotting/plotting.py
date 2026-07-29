@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any, Literal
 
 from ..runner import Result
 from ..utils import DeferredError
+from .defaults import DEFAULT_TEMPLATE
 
 if not TYPE_CHECKING:
     try:
@@ -60,7 +61,7 @@ def scatter_histogram_2d(
         y=y,
         marginal_x="histogram",
         marginal_y="histogram",
-        template="plotly_white",
+        template=DEFAULT_TEMPLATE,
         range_x=[0, max(x for x in x if x is not None) * 1.1],
         range_y=[0, max(y for y in y if y is not None) * 1.1],
         labels={
@@ -146,7 +147,7 @@ def plot_heatmap(
         z=z,
         marginal_x="histogram",
         marginal_y="histogram",
-        template="plotly_white",
+        template=DEFAULT_TEMPLATE,
         histfunc="avg",
         nbinsx=n_bins_x,
         nbinsy=n_bins_y,
@@ -269,7 +270,7 @@ def error_clients_fig(
         xaxis_title="Number of clients",
         yaxis_title="Error rate",
     )
-    fig.update_layout(template="plotly_white")
+    fig.update_layout(template=DEFAULT_TEMPLATE)
     if log_scale:
         fig.update_xaxes(type="log")
         # fig.update_yaxes(type="log")
@@ -302,7 +303,7 @@ def rpm_clients_fig(
         yaxis_title="Requests per minute",
         yaxis_tickformat=".2s",
     )
-    fig.update_layout(template="plotly_white")
+    fig.update_layout(template=DEFAULT_TEMPLATE)
 
     if log_scale:
         fig.update_xaxes(type="log")
@@ -326,7 +327,7 @@ def average_input_tokens_clients_fig(
         yaxis_title="Average input tokens per minute",
         yaxis_tickformat=".2s",
     )
-    fig.update_layout(template="plotly_white")
+    fig.update_layout(template=DEFAULT_TEMPLATE)
     if log_scale:
         fig.update_xaxes(type="log")
         fig.update_yaxes(type="log")
@@ -350,7 +351,7 @@ def average_output_tokens_clients_fig(
         yaxis_title="Average output tokens per minute",
         yaxis_tickformat=".2s",
     )
-    fig.update_layout(template="plotly_white")
+    fig.update_layout(template=DEFAULT_TEMPLATE)
     if log_scale:
         fig.update_xaxes(type="log")
         fig.update_yaxes(type="log")
@@ -443,7 +444,7 @@ def latency_clients_fig(
             fig.update_xaxes(type="log")
             fig.update_yaxes(type="log")
 
-        fig.update_layout(template="plotly_white")
+        fig.update_layout(template=DEFAULT_TEMPLATE)
         return fig
     except Exception as e:
         raise ValueError(f"Error creating figure: {str(e)}")

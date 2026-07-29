@@ -1,0 +1,3 @@
+# percentage
+
+::: llmeter.plotting.percentage
