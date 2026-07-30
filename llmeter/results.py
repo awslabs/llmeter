@@ -293,9 +293,20 @@ class Result:
                         metadata[passthru_field] = config[passthru_field]
                 endpoint = config.get("endpoint", {})
                 if isinstance(endpoint, dict):
-                    metadata["model_id"] = endpoint.get("model_id")
-                    metadata["endpoint_name"] = endpoint.get("endpoint_name")
-                    metadata["provider"] = endpoint.get("provider")
+                    # Modern format nests endpoint fields under `__llmeter_state__`; legacy
+                    # format keeps them at the top level.
+                    if "__llmeter_class__" in endpoint:
+                        endpoint_fields = endpoint.get("__llmeter_state__", {})
+                    else:
+                        logger.warning(
+                            "Recovering endpoint metadata from a legacy data format. Support for "
+                            "this will be removed in a future major version. Consider re-saving "
+                            "the file to update."
+                        )
+                        endpoint_fields = endpoint
+                    metadata["model_id"] = endpoint_fields.get("model_id")
+                    metadata["endpoint_name"] = endpoint_fields.get("endpoint_name")
+                    metadata["provider"] = endpoint_fields.get("provider")
             except (json.JSONDecodeError, KeyError) as e:
                 logger.warning(f"Could not parse run_config.json: {e}")
 

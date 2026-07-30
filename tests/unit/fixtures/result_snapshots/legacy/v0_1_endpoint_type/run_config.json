@@ -1,0 +1,20 @@
+{
+    "endpoint": {
+        "endpoint_name": "synthetic-legacy-endpoint",
+        "model_id": "synthetic.legacy-model-v1",
+        "provider": "bedrock",
+        "region": "us-west-2",
+        "endpoint_type": "BedrockConverse"
+    },
+    "output_path": "stale/legacy/path",
+    "tokenizer": {
+        "tokenizer_module": "llmeter"
+    },
+    "clients": 3,
+    "n_requests": 2,
+    "payload": "stale/legacy/payload.jsonl",
+    "run_name": "synthetic-legacy-test",
+    "run_description": null,
+    "timeout": 60,
+    "callbacks": null
+}

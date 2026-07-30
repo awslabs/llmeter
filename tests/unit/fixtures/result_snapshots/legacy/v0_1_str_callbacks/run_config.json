@@ -1,0 +1,25 @@
+{
+    "endpoint": {
+        "endpoint_name": "synthetic-strcb-endpoint",
+        "model_id": "synthetic.strcb-model-v1",
+        "provider": "bedrock",
+        "region": "us-east-1",
+        "endpoint_type": "BedrockConverseStream"
+    },
+    "output_path": "stale/strcb/path",
+    "tokenizer": {
+        "tokenizer_module": "llmeter"
+    },
+    "clients": 1,
+    "n_requests": 5,
+    "payload": "stale/strcb/payload.jsonl",
+    "run_name": "synthetic-strcb-test",
+    "run_description": null,
+    "timeout": 60,
+    "callbacks": [
+        "<__main__.SyntheticCallback object at 0x1234567890>",
+        "<some_module.AnotherCallback object at 0xabcdef0123>"
+    ],
+    "low_memory": false,
+    "progress_bar_stats": null
+}

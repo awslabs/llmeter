@@ -1,0 +1,20 @@
+{
+    "endpoint": {
+        "endpoint_name": "synthetic-legacy-intr-endpoint",
+        "model_id": "synthetic.legacy-interrupted-v1",
+        "provider": "bedrock",
+        "region": "us-east-1",
+        "endpoint_type": "BedrockConverse"
+    },
+    "output_path": "stale/legacy/interrupted/path",
+    "tokenizer": {
+        "tokenizer_module": "llmeter"
+    },
+    "clients": 2,
+    "n_requests": 4,
+    "payload": "stale/legacy/interrupted/payload.jsonl",
+    "run_name": "synthetic-legacy-interrupted-test",
+    "run_description": null,
+    "timeout": 60,
+    "callbacks": null
+}

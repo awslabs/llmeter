@@ -1,0 +1,16 @@
+{
+    "total_requests": 5,
+    "clients": 3,
+    "n_requests": 2,
+    "total_test_time": 5.102,
+    "model_id": "synthetic.legacy-model-v1",
+    "output_path": "stale/legacy/path",
+    "endpoint_name": "synthetic-legacy-endpoint",
+    "provider": "bedrock",
+    "run_name": "synthetic-legacy-test",
+    "run_description": null,
+    "start_time": "2025-01-10T14:00:00Z",
+    "first_request_time": "2025-01-10T14:00:00Z",
+    "last_request_time": "2025-01-10T14:00:04Z",
+    "end_time": "2025-01-10T14:00:05Z"
+}

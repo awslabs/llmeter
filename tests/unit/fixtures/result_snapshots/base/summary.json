@@ -1,0 +1,16 @@
+{
+    "total_requests": 5,
+    "clients": 2,
+    "n_requests": 3,
+    "total_test_time": 4.521,
+    "model_id": "synthetic.test-model-v1",
+    "output_path": null,
+    "endpoint_name": "synthetic-openai-stream",
+    "provider": "openai",
+    "run_name": "synthetic-base-test",
+    "run_description": "Synthetic fixture for deserialization regression tests",
+    "start_time": "2025-01-15T10:00:00Z",
+    "first_request_time": "2025-01-15T10:00:00Z",
+    "last_request_time": "2025-01-15T10:00:04Z",
+    "end_time": "2025-01-15T10:00:04Z"
+}

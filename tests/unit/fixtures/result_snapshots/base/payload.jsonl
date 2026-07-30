@@ -1,0 +1,2 @@
+{"messages": [{"role": "user", "content": "Summarize the key concepts of distributed systems."}], "max_tokens": 256, "model": "synthetic.test-model-v1", "stream": true, "stream_options": {"include_usage": true}}
+{"messages": [{"role": "user", "content": "Explain the CAP theorem briefly."}], "max_tokens": 256, "model": "synthetic.test-model-v1", "stream": true, "stream_options": {"include_usage": true}}

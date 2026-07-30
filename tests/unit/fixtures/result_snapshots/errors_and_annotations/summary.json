@@ -1,0 +1,16 @@
+{
+    "total_requests": 5,
+    "clients": 1,
+    "n_requests": 5,
+    "total_test_time": 7.8,
+    "model_id": "synthetic.errors-model-v1",
+    "output_path": "stale/errors/path",
+    "endpoint_name": "synthetic-errors-endpoint",
+    "provider": "bedrock",
+    "run_name": "synthetic-errors-test",
+    "run_description": "Fixture with errors, retries, and annotations",
+    "start_time": "2025-01-18T08:00:00Z",
+    "first_request_time": "2025-01-18T08:00:00Z",
+    "last_request_time": "2025-01-18T08:00:07Z",
+    "end_time": "2025-01-18T08:00:07Z"
+}

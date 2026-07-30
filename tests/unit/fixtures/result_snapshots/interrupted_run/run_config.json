@@ -1,0 +1,27 @@
+{
+    "endpoint": {
+        "__llmeter_class__": "llmeter.endpoints.bedrock.BedrockConverseStream",
+        "__llmeter_state__": {
+            "model_id": "synthetic.interrupted-model-v1",
+            "endpoint_name": "synthetic-interrupted-endpoint",
+            "region": "eu-west-1",
+            "inference_config": null,
+            "max_attempts": 3,
+            "ttft_visible_tokens_only": true
+        }
+    },
+    "output_path": "stale/interrupted/path",
+    "tokenizer": {
+        "__llmeter_class__": "llmeter.tokenizers.DummyTokenizer",
+        "__llmeter_state__": {}
+    },
+    "clients": 4,
+    "n_requests": 20,
+    "payload": "stale/interrupted/payload.jsonl",
+    "run_name": "synthetic-interrupted-test",
+    "run_description": "This run was interrupted before completion",
+    "timeout": 120,
+    "callbacks": null,
+    "low_memory": false,
+    "progress_bar_stats": null
+}

@@ -1,0 +1,65 @@
+{
+    "endpoint": {
+        "__llmeter_class__": "llmeter.endpoints.openai.OpenAICompletionStreamEndpoint",
+        "__llmeter_state__": {
+            "model_id": "synthetic.test-model-v1",
+            "endpoint_name": "synthetic-openai-stream",
+            "provider": "openai",
+            "organization": null,
+            "base_url": "https://api.synthetic-provider.example.com/v1/",
+            "max_retries": 3,
+            "timeout": {
+                "connect": 5.0,
+                "read": 60.0,
+                "write": 5.0,
+                "pool": 5.0
+            },
+            "api_key": "sk-synthetic-test-key-not-real"
+        }
+    },
+    "output_path": "stale/path/that/should/be/overridden",
+    "tokenizer": {
+        "__llmeter_class__": "llmeter.tokenizers.DummyTokenizer",
+        "__llmeter_state__": {}
+    },
+    "clients": 2,
+    "n_requests": 3,
+    "run_duration": null,
+    "payload": "tests/unit/fixtures/result_snapshots/base/payload.jsonl",
+    "run_name": "synthetic-base-test",
+    "run_description": "Synthetic fixture for deserialization regression tests",
+    "timeout": 60,
+    "callbacks": [
+        {
+            "__llmeter_class__": "llmeter.callbacks.cost.model.CostModel",
+            "__llmeter_state__": {
+                "request_dims": {
+                    "InputTokens": {
+                        "__llmeter_class__": "llmeter.callbacks.cost.dimensions.InputTokens",
+                        "__llmeter_state__": {
+                            "price_per_million": 3.0,
+                            "granularity": 1
+                        }
+                    },
+                    "OutputTokens": {
+                        "__llmeter_class__": "llmeter.callbacks.cost.dimensions.OutputTokens",
+                        "__llmeter_state__": {
+                            "price_per_million": 15.0,
+                            "granularity": 1
+                        }
+                    }
+                },
+                "run_dims": {}
+            }
+        },
+        {
+            "__llmeter_class__": "llmeter.callbacks.mlflow.MlflowCallback",
+            "__llmeter_state__": {
+                "step": null,
+                "nested": true
+            }
+        }
+    ],
+    "low_memory": false,
+    "progress_bar_stats": null
+}

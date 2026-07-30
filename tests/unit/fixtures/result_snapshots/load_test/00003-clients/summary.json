@@ -1,0 +1,16 @@
+{
+    "total_requests": 5,
+    "clients": 3,
+    "n_requests": 2,
+    "total_test_time": 3.2,
+    "model_id": "synthetic.loadtest-model-v1",
+    "output_path": "stale/loadtest/00003-clients",
+    "endpoint_name": "synthetic-loadtest-endpoint",
+    "provider": "bedrock",
+    "run_name": "00003-clients",
+    "run_description": null,
+    "start_time": "2025-01-22T12:05:01Z",
+    "first_request_time": "2025-01-22T12:05:01Z",
+    "last_request_time": "2025-01-22T12:05:05Z",
+    "end_time": "2025-01-22T12:05:05Z"
+}

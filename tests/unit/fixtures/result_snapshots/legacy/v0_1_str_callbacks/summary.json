@@ -1,0 +1,16 @@
+{
+    "total_requests": 5,
+    "clients": 1,
+    "n_requests": 5,
+    "total_test_time": 6.5,
+    "model_id": "synthetic.strcb-model-v1",
+    "output_path": "stale/strcb/path",
+    "endpoint_name": "synthetic-strcb-endpoint",
+    "provider": "bedrock",
+    "run_name": "synthetic-strcb-test",
+    "run_description": null,
+    "start_time": "2025-01-12T09:00:01Z",
+    "first_request_time": "2025-01-12T09:00:01Z",
+    "last_request_time": "2025-01-12T09:00:05Z",
+    "end_time": "2025-01-12T09:00:06Z"
+}
