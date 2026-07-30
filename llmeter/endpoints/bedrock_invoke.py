@@ -350,7 +350,7 @@ class BedrockInvokeStream(
         """Parse the streaming response from Bedrock InvokeModelWithResponseStream API.
 
         Args:
-            client_response: The raw response from the Bedrock API.
+            raw_response: The raw response from the Bedrock API.
             start_t: The timestamp when the request was initiated.
 
         Returns:

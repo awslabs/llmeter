@@ -68,12 +68,12 @@ nav:
       - openai_response: reference/endpoints/openai_response.md
       - sagemaker: reference/endpoints/sagemaker.md
     - experiments: reference/experiments.md
-    - serialization: reference/serialization.md
     - plotting:
       - reference/plotting/index.md
     - prompt_utils: reference/prompt_utils.md
     - results: reference/results.md
     - runner: reference/runner.md
+    - serialization: reference/serialization.md
     - tokenizers: reference/tokenizers.md
     - utils: reference/utils.md
 repo_url: https://github.com/awslabs/llmeter

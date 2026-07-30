@@ -148,6 +148,11 @@ class _RunConfig:
             if "__llmeter_class__" in self.endpoint:
                 self._endpoint: Endpoint = load_object(self.endpoint)
             else:
+                # Legacy load path for <=v0.1.12 data files:
+                logger.warning(
+                    "Loading endpoint config from a legacy data format. Support for this will be "
+                    "removed in a future major version.  Consider re-saving the file to update."
+                )
                 self._endpoint = Endpoint.load(self.endpoint)
         else:
             self._endpoint = self.endpoint
@@ -161,6 +166,11 @@ class _RunConfig:
             if "__llmeter_class__" in self.tokenizer:
                 self._tokenizer: Tokenizer = load_object(self.tokenizer)
             else:
+                # Legacy load path for <=v0.1.12 data files:
+                logger.warning(
+                    "Loading tokenizer from a legacy LLMeter data format. Support for this will "
+                    "be removed in a future major version. Consider re-saving the file to update."
+                )
                 self._tokenizer = Tokenizer.load(self.tokenizer)
         else:
             self._tokenizer = self.tokenizer
@@ -172,15 +182,14 @@ class _RunConfig:
     ):
         """Save the configuration to a disk or cloud storage.
 
-        Uses the LLMeter state-based serialization protocol
-        (``_get_llmeter_state``/``_set_llmeter_state``) for Endpoint, Tokenizer,
-        and Callback serialization.
-
         Args:
             output_path: Optional override for output folder. By default, self.output_path is used.
             file_name: File name to create under `output_path`.
         """
         output_path = ensure_path(output_path or self.output_path)
+        if output_path is None:
+            logger.info("No output_path provided - skipping saving run config")
+            return
         output_path.mkdir(parents=True, exist_ok=True)
         run_config_path = output_path / file_name
 
@@ -206,9 +215,6 @@ class _RunConfig:
     def load(cls, load_path: ReadablePathLike, file_name: str = "run_config.json"):
         """Load a configuration from a (local or cloud-stored) JSON file.
 
-        Restores Endpoint, Tokenizer, and Callback objects via ``load_object``.
-        Also supports legacy format (``endpoint_type`` / ``tokenizer_module`` keys).
-
         Args:
             load_path: Folder under which the configuration is stored
             file_name: File name within `load_path` for the run configuration JSON.
@@ -217,10 +223,9 @@ class _RunConfig:
         with (load_path / file_name).open() as f:
             config = json.load(f)
 
-        # Restore endpoint and tokenizer. Only unwrap the new-format
-        # (``__llmeter_class__``) envelope here; legacy dicts (``endpoint_type`` /
-        # ``tokenizer_module``) are passed through untouched so ``__post_init__`` can
-        # route them to ``Endpoint.load`` / ``Tokenizer.load``.
+        # Restore endpoint and tokenizer. Only unwrap the new-format (`__llmeter_class__`) envelope
+        # here; legacy dicts (`endpoint_type` / `tokenizer_module`) are passed through untouched so
+        # `__post_init__` can route them to `Endpoint.load` / `Tokenizer.load`.
         ep = config.get("endpoint")
         if isinstance(ep, dict) and "__llmeter_class__" in ep:
             config["endpoint"] = load_object(ep)

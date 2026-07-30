@@ -126,8 +126,8 @@ class Result:
 
         Args:
             default: Fallback serializer. Defaults to
-                :func:`~llmeter.serialization.json_default`.
-            **kwargs: Extra keyword arguments passed to :func:`json.dumps`.
+                [`json_default`][llmeter.serialization.json_default].
+            **kwargs: Extra keyword arguments passed to `json.dumps`.
         """
         summary = {
             k: o for k, o in asdict(self).items() if k not in ["responses", "stats"]
@@ -137,20 +137,18 @@ class Result:
     def to_dict(self, include_responses: bool = False) -> dict:
         """Return a dictionary representation of this result.
 
-        Returns a plain ``dict`` produced by :func:`dataclasses.asdict`,
-        preserving native Python types (``datetime``, ``UPath``, etc.).
-        This is suitable for programmatic access and internal data
+        Returns a plain `dict` produced by `dataclasses.asdict`, preserving native Python types
+        (`datetime`, `UPath`, etc.). This is suitable for programmatic access and internal data
         processing.
 
-        For JSON output, use :meth:`to_json` which delegates to
-        :func:`~llmeter.serialization.json_default` for
-        non-serializable types, or pass the dict through
-        ``json.dumps(result.to_dict(), default=json_default)``.
+        For JSON output, use `to_json` which delegates to
+        [`json_default`][llmeter.serialization.json_default] for non-serializable types, or pass
+        the dict through `json.dumps(result.to_dict(), default=json_default)`.
 
         Args:
-            include_responses: If ``True``, include the full list of
-                :class:`~llmeter.endpoints.base.InvocationResponse` dicts
-                and the ``stats`` key.  Defaults to ``False``.
+            include_responses: Set `True` to include the full list of
+                [`InvocationResponse`][llmeter.endpoints.base.InvocationResponse] dicts and the
+                `stats` key.
 
         Returns:
             dict: A dictionary of result fields with native Python types.

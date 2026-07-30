@@ -101,9 +101,6 @@ class CostModel(Callback):
             }
         )
         if save:
-            # Store per-response costs in `response.annotations` (a declared field) so they
-            # persist through to_json/from_json and disk save/load, rather than as loose
-            # attributes on the response (which asdict-based serialization would drop).
             dim_costs.save_on_namespace(response.annotations, key_prefix="cost_")
         return dim_costs
 
@@ -137,7 +134,7 @@ class CostModel(Callback):
         else:
             resp_costs = list(
                 filter(
-                    lambda c: c,
+                    lambda c: c,  # Skip responses where no cost data was found at all
                     (
                         CalculatedCostWithDimensions.load_from_namespace(
                             r.annotations, key_prefix="cost_"
@@ -147,13 +144,19 @@ class CostModel(Callback):
                 )
             )
         if len(resp_costs):
+            # Merge the total request-level costs into the run-level costs:
+            # (Unless requests is empty, because sum([])=0 and not a CalculatedCostWithDimensions)
             run_cost.merge(sum(resp_costs))  # type: ignore
         if save:
+            # Save the overall run cost and breakdown on the main result object:
             run_cost.save_on_namespace(result, key_prefix="cost_")
+            # Contribute both 1/ the summary stats of request-level costs, and 2/ the overall run
+            # cost+breakdown, to result.stats:
             stats = CalculatedCostWithDimensions.summary_statistics(
                 resp_costs,
                 key_prefix="cost_",
                 key_dim_name_suffix="_per_request",
+                # cost_total_per_request would be confusing, so skip 'total':
                 key_total_name_and_suffix="per_request",
             )
             run_cost.save_on_namespace(stats, key_prefix="cost_")

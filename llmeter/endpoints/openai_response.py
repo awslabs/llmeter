@@ -126,7 +126,7 @@ class OpenAIEndpointBase(Endpoint[TOpenAIResponseBase], Generic[TOpenAIResponseB
         user_message: str | Sequence[str],
         max_output_tokens: int = 256,
         instructions: str | None = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> ResponseCreateParams:
         """Create a payload for the Responses API request.
 
@@ -328,7 +328,7 @@ class OpenAIResponseStreamEndpoint(OpenAIEndpointBase[Iterable[ResponseStreamEve
         max_retries: int = DEFAULT_MAX_RETRIES,
         default_headers: Mapping[str, str] | None = None,
         default_query: Mapping[str, object] | None = None,
-        **kwargs,
+        **kwargs: Any,
     ):
         """Initialize streaming Response API endpoint.
 

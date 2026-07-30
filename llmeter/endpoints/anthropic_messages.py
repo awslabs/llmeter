@@ -73,13 +73,13 @@ import time
 from typing import Any, Generic, Iterable, TypeVar
 
 # External Dependencies:
-import httpx  # (Indirect dependency of anthropic)
 import anthropic
 from anthropic.types import (
     Message,
     MessageCreateParams,
     RawMessageStreamEvent,
 )
+import httpx  # (Indirect dependency of anthropic)
 
 # Local Dependencies:
 from .base import Endpoint, InvocationResponse

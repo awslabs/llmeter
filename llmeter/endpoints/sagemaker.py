@@ -5,7 +5,7 @@ import io
 import json
 import logging
 import time
-from typing import Generic, TypeVar
+from typing import Any, Generic, TypeVar
 import warnings
 
 import boto3
@@ -141,8 +141,8 @@ class SageMakerEndpoint(SageMakerBase[InvokeEndpointOutputTypeDef]):
         input_text: str | list[ContentItem],
         max_tokens: int = 256,
         inference_parameters: dict = {},
-        **kwargs,
-    ):
+        **kwargs: Any,
+    ) -> dict:
         """Create a payload for the SageMaker API request.
 
         Args:
@@ -291,8 +291,8 @@ class SageMakerStreamEndpoint(
         input_text: str | list[ContentItem],
         max_tokens: int = 256,
         inference_parameters: dict = {},
-        **kwargs,
-    ):
+        **kwargs: Any,
+    ) -> dict:
         """Create a payload for the SageMaker streaming API request.
 
         Args:

@@ -45,10 +45,8 @@ class Callback(Serializable, ABC):
                 timing and token counts)
         Returns:
             None: If you'd like to add information to the `response` logged in the Run, modify it
-                in-place. To attach **extra custom fields**, store them in `response.annotations`
-                (a dict) rather than setting arbitrary attributes on the response: `annotations`
-                is a declared field, so it is preserved through `Result` save/load, whereas loose
-                attributes are dropped on serialization.
+                in-place. To attach **extra custom fields** that you want preserved when responses
+                are saved to file, store them in the `response.annotations` map.
         """
         pass
 
