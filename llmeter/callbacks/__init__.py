@@ -16,6 +16,7 @@ import importlib.util
 
 from .base import Callback  # noqa: F401
 from .cost import CostModel  # noqa: F401
+from .profiling import ProfileCallback  # noqa: F401
 
 spec = importlib.util.find_spec("mlflow")
 if spec:

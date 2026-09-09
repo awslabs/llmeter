@@ -14,12 +14,28 @@ from .plotting import (
     plot_load_test_results,
     scatter_histogram_2d,
 )
+from .profiling import (
+    plot_phase_breakdown,
+    plot_profile_summary,
+    plot_request_timeline,
+    plot_throughput_over_time,
+    plot_time_accounting,
+    plot_tpot_distribution,
+    plot_ttft_vs_input_tokens,
+)
 
 __all__ = [
-    "plot_heatmap",
-    "scatter_histogram_2d",
     "boxplot_by_dimension",
-    "plot_load_test_results",
-    "histogram_by_dimension",
     "color_sequences",
+    "histogram_by_dimension",
+    "plot_heatmap",
+    "plot_load_test_results",
+    "plot_phase_breakdown",
+    "plot_profile_summary",
+    "plot_request_timeline",
+    "plot_throughput_over_time",
+    "plot_time_accounting",
+    "plot_tpot_distribution",
+    "plot_ttft_vs_input_tokens",
+    "scatter_histogram_2d",
 ]
