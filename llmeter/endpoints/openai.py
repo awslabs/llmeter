@@ -333,10 +333,14 @@ class OpenAIEndpoint(Endpoint[TOpenAICompletionBase], Generic[TOpenAICompletionB
 class OpenAICompletionEndpoint(OpenAIEndpoint[ChatCompletion]):
     """Endpoint for OpenAI-compatible Chat Completion APIs (non-streaming mode)
 
-    Although neither time-to-first-token metric is measurable. Reasoning content that the response
-    *does* carry is still recorded on [`reasoning_type`][llmeter.endpoints.base.ReasoningType],
+    Neither time-to-first-token metric is measurable without streaming, but whether the model
+    reasoned is still recorded on [`reasoning_type`][llmeter.endpoints.base.ReasoningType],
     informationally: with no `time_to_first_token` there is no TPOT pairing for it to select, but
-    reporting `None` for a model that demonstrably reasoned would be misleading.
+    reporting `None` for a model that demonstrably reasoned would be misleading. It is resolved
+    from reasoning content on the message where present, and otherwise from a positive
+    `reasoning_tokens` count in `usage` (see
+    [`backfill_reasoning_type_from_token_counts`][llmeter.endpoints.base.backfill_reasoning_type_from_token_counts]),
+    which is the only signal OpenAI's own reasoning models give.
     """
 
     @OpenAIEndpoint.llmeter_invoke
@@ -387,6 +391,26 @@ class OpenAICompletionStreamEndpoint(OpenAIEndpoint[Iterable[ChatCompletionChunk
     [`time_to_first_token`][llmeter.endpoints.base.InvocationResponse] and
     [`reasoning_type`][llmeter.endpoints.base.InvocationResponse]; the first chunk with visible
     `delta.content` sets `time_to_first_content_token`.
+
+    !!! warning "OpenAI's own reasoning models stream no reasoning content"
+        The Chat Completions schema has no reasoning field - `reasoning_content` and `reasoning` are
+        vendor extensions added by DeepSeek, vLLM, SGLang, OpenRouter, Bedrock (`gpt-oss`) and
+        similar. Against **api.openai.com**, an o-series or GPT-5 reasoning model emits nothing at
+        all during its reasoning phase and reports only a `reasoning_tokens` figure in the final
+        `usage`. TTFT and TTFCT are therefore identical *and both land after reasoning is complete*.
+
+        [`backfill_reasoning_type_from_token_counts`][llmeter.endpoints.base.backfill_reasoning_type_from_token_counts]
+        recognizes this from the token count and records `reasoning_type="unknown"`, which keeps
+        [`time_per_output_token`][llmeter.endpoints.base.InvocationResponse] on the answer-only
+        pairing rather than dividing a post-reasoning window by a reasoning-inclusive token count.
+
+        `"unknown"` rather than `"redacted"` because, with no standard field to look for, a provider
+        that streamed its reasoning under an unrecognized name is indistinguishable here from one
+        that withheld it - see
+        [`silent_reasoning_type`][llmeter.endpoints.base.Endpoint.silent_reasoning_type]. Use
+        [`OpenAIResponseStreamEndpoint`][llmeter.endpoints.openai_response.OpenAIResponseStreamEndpoint]
+        with `reasoning={"summary": "auto"}` if you need a first-token metric that fires during the
+        reasoning phase.
     """
 
     def __init__(
@@ -477,6 +501,10 @@ class OpenAICompletionStreamEndpoint(OpenAIEndpoint[Iterable[ChatCompletionChunk
         [`delta_has_reasoning_content`][llmeter.endpoints.base.delta_has_reasoning_content]) set
         `time_to_first_token` but never contribute to `response_text`. The first chunk with visible
         `delta.content` sets `time_to_first_content_token`.
+
+        When the provider streams no reasoning content but reports `reasoning_tokens` in `usage`,
+        `reasoning_type` is left unset here and resolved to `"unknown"` afterwards by
+        [`backfill_reasoning_type_from_token_counts`][llmeter.endpoints.base.backfill_reasoning_type_from_token_counts].
         """
         got_chunk_id = False
         saw_reasoning = False

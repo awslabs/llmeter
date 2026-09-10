@@ -341,10 +341,11 @@ class BedrockBase(
 class BedrockConverse(BedrockBase[ConverseResponseTypeDef]):
     """Non-streaming endpoint for the Bedrock Converse API.
 
-    Although neither first-token metric is measurable. Reasoning content that the response *does*
-    carry is still recorded on [`reasoning_type`][llmeter.endpoints.base.ReasoningType],
-    informationally: with no `time_to_first_token` there is no TPOT pairing for it to select, but
-    reporting `None` for a model that demonstrably reasoned would be misleading.
+    Although neither first-token metric is measurable without streaming, reasoning content that the
+    response *does* carry is still recorded on
+    [`reasoning_type`][llmeter.endpoints.base.ReasoningType], informationally: with no
+    `time_to_first_token` there is no TPOT pairing for it to select, but reporting `None` for a
+    model that demonstrably reasoned would be misleading.
     """
 
     @BedrockBase.llmeter_invoke

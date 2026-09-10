@@ -97,7 +97,9 @@ class RunningStats:
 
     Args:
         metrics: Names of numeric response fields to track (e.g.
-            ``"time_to_first_token"``, ``"num_tokens_output"``).
+            ``"time_to_first_token"``, ``"num_tokens_output"``).  Each of these gets the full
+            `{metric}-{aggregation}` treatment, at O(*n*)-per-response cost — see
+            `llmeter.results._STANDARD_AGGREGATION_METRICS`.
 
     Example::
 
@@ -108,14 +110,39 @@ class RunningStats:
         # {'failed_requests': 0, ..., 'time_to_first_token-p50': 0.4, ...}
     """
 
+    _SUM_ONLY_STATS: dict[str, str] = {
+        "num_tokens_input_cached": "total_cached_input_tokens",
+        "num_tokens_output_reasoning": "total_reasoning_output_tokens",
+    }
+    """
+    Response fields totalled by [`to_stats`][llmeter.utils.RunningStats.to_stats] (as `{stat_key}`)
+    without needing to be tracked as full `metrics`. A running sum is O(1) per response, whereas a
+    tracked metric also keeps a sorted list for quantiles and costs O(*n*) per insert — so fields
+    only ever reported as a total need not be in `metrics`.
+
+    Totals are accumulated for every field here regardless of the configured `metrics`, so these
+    stats are always reported. A field may therefore appear in *both*: `metrics` adds the
+    `{metric}-{aggregation}` keys on top, and its sum is shared rather than accumulated twice (see
+    `_sum_only_fields`).
+
+    TODO: Replace this hard-coded mapping with a proper configuration interface, so callers can
+    declare sum-only fields alongside `metrics` instead of it being fixed in the class.
+    """
+
     def __init__(self, metrics: Sequence[str]):
         self._metrics = list(metrics)
         self._count = 0
         self._failed = 0
         self._first_send_time: datetime | None = None
         self._last_send_time: datetime | None = None
-        self._sums: dict[str, float] = {m: 0.0 for m in metrics}
+        self._sums: dict[str, float] = {
+            m: 0.0 for m in [*metrics, *self._SUM_ONLY_STATS]
+        }
         self._values: dict[str, list[float]] = {m: [] for m in metrics}
+        # Sum-only fields that `metrics` does not already accumulate - to avoid double-counting:
+        self._sum_only_fields: list[str] = [
+            k for k in self._SUM_ONLY_STATS if k not in self._metrics
+        ]
 
     def update(self, response_dict: dict[str, Any]) -> None:
         """Record one response's metric values.
@@ -150,6 +177,12 @@ class RunningStats:
             if val is not None and not (isinstance(val, (float, int)) and isnan(val)):
                 self._sums[m] += val
                 bisect.insort(self._values[m], val)
+        # Sum-only fields: no sorted insert, so this stays O(1) per field per response. Excludes
+        # anything `metrics` already summed above, which would otherwise be double-counted.
+        for name in self._sum_only_fields:
+            val = response_dict.get(name)
+            if val is not None and not (isinstance(val, (float, int)) and isnan(val)):
+                self._sums[name] += val
 
     def to_stats(
         self,
@@ -182,6 +215,8 @@ class RunningStats:
         stats["failed_requests_rate"] = self._count and self._failed / self._count
         stats["total_input_tokens"] = self._sums.get("num_tokens_input", 0)
         stats["total_output_tokens"] = self._sums.get("num_tokens_output", 0)
+        for name, stat_key in self._SUM_ONLY_STATS.items():
+            stats[stat_key] = self._sums.get(name, 0)
 
         # Per-metric aggregations
         for m in self._metrics:

@@ -35,13 +35,34 @@ def _write_jsonl(path: Path, lines: list[str]):
     path.write_text("\n".join(lines) + "\n")
 
 
+#: Aggregation suffixes appended to each tracked metric, i.e. the keys `summary_stats_from_list`
+#: produces. Used to tell `{metric}-{aggregation}` keys apart from run-level ones.
+_AGGREGATIONS = ("average", "p50", "p90", "p99")
+
+
 def _compute_and_write_stats(
-    responses: list[InvocationResponse], summary: dict, path: Path
+    responses: list[InvocationResponse],
+    summary: dict,
+    path: Path,
+    legacy: bool = False,
 ):
     """Build a Result from the summary metadata, compute stats, write stats.json.
 
-    Passing the full summary metadata (parsed to native types) makes the resulting
-    stats.json mirror what a real ``Result.save()`` produces.
+    Passing the full summary metadata (parsed to native types) makes the resulting stats.json
+    mirror what a `Result.save()` of the *current* release produces.
+
+    Note this goes through `Result._compute_stats`, whereas a real saved `stats.json` is written
+    from `RunningStats.to_stats` at the end of a live run. Those two producers agree on the
+    `{metric}-{aggregation}` keys (both draw from
+    `llmeter.results._STANDARD_AGGREGATION_METRICS`) but not entirely on the run-level ones - see
+    `_as_legacy_stats`.
+
+    Args:
+        responses: Responses to aggregate.
+        summary: Run metadata, as written to `summary.json`.
+        path: Where to write `stats.json`.
+        legacy: Set `True` for a `v0_1_*`/`v0_2_*` fixture, to rewrite the stats as the emulated
+            release would have saved them rather than as current code computes them.
     """
     meta = {k: v for k, v in summary.items() if k not in ("total_requests",)}
     restore_dataclass_types(Result, meta)
@@ -49,14 +70,129 @@ def _compute_and_write_stats(
         responses=responses, total_requests=summary["total_requests"], **meta
     )
     stats = Result._compute_stats(result)
+    if legacy:
+        stats = _as_legacy_stats(stats, summary=summary)
     _write_json(path, stats)
     return stats
+
+
+_V0_1_TO_V0_2_0_LIVE_AGGREGATION_METRICS = (
+    "time_to_last_token",
+    "time_to_first_token",
+    "time_per_output_token",
+    "num_tokens_output",
+    "num_tokens_input",
+)
+"""
+Metrics the v0.1.x and v0.2.0 `RunningStats` tracked, and therefore the only
+`{metric}-{aggregation}` keys a real `stats.json` from those releases contained.
+
+Deliberately *not* the same as what those releases' `Result._compute_stats` produced, which omitted
+`time_per_output_token` and included `num_tokens_input_cached`. The two lists had drifted apart;
+reconciling them onto `llmeter.results._STANDARD_AGGREGATION_METRICS` is part of the release these
+fixtures predate. Since `stats.json` was written from `RunningStats`, it is that list which is
+faithful here.
+"""
+
+
+_POST_V0_2_0_RUN_STAT_KEYS = (
+    "total_cached_input_tokens",
+    "total_reasoning_output_tokens",
+)
+"""
+Run-level stat keys that v0.1.x/v0.2.0 `RunningStats.to_stats` did **not** write.
+
+They are produced only by `results._get_run_stats`, which never ran on the save path.
+"""
+
+
+def _as_legacy_stats(
+    stats: dict,
+    summary: dict,
+    aggregation_metrics: tuple[str, ...] = _V0_1_TO_V0_2_0_LIVE_AGGREGATION_METRICS,
+    drop_run_keys: tuple[str, ...] = _POST_V0_2_0_RUN_STAT_KEYS,
+) -> dict:
+    """Rewrite computed stats as an older LLMeter version's live run would have saved them.
+
+    The `v0_1_*`/`v0_2_*` fixtures exist to prove backward compatibility, so their `stats.json` must
+    reflect what those releases actually wrote - not what current code happens to compute from the
+    same responses. Without this, any change to
+    `llmeter.results._STANDARD_AGGREGATION_METRICS` silently rewrites the legacy fixtures and they
+    stop testing what they claim to.
+
+    Three corrections are applied:
+
+    1. **Drop aggregations for metrics the release did not track.** Note most such keys are absent
+        anyway, because the corresponding response fields were stripped by
+        `_POST_V0_1_RESPONSE_FIELDS` and aggregating an all-`None` metric yields no keys. This makes
+        the intent explicit rather than relying on that coincidence.
+    2. **Drop run-level keys the save path did not produce** (`drop_run_keys`).
+    3. **Add `output_tps`**, which `RunningStats.to_stats` wrote but `_compute_stats` has no
+        equivalent of. `to_stats` computed it as `total_output_tokens / run_window` where
+        `run_window = end_time - first_request_time`, so that window is used when the fixture's
+        summary carries both timestamps, falling back to `total_test_time` when it does not.
+
+    !!! note "Rate *values* are not emulated"
+        The other window-derived stats (`requests_per_minute`, `average_input_tokens_per_minute`,
+        `average_output_tokens_per_minute`) keep the values `_get_run_stats` computed, which divides
+        by `total_test_time` rather than by `to_stats`' dispatch window
+        (`last_request_time - first_request_time`) or run window. Their *keys* are correct, and
+        nothing asserts a "true" value for synthetic data, so this is left alone rather than
+        reimplementing `RunningStats`' windowing here. Note the same applies to the
+        current-format fixtures, which are also written via `_compute_stats`.
+
+    Args:
+        stats: Stats as computed by `Result._compute_stats`.
+        summary: The fixture's run metadata, for the `output_tps` window.
+        aggregation_metrics: Metrics the emulated release tracked.
+        drop_run_keys: Run-level keys the emulated release did not save.
+
+    Returns:
+        A new dict, ordered as the input was.
+    """
+    allowed = set(aggregation_metrics)
+    out = {}
+    for key, value in stats.items():
+        base, _, aggregation = key.rpartition("-")
+        if aggregation in _AGGREGATIONS and base:
+            if base not in allowed:
+                continue
+        elif key in drop_run_keys:
+            continue
+        out[key] = value
+
+    run_window = _run_window_seconds(summary)
+    if run_window:
+        out["output_tps"] = out["total_output_tokens"] / run_window
+    return out
+
+
+def _run_window_seconds(summary: dict) -> float | None:
+    """The window `RunningStats.to_stats` used for `output_tps`: `end_time - first_request_time`.
+
+    Falls back to `total_test_time` when the summary lacks either timestamp (as the
+    `v0_2_visible_only_ttft` fixture does), which is the closest available equivalent.
+
+    Args:
+        summary: Run metadata, as written to `summary.json`.
+
+    Returns:
+        Window in seconds, or `None` if no usable duration is available.
+    """
+    first, end = summary.get("first_request_time"), summary.get("end_time")
+    if first and end:
+        parse = lambda ts: datetime.fromisoformat(str(ts).replace("Z", "+00:00"))  # noqa: E731
+        return (parse(end) - parse(first)).total_seconds() or None
+    return summary.get("total_test_time") or None
 
 
 # =============================================================================
 # Scenario: base (modern format, OpenAI endpoint, CostModel + Mlflow callbacks)
 # =============================================================================
 
+#: Response fields added *after* the v0.2.0 release. v0.2.0 shipped cached-input and reasoning
+#: token counts, `retries` and `annotations` -- but neither of the reasoning-aware TTFT fields.
+_POST_V0_2_0_RESPONSE_FIELDS = ("time_to_first_content_token", "reasoning_type")
 
 #: Response fields that did **not** exist in the v0.1.x line. Kept as one list so every "v0_1_*"
 #: fixture strips exactly the same set: a v0.1 snapshot that carries a later field is not really
@@ -66,12 +202,8 @@ _POST_V0_1_RESPONSE_FIELDS = (
     "num_tokens_output_reasoning",
     "retries",
     "annotations",
-    "time_to_first_content_token",
+    *_POST_V0_2_0_RESPONSE_FIELDS,
 )
-
-#: Response fields added *after* the v0.2.0 release. v0.2.0 shipped cached-input and reasoning
-#: token counts, `retries` and `annotations` -- but not `time_to_first_content_token`.
-_POST_V0_2_0_RESPONSE_FIELDS = ("time_to_first_content_token",)
 
 
 def _as_legacy_json(response, drop_fields, extra=None) -> str:
@@ -454,7 +586,8 @@ def generate_legacy_endpoint_type():
     _write_json(out / "summary.json", summary)
 
     # stats.json
-    _compute_and_write_stats(responses, summary, out / "stats.json")
+    # legacy=True: emulate what this release actually wrote, not what current code computes
+    _compute_and_write_stats(responses, summary, out / "stats.json", legacy=True)
 
     # responses.jsonl — legacy format with flat cost annotations as top-level keys
     legacy_responses = []
@@ -560,7 +693,8 @@ def generate_legacy_str_callbacks():
     _write_json(out / "summary.json", summary)
 
     # stats.json
-    _compute_and_write_stats(responses, summary, out / "stats.json")
+    # legacy=True: emulate what this release actually wrote, not what current code computes
+    _compute_and_write_stats(responses, summary, out / "stats.json", legacy=True)
 
     # responses.jsonl — v0.1 field set, like every other v0_1_* fixture
     _write_jsonl(
@@ -1002,7 +1136,8 @@ def generate_legacy_v0_2_visible_only_ttft():
         "end_time": "2025-02-10T09:00:24Z",
     }
     _write_json(out / "summary.json", summary)
-    _compute_and_write_stats(responses, summary, out / "stats.json")
+    # legacy=True: emulate what this release actually wrote, not what current code computes
+    _compute_and_write_stats(responses, summary, out / "stats.json", legacy=True)
 
     # run_config.json records the retired flag, showing where the old semantics came from. Note
     # `Result.load` does not read this file when summary.json exists, which is exactly why

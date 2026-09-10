@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import time
+from collections.abc import Mapping
 from typing import Any, Generic, Sequence, TypeVar
 
 import litellm
@@ -21,6 +22,53 @@ from .base import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def _extract_token_detail(usage: Any, container: str, field: str) -> int | None:
+    """Read a nested token-breakdown count from a LiteLLM usage object.
+
+    LiteLLM normalizes provider token breakdowns onto the OpenAI-shaped `prompt_tokens_details` and
+    `completion_tokens_details` wrappers. Either wrapper is `None` on responses that carry no
+    details, and individual fields are absent for providers that do not report them.
+
+    Both counts LLMeter reads matter beyond reporting:
+
+    * `completion_tokens_details.reasoning_tokens` is what makes the answer-only
+      [`time_per_output_token`][llmeter.endpoints.base.InvocationResponse] pairing computable for
+      models whose reasoning is summarized or withheld, and what lets
+      [`backfill_reasoning_type_from_token_counts`][llmeter.endpoints.base.backfill_reasoning_type_from_token_counts]
+      notice reasoning that never appeared in the stream.
+    * `prompt_tokens_details.cached_tokens` reports prompt-cache hits, which dominate TTFT.
+
+    Args:
+        usage: A LiteLLM `Usage` object (or anything shaped like one).
+        container: Name of the details wrapper, e.g. `"completion_tokens_details"`.
+        field: Name of the count within that wrapper, e.g. `"reasoning_tokens"`.
+
+    Returns:
+        The count, or `None` if unavailable. Values are type-checked (`int`, excluding `bool`) so
+        that a placeholder or mock attribute cannot be mistaken for a real count.
+    """
+    details = getattr(usage, container, None)
+    if details is None:
+        return None
+    value = (
+        details.get(field)
+        if isinstance(details, Mapping)
+        else getattr(details, field, None)
+    )
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _extract_reasoning_tokens(usage: Any) -> int | None:
+    """Read `usage.completion_tokens_details.reasoning_tokens`, or `None` if unavailable."""
+    return _extract_token_detail(usage, "completion_tokens_details", "reasoning_tokens")
+
+
+def _extract_cached_input_tokens(usage: Any) -> int | None:
+    """Read `usage.prompt_tokens_details.cached_tokens`, or `None` if unavailable."""
+    return _extract_token_detail(usage, "prompt_tokens_details", "cached_tokens")
+
 
 litellm.json_logs = True  # type: ignore
 litellm.turn_off_message_logging = True
@@ -136,6 +184,8 @@ class LiteLLM(LiteLLMBase[ModelResponse]):
             usage = raw_response.usage  # type: ignore
             response.num_tokens_input = usage.prompt_tokens
             response.num_tokens_output = usage.completion_tokens
+            response.num_tokens_output_reasoning = _extract_reasoning_tokens(usage)
+            response.num_tokens_input_cached = _extract_cached_input_tokens(usage)
         except AttributeError:
             pass
 
@@ -207,6 +257,11 @@ class LiteLLMStreaming(LiteLLMBase[CustomStreamWrapper]):
         `delta.thinking_blocks`. Those chunks set `time_to_first_token` but never contribute to
         `response_text`; the first chunk with visible `delta.content` sets
         `time_to_first_content_token`.
+
+        Where a provider reports reasoning tokens in `usage` but streams no reasoning content, no
+        chunk reveals the reasoning and `reasoning_type` is left unset here -
+        [`backfill_reasoning_type_from_token_counts`][llmeter.endpoints.base.backfill_reasoning_type_from_token_counts]
+        resolves it to `"unknown"` from the token count.
         """
         usage = None
         got_chunk_id = False
@@ -250,3 +305,5 @@ class LiteLLMStreaming(LiteLLMBase[CustomStreamWrapper]):
         if usage:
             response.num_tokens_input = usage.prompt_tokens
             response.num_tokens_output = usage.completion_tokens
+            response.num_tokens_output_reasoning = _extract_reasoning_tokens(usage)
+            response.num_tokens_input_cached = _extract_cached_input_tokens(usage)

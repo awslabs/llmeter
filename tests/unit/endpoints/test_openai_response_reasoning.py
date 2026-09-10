@@ -458,3 +458,127 @@ class TestResponsesReasoningTypeResolution:
         )
         assert response.error is None
         assert response.reasoning_type is None
+
+
+# ---------------------------------------------------------------------------
+# Tests: reasoning that is billed but never disclosed
+# ---------------------------------------------------------------------------
+
+
+def _sync_response_with_usage(output_items, reasoning_tokens=None):
+    usage = Mock()
+    usage.input_tokens = 10
+    usage.output_tokens = 20
+    usage.input_tokens_details = None
+    if reasoning_tokens is not None:
+        output_details = Mock()
+        output_details.reasoning_tokens = reasoning_tokens
+        usage.output_tokens_details = output_details
+    else:
+        usage.output_tokens_details = None
+    return SimpleNamespace(
+        id="resp_1", output_text="Answer", output=output_items, usage=usage
+    )
+
+
+@patch("llmeter.endpoints.openai_response.OpenAI")
+class TestResponsesHiddenReasoning:
+    """Reasoning events only arrive if the request asked for a summary.
+
+    `reasoning={"effort": ...}` without `"summary"` produces no reasoning events and no reasoning
+    items -- just a `reasoning_tokens` figure in usage. That must not be left as `None` (which
+    asserts the model did not reason) or TPOT would divide a post-reasoning window by a
+    reasoning-inclusive token count.
+
+    This connector resolves it to `"redacted"` rather than `"unknown"`: the Responses schema states
+    disclosure structurally, so the absence of every reasoning signal *is* withholding rather than a
+    parsing gap. It also keeps the endpoint self-consistent with a reasoning item that discloses
+    neither content nor summary, which already yields `"redacted"`.
+    """
+
+    def _invoke_stream(self, events):
+        endpoint = OpenAIResponseStreamEndpoint(model_id="o3")
+        with patch.object(endpoint._client.responses, "create") as create:
+            create.return_value = iter(events)
+            return endpoint.invoke({"input": "Hi"})
+
+    def _invoke_sync(self, raw):
+        endpoint = OpenAIResponseEndpoint(model_id="o3")
+        with patch.object(endpoint._client.responses, "create") as create:
+            create.return_value = raw
+            return endpoint.invoke({"input": "Hi"})
+
+    def test_streaming_resolves_redacted_from_token_count(self, mock_openai):
+        response = self._invoke_stream(
+            [
+                _created_event(),
+                _text_delta_event("Answer"),
+                _completed_event(reasoning_tokens=9),
+            ]
+        )
+
+        assert response.num_tokens_output_reasoning == 9
+        assert response.reasoning_type == "redacted"
+
+    def test_streaming_stays_unset_without_reasoning_tokens(self, mock_openai):
+        response = self._invoke_stream(
+            [
+                _created_event(),
+                _text_delta_event("Answer"),
+                _completed_event(reasoning_tokens=0),
+            ]
+        )
+
+        assert response.reasoning_type is None
+
+    @pytest.mark.parametrize(
+        "reasoning_event,expected",
+        [
+            (_reasoning_text_delta_event, "verbatim"),
+            (_reasoning_summary_delta_event, "summary"),
+        ],
+    )
+    def test_streamed_disclosure_still_wins(
+        self, mock_openai, reasoning_event, expected
+    ):
+        """An observed event type is precise; the token-count fallback must not overwrite it."""
+        response = self._invoke_stream(
+            [
+                _created_event(),
+                reasoning_event(),
+                _text_delta_event("Answer"),
+                _completed_event(reasoning_tokens=9),
+            ]
+        )
+
+        assert response.reasoning_type == expected
+
+    def test_non_streaming_resolves_redacted_from_token_count(self, mock_openai):
+        response = self._invoke_sync(
+            _sync_response_with_usage(
+                [SimpleNamespace(type="message")], reasoning_tokens=9
+            )
+        )
+
+        assert response.reasoning_type == "redacted"
+
+    def test_no_reasoning_item_matches_an_empty_reasoning_item(self, mock_openai):
+        """The two describe the same physical situation, so they must not disagree."""
+        no_item = self._invoke_sync(
+            _sync_response_with_usage(
+                [SimpleNamespace(type="message")], reasoning_tokens=9
+            )
+        )
+        empty_item = self._invoke_sync(
+            _sync_response_with_usage([_reasoning_item()], reasoning_tokens=9)
+        )
+
+        assert no_item.reasoning_type == empty_item.reasoning_type == "redacted"
+
+    def test_non_streaming_reasoning_item_still_wins(self, mock_openai):
+        """A reasoning item present but disclosing nothing is *observed* redaction."""
+        response = self._invoke_sync(
+            _sync_response_with_usage([_reasoning_item()], reasoning_tokens=9)
+        )
+
+        assert response.reasoning_type == "redacted"

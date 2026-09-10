@@ -38,11 +38,11 @@ ReasoningType = Literal["verbatim", "summary", "redacted", "unknown"]
 """
 How internal reasoning was disclosed in a model's response, when the model reasoned at all.
 
-What matters for timing (and `time_per_output_token` calculation) is whether the reasoning reached us
-*as it was generated*, or after the fact, or not at all.
+What matters for timing (and `time_per_output_token` calculation) is whether the reasoning reached
+us *as it was generated*, or after the fact, or not at all.
 
-* `"verbatim"`: The reasoning tokens themselves were streamed as plain text, so their decode time
-    is inside the window between `time_to_first_token` and `time_to_last_token`.
+* `"verbatim"`: The raw reasoning tokens were streamed as plain text, so their decode time is
+    inside the window between `time_to_first_token` and `time_to_last_token`.
 * `"summary"`: Only a *summary* of the reasoning was streamed. A summary is shorter than the
     reasoning it describes and cannot be produced until some reasoning already exists, so at least
     part of the reasoning generation falls outside the measured TTFT-TTLT window.
@@ -54,7 +54,8 @@ What matters for timing (and `time_per_output_token` calculation) is whether the
     and appears to vary, so LLMeter does not distinguish the two and conservatively refuses to
     use either for TPOT calculation.
 * `"unknown"`: Reasoning demonstrably happened, but the endpoint could not establish how it was
-    disclosed. Distinct from `None`, which means no reasoning was observed at all.
+    disclosed. Distinct from `None`, which means no reasoning was observed at all. See also
+    [`backfill_reasoning_type_from_token_counts`][llmeter.endpoints.base.backfill_reasoning_type_from_token_counts].
 
 Only `"verbatim"` - and `None`, where there is no reasoning to account for - permit calculating the
 `time_per_output_token` from the whole measured TTFT-TTLT window and full output token count. See
@@ -96,10 +97,9 @@ class InvocationResponse:
             separate count for this.
         input_prompt (str): The input prompt used in the invocation.
         reasoning_type: How the model's internal reasoning was disclosed, or `None` if the model
-            does not appear to have reasoned at all. One of `"verbatim"`, `"summary"`,
-            `"redacted"` or `"unknown"` - see
+            does not appear to have reasoned at all. See
             [`ReasoningType`][llmeter.endpoints.base.ReasoningType]. This governs whether
-            `time_per_output_token` can be derived from the full output token count.
+            `time_per_output_token` can be derived.
         time_per_output_token (float): The average time taken to generate each token in the
             response, **excluding** initial prompt processing/prefill. Computed by the `Runner`
             from whichever pairing of first-token metric and token count is internally consistent;
@@ -358,6 +358,52 @@ def infer_reasoning_visibility_from_model_id(model_id: str) -> ReasoningType | N
     return "summary" if "anthropic" in segments else "verbatim"
 
 
+def backfill_reasoning_type_from_token_counts(
+    response: InvocationResponse,
+    silent_reasoning_type: ReasoningType = "unknown",
+) -> None:
+    """Infer that reasoning happened from the *token accounting*, when no content revealed it.
+
+    Detecting reasoning from streamed content only works if the provider streams some. Several
+    prominent APIs bill for reasoning tokens while emitting nothing that identifies them:
+
+    * **OpenAI Chat Completions** never returns reasoning content for the o-series or GPT-5
+      reasoning models - only a `reasoning_tokens` figure in `usage`.
+    * **OpenAI Responses** emits no reasoning events unless `reasoning.summary` was requested.
+    * Any gateway that strips reasoning fields (or renames them past
+      [`delta_has_reasoning_content`][llmeter.endpoints.base.delta_has_reasoning_content])
+      while passing usage through.
+
+    In cases where `num_tokens_output_reasoning` is positive, reasoning demonstrably happened - so
+    this function checks if `reasoning_type=None` and if so backfills it to the given
+    `silent_reasoning_type`: Preventing incorrect `time_per_output_token` calculations.
+
+    Applied automatically by the
+    [`Endpoint.llmeter_invoke`][llmeter.endpoints.base.Endpoint.llmeter_invoke] decorator after
+    `process_raw_response`, using the endpoint's
+    [`silent_reasoning_type`][llmeter.endpoints.base.Endpoint.silent_reasoning_type], so it covers
+    custom endpoints too. Custom endpoints that bypass the decorator can call it directly.
+
+    Args:
+        response: The response to update in-place. Only modified when `reasoning_type` is unset
+            *and* a positive reasoning-token count was reported; any value the endpoint established
+            from the response content wins.
+        silent_reasoning_type: What to record for this situation. `"redacted"` and `"unknown"` route
+            TPOT identically, so the choice is purely about how confidently the outcome can be
+            described - see
+            [`Endpoint.silent_reasoning_type`][llmeter.endpoints.base.Endpoint.silent_reasoning_type].
+    """
+    if response.reasoning_type is not None:
+        return
+    reasoning_tokens = response.num_tokens_output_reasoning
+    # Type-checked rather than truthiness-tested, so that a placeholder/mock attribute value cannot
+    # be mistaken for a real count. `bool` is excluded because it is an `int` subclass.
+    if isinstance(reasoning_tokens, bool) or not isinstance(reasoning_tokens, int):
+        return
+    if reasoning_tokens > 0:
+        response.reasoning_type = silent_reasoning_type
+
+
 TRawResponse = TypeVar("TRawResponse", bound=Any)
 
 
@@ -403,6 +449,42 @@ class Endpoint(Serializable, ABC, Generic[TRawResponse]):
         any request payload pre-processing **outside** the timer that measures response speed
     """
 
+    silent_reasoning_type: ReasoningType = "unknown"
+    """What to record as `reasoning_type` when reasoning was billed but never disclosed.
+
+    Read by [`llmeter_invoke`][llmeter.endpoints.base.Endpoint.llmeter_invoke] when it calls
+    [`backfill_reasoning_type_from_token_counts`][llmeter.endpoints.base.backfill_reasoning_type_from_token_counts],
+    for the case where the provider reported `num_tokens_output_reasoning > 0` but nothing in the
+    response identified the reasoning. A **class**-level constant, not user configuration: it
+    describes how much the connector's API guarantees, so it is not serialized with the endpoint.
+
+    `"redacted"` and `"unknown"` route
+    [`time_per_output_token`][llmeter.endpoints.base.InvocationResponse] identically (both use the
+    answer-only pairing), so this choice only affects how the situation is *described* - and the
+    right description depends on how completely the connector can parse its API:
+
+    * **`"redacted"`** where silence is *documented, expected* behaviour of a self-describing API,
+        so the reasoning was demonstrably withheld rather than merely unrecognized. Set on the
+        OpenAI Responses endpoints, whose schema states the disclosure level outright (distinct
+        event types when streaming, distinct item fields when not) - if none of those appear, the
+        API withheld the reasoning. This also keeps them self-consistent, since a reasoning *item*
+        that discloses neither content nor summary already yields `"redacted"`.
+    * **`"unknown"`** (the default) where silence is *ambiguous*, because the connector cannot be
+        sure it would have recognized the reasoning had it been sent. This is the honest answer for:
+
+        - **OpenAI-compatible Chat Completions**, whose schema has no reasoning field at all;
+          `reasoning_content` / `reasoning` are vendor extensions, so an unrecognized field name is
+          indistinguishable from real withholding.
+        - **LiteLLM**, which normalizes ~100 providers and may not normalize a given one.
+        - **Anthropic Messages**, where every *documented* thinking mode leaves a structural trace,
+          so reaching this fallback at all means something undocumented happened (a gateway
+          stripping signature deltas, say) - which is worth surfacing as "go and check", not
+          reporting as though it were expected.
+
+    Custom endpoints should leave this as `"unknown"` unless their API structurally guarantees that
+    reasoning content would have been identifiable.
+    """
+
     @classmethod
     def llmeter_invoke(
         cls,
@@ -430,6 +512,11 @@ class Endpoint(Serializable, ABC, Generic[TRawResponse]):
             - `input_prompt` (via
                 [`_parse_payload`](llmeter.endpoints.base.Endpoint._parse_payload) method)
             - `time_to_last_token`
+            - `reasoning_type` (via
+                [`backfill_reasoning_type_from_token_counts`][llmeter.endpoints.base.backfill_reasoning_type_from_token_counts],
+                which catches providers that bill for reasoning tokens without streaming any
+                reasoning content, using this class'
+                [`silent_reasoning_type`][llmeter.endpoints.base.Endpoint.silent_reasoning_type])
 
         Args:
             call_endpoint: The function to wrap. Should be a method that takes a `payload: dict`
@@ -476,6 +563,11 @@ class Endpoint(Serializable, ABC, Generic[TRawResponse]):
                     response.input_prompt = self._parse_payload(saved_payload)
                 except Exception:
                     logger.debug("_parse_payload failed; leaving input_prompt as None")
+
+            # Last, because it depends on `num_tokens_output_reasoning` being fully parsed:
+            backfill_reasoning_type_from_token_counts(
+                response, self.silent_reasoning_type
+            )
 
             return response
 

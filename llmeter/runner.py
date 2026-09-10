@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 
 from .endpoints.base import Endpoint, InvocationResponse
 from .prompt_utils import load_payloads, save_payloads
-from .results import Result
+from .results import Result, _STANDARD_AGGREGATION_METRICS
 from .tokenizers import DummyTokenizer, Tokenizer
 
 logger = logging.getLogger(__name__)
@@ -275,16 +275,7 @@ class _Run(_RunConfig):
                 "(responses must be written to disk)"
             )
 
-        self._running_stats = RunningStats(
-            metrics=[
-                "time_to_last_token",
-                "time_to_first_token",
-                "time_to_first_content_token",
-                "time_per_output_token",
-                "num_tokens_output",
-                "num_tokens_input",
-            ]
-        )
+        self._running_stats = RunningStats(metrics=_STANDARD_AGGREGATION_METRICS)
 
     def _validate_and_prepare_payload(self):
         """Validate and prepare the payload for the test run.

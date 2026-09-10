@@ -1292,3 +1292,97 @@ class TestStreamingOnlyReasoningSignals:
         assert response.reasoning_type is None
         assert response.time_to_first_token == pytest.approx(0.9)
         assert response.time_to_first_token == response.time_to_first_content_token
+
+
+# ---------------------------------------------------------------------------
+# Tests: thinking that is billed but not identifiable in the response
+# ---------------------------------------------------------------------------
+
+
+class TestAnthropicHiddenThinking:
+    """Defence in depth for a stream whose thinking signals never arrive.
+
+    Both Anthropic thinking modes normally leave a structural trace -- `thinking_delta` when
+    summarized, `signature_delta` or a `redacted_thinking` block when not -- so this endpoint
+    resolves `reasoning_type` from the content in every documented case. But a proxy or gateway can
+    forward `usage` while dropping signature deltas, and then `thinking_tokens` is the only evidence
+    left. Falling back to it keeps such a response off the whole-output TPOT pairing.
+    """
+
+    @staticmethod
+    def _stream_without_thinking_signals(thinking_tokens: int | None):
+        usage_attrs = {"output_tokens": 100}
+        if thinking_tokens is not None:
+            usage_attrs["output_tokens_details"] = {"thinking_tokens": thinking_tokens}
+        msg_delta = Mock()
+        msg_delta.type = "message_delta"
+        msg_delta.usage = SimpleNamespace(**usage_attrs)
+        return [
+            _message_start_event(),
+            _delta_event("text_delta", text="Answer"),
+            msg_delta,
+        ]
+
+    @staticmethod
+    def _invoke(endpoint, raw_response):
+        """Drive the full `llmeter_invoke` path, which is where the backfill is applied."""
+        endpoint._client.messages.create = Mock(return_value=raw_response)
+        return endpoint.invoke({"messages": [], "max_tokens": 64})
+
+    def test_streaming_resolves_unknown_from_thinking_tokens(self, mock_client):
+        endpoint = AnthropicMessagesStream(model_id="claude-opus-4-7")
+        events = self._stream_without_thinking_signals(thinking_tokens=60)
+
+        response = self._invoke(endpoint, iter(events))
+
+        assert response.num_tokens_output_reasoning == 60
+        assert response.reasoning_type == "unknown", (
+            "thinking tokens were billed, so `None` would wrongly assert no thinking"
+        )
+
+    def test_streaming_stays_unset_when_no_thinking_tokens(self, mock_client):
+        endpoint = AnthropicMessagesStream(model_id="claude-opus-4-7")
+        events = self._stream_without_thinking_signals(thinking_tokens=0)
+
+        response = self._invoke(endpoint, iter(events))
+
+        assert response.reasoning_type is None
+
+    def test_observed_signals_still_win(self, mock_client):
+        """`"redacted"` is observed; the token-count fallback must not blur it to `"unknown"`."""
+        endpoint = AnthropicMessagesStream(model_id="claude-opus-4-7")
+        msg_delta = Mock()
+        msg_delta.type = "message_delta"
+        msg_delta.usage = SimpleNamespace(
+            output_tokens=100, output_tokens_details={"thinking_tokens": 60}
+        )
+        events = [
+            _message_start_event(),
+            _delta_event("signature_delta", signature="sig"),
+            _delta_event("text_delta", text="Answer"),
+            msg_delta,
+        ]
+
+        response = self._invoke(endpoint, iter(events))
+
+        assert response.reasoning_type == "redacted"
+
+    def test_non_streaming_resolves_unknown_from_thinking_tokens(self, mock_client):
+        """A response body with no thinking block, but a thinking-token charge."""
+        endpoint = AnthropicMessages(model_id="claude-opus-4-7")
+        text_block = Mock()
+        text_block.type = "text"
+        text_block.text = "Answer"
+        message = Mock()
+        message.id = "msg_1"
+        message.content = [text_block]
+        message.usage = SimpleNamespace(
+            input_tokens=10,
+            output_tokens=100,
+            cache_read_input_tokens=None,
+            output_tokens_details={"thinking_tokens": 60},
+        )
+
+        response = self._invoke(endpoint, message)
+
+        assert response.reasoning_type == "unknown"

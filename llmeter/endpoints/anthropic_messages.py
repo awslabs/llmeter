@@ -398,9 +398,9 @@ class AnthropicMessages(AnthropicMessagesEndpoint[Message]):
     When extended thinking is enabled, the response may contain `thinking` content blocks
     alongside `text` blocks.  Only `text` blocks contribute to
     [`InvocationResponse.response_text`][llmeter.endpoints.base.InvocationResponse].
-    The reported `num_tokens_output` is the total billed count (thinking + text);
-    `num_tokens_output_reasoning` is `None` because the Anthropic API does not provide a separate
-    thinking token count.
+    The reported `num_tokens_output` is the total billed count (thinking + text), and
+    `num_tokens_output_reasoning` is populated from `usage.output_tokens_details.thinking_tokens`
+    where the API reports it.
 
     Examples:
         Direct Anthropic API:

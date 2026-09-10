@@ -76,12 +76,14 @@ results = await endpoint_test.run(
     clients=5,
     progress_bar_stats={
         "rpm": "requests_per_minute",
-        "p99_ttlt": ("time_to_last_token", "p99"),
-        "tps": ("time_per_output_token", "p50", "inv"),
-        "fail": "failed",
+        "p99_ttlt": "time_to_last_token-p99",
+        "tps": ("time_per_output_token-p50", "inv"),  # inverse as TPS = 1 / time
+        "fail": "failed_requests",
     },
 )
 ```
+
+Any label whose stat key isn't present in the run's statistics renders as `—`, so a typo shows up as a blank tile rather than an error.
 
 Pass `progress_bar_stats={}` to disable live stats entirely. See [`DEFAULT_DISPLAY_STATS`](../reference/live_display.md) for the full default configuration.
 

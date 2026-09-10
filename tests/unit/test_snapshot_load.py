@@ -624,3 +624,176 @@ class TestFixturePathHygiene:
             "output_path should be null or a 'stale/...' placeholder:\n  "
             + "\n  ".join(offenders)
         )
+
+
+class TestLegacyStatsJsonFidelity:
+    """The `stats.json` in a `v0_*` fixture must match what that release actually wrote.
+
+    These fixtures exist to prove backward compatibility, so their contents have to be what a user
+    upgrading from v0.1.x/v0.2.0 really has on disk. That is *not* the same as what current code
+    computes from the same responses: a real `stats.json` was written by
+    `RunningStats.to_stats` at the end of a live run, whereas the fixture generator computes stats
+    via `Result._compute_stats`, and in those releases the two had drifted apart.
+
+    Concretely, v0.1.x/v0.2.0 `RunningStats` tracked `time_per_output_token` but *not*
+    `num_tokens_input_cached`, while their `_compute_stats` did the opposite; and only the former
+    emitted `output_tps`, only the latter the `total_*` breakdown sums.
+    `_generate_fixtures._as_legacy_stats` reconciles that, and these tests keep it honest -- without
+    them, any change to `llmeter.results._STANDARD_AGGREGATION_METRICS` silently rewrites the legacy
+    fixtures and they quietly stop testing the format they are named after.
+    """
+
+    RELEASED_AGGREGATION_METRICS = {
+        "time_to_last_token",
+        "time_to_first_token",
+        "time_per_output_token",
+        "num_tokens_output",
+        "num_tokens_input",
+    }
+    """
+    Metrics the v0.1.x / v0.2.0 `RunningStats` tracked, i.e. the only `{metric}-{aggregation}` keys
+    those releases could have written. Duplicated from the generator on purpose: a test that
+    imported the same constant it is checking would pass no matter what that constant said.
+    """
+
+    RELEASED_RUN_KEYS = {
+        "failed_requests",
+        "failed_requests_rate",
+        "total_input_tokens",
+        "total_output_tokens",
+        "requests_per_minute",
+        "average_input_tokens_per_minute",
+        "average_output_tokens_per_minute",
+        "output_tps",
+    }
+    """Run-level keys those releases' save path produced."""
+
+    RECOMPUTE_ONLY_RUN_KEYS = {
+        "total_cached_input_tokens",
+        "total_reasoning_output_tokens",
+    }
+    """
+    Run-level keys only `results._get_run_stats` produces, so they never reached a saved file.
+    """
+
+    AGGREGATIONS = ("average", "p50", "p90", "p99")
+
+    LEGACY_SNAPSHOTS = [
+        "v0_1_endpoint_type",
+        "v0_1_str_callbacks",
+        "v0_2_visible_only_ttft",
+    ]
+
+    @classmethod
+    def _split_keys(cls, stats: dict) -> tuple[set[str], set[str]]:
+        """Partition stat keys into (aggregated metric names, run-level keys)."""
+        metrics, run_level = set(), set()
+        for key in stats:
+            base, _, aggregation = key.rpartition("-")
+            if aggregation in cls.AGGREGATIONS and base:
+                metrics.add(base)
+            else:
+                run_level.add(key)
+        return metrics, run_level
+
+    @pytest.fixture
+    def stats(self, snapshots_dir, request):
+        path = snapshots_dir / "legacy" / request.param / "stats.json"
+        return json.loads(path.read_text())
+
+    @pytest.mark.parametrize("stats", LEGACY_SNAPSHOTS, indirect=True)
+    def test_aggregated_metrics_match_the_release(self, stats):
+        metrics, _ = self._split_keys(stats)
+
+        assert metrics == self.RELEASED_AGGREGATION_METRICS
+
+    @pytest.mark.parametrize("stats", LEGACY_SNAPSHOTS, indirect=True)
+    def test_no_aggregations_for_later_metrics(self, stats):
+        """`time_to_first_content_token` post-dates these files and must not appear."""
+        metrics, _ = self._split_keys(stats)
+
+        assert "time_to_first_content_token" not in metrics
+        assert "num_tokens_input_cached" not in metrics, (
+            "tracked by `_compute_stats` in these releases, but not by the save path"
+        )
+
+    @pytest.mark.parametrize("stats", LEGACY_SNAPSHOTS, indirect=True)
+    def test_run_level_keys_match_the_release(self, stats):
+        _, run_level = self._split_keys(stats)
+
+        assert self.RELEASED_RUN_KEYS <= run_level, (
+            f"missing keys a real save wrote: {sorted(self.RELEASED_RUN_KEYS - run_level)}"
+        )
+        assert not (run_level & self.RECOMPUTE_ONLY_RUN_KEYS), (
+            "these come from `_get_run_stats`, which never ran on the save path"
+        )
+
+
+class TestLegacyStatsLoadBehaviour:
+    """What a caller actually gets when loading these legacy stats, and the traps in it."""
+
+    @pytest.fixture
+    def legacy_dir(self, snapshots_dir):
+        return snapshots_dir / "legacy" / "v0_2_visible_only_ttft"
+
+    def test_content_ttft_aggregates_absent_either_way(self, legacy_dir):
+        """No `time_to_first_content_token-*` keys appear, with or without responses.
+
+        Loading *with* responses recomputes stats under the current metric list, which does include
+        the metric -- but every legacy response has it unset, so it aggregates to nothing. Code
+        reading TTFCT aggregates must therefore tolerate their absence rather than assume the
+        current schema.
+        """
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", LegacyResultFormatWarning)
+            with_responses = Result.load(legacy_dir)
+            without_responses = Result.load(legacy_dir, load_responses=False)
+
+        for label, result in (
+            ("with responses", with_responses),
+            ("without responses", without_responses),
+        ):
+            assert not [
+                k for k in result.stats if k.startswith("time_to_first_content_token-")
+            ], label
+
+    def test_saved_tpot_is_preserved_but_uses_the_old_definition(self, legacy_dir):
+        """The subtle trap: TPOT is present and looks current, but was computed differently.
+
+        These files pair a *visible*-token TTFT with a reasoning-inclusive output token count, so
+        their `time_per_output_token` is understated for reasoning models. It is loaded unchanged --
+        LLMeter cannot recompute it without the missing TTFT -- which is precisely what
+        `LegacyResultFormatWarning` exists to flag.
+        """
+        saved = json.loads((legacy_dir / "stats.json").read_text())
+        assert "time_per_output_token-p50" in saved, (
+            "guard: fixture must carry saved TPOT"
+        )
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", LegacyResultFormatWarning)
+            result = Result.load(legacy_dir, load_responses=False)
+
+        assert (
+            result.stats["time_per_output_token-p50"]
+            == saved["time_per_output_token-p50"]
+        )
+
+    def test_saved_only_keys_survive_loading_with_responses(self, legacy_dir):
+        """`output_tps` is in the saved file but not recomputable, so it must survive the merge.
+
+        `Result._resolve_stats` recomputes from responses and then merges back any `stats.json` key
+        recomputation did not produce. Without that, upgrading would silently drop stats from
+        previously-saved runs.
+        """
+        saved = json.loads((legacy_dir / "stats.json").read_text())
+        assert "output_tps" in saved, "guard: fixture must carry a recompute-only key"
+
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", LegacyResultFormatWarning)
+            result = Result.load(legacy_dir)
+
+        assert result.responses, (
+            "should have loaded responses, or the merge path is untested"
+        )
+        assert result.stats["output_tps"] == saved["output_tps"]

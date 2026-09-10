@@ -35,6 +35,17 @@ TOpenAIResponseBase = TypeVar(
 class OpenAIEndpointBase(Endpoint[TOpenAIResponseBase], Generic[TOpenAIResponseBase]):
     """Base class for OpenAI Responses API endpoints (streaming and non-streaming)"""
 
+    silent_reasoning_type: ReasoningType = "redacted"
+    """
+    reasoning_type applied when reasoning tokens were billed but no reasoning content parsed
+
+    Unlike Chat Completions, the Responses schema states reasoning disclosure outright - distinct
+    event types when streaming, distinct item fields when not. So if reasoning tokens were billed
+    and *none* of those appeared, the API withheld the reasoning rather than us failing to
+    recognize it, and `"redacted"` is a supportable claim. It also matches what a reasoning item
+    disclosing neither content nor summary already yields.
+    """
+
     def __init__(
         self,
         endpoint_name: str,
@@ -203,15 +214,20 @@ class OpenAIResponseEndpoint(OpenAIEndpointBase[Response]):
     structured outputs, better response format control, and improved multi-turn
     conversation handling.
 
-    Although neither first-token metric is measurable. Reasoning content that the response *does*
-    carry is still recorded on [`reasoning_type`][llmeter.endpoints.base.ReasoningType],
-    informationally: with no `time_to_first_token` there is no TPOT pairing for it to select, but
-    reporting `None` for a model that demonstrably reasoned would be misleading.
+    Neither first-token metric is measurable without streaming, but whether the model reasoned is
+    still recorded on [`reasoning_type`][llmeter.endpoints.base.ReasoningType], informationally:
+    with no `time_to_first_token` there is no TPOT pairing for it to select, but reporting `None`
+    for a model that demonstrably reasoned would be misleading.
 
     Reasoning *items* in the response state their own disclosure level, so - as with the streaming
     variant - no `default_reasoning_visibility` is needed here: `content` means the raw reasoning was
     returned (`"verbatim"`), `summary` means only a summary was (`"summary"`), and neither means it
-    was withheld (`"redacted"`).
+    was withheld (`"redacted"`). If the response carries no reasoning items at all but does report
+    `reasoning_tokens`,
+    [`backfill_reasoning_type_from_token_counts`][llmeter.endpoints.base.backfill_reasoning_type_from_token_counts]
+    also resolves `"redacted"` - see
+    [`silent_reasoning_type`][llmeter.endpoints.base.Endpoint.silent_reasoning_type] for why this
+    connector can make that claim where others cannot.
     """
 
     def __init__(
@@ -340,6 +356,16 @@ class OpenAIResponseStreamEndpoint(OpenAIEndpointBase[Iterable[ResponseStreamEve
     Supports collecting both [`time_to_first_token`][llmeter.endpoints.base.InvocationResponse] and
     [`time_to_first_content_token`][llmeter.endpoints.base.InvocationResponse] where reasoning is
     emitted by the model.
+
+    !!! warning "GPT model reasoning events require opting in"
+        The OpenAI Responses API emits `response.reasoning_summary_text.delta` (and, where
+        supported, `response.reasoning_text.delta`) only when the request asks for them - e.g.
+        `reasoning={"effort": "medium", "summary": "auto"}`. **Without that, a reasoning model
+        streams nothing during its reasoning phase**, so TTFT and TTFCT are identical and both land
+        after reasoning is complete. Request reasoning summaries if you want a first-token metric
+        that more closely (but still not exactly) reflects when generation actually started.
+
+        Compatible endpoints from other providers may implement different behaviour.
     """
 
     def __init__(

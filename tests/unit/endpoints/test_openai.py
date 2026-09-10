@@ -1253,3 +1253,126 @@ class TestOpenAICompletionReasoningTypeResolution:
         assert isinstance(loaded, OpenAICompletionStreamEndpoint)
         assert loaded.model_id == "gpt-oss-120b", "other config must survive too"
         assert loaded.default_reasoning_visibility == "summary"
+
+
+# ---------------------------------------------------------------------------
+# Tests: reasoning that is billed but never streamed (OpenAI's own models)
+# ---------------------------------------------------------------------------
+
+
+def _usage_chunk(completion_tokens=20, reasoning_tokens=None, chunk_id="chatcmpl-r1"):
+    """A final usage-bearing chunk, optionally reporting a reasoning-token breakdown."""
+    details = (
+        SimpleNamespace(reasoning_tokens=reasoning_tokens)
+        if reasoning_tokens is not None
+        else None
+    )
+    usage = SimpleNamespace(
+        prompt_tokens=10,
+        completion_tokens=completion_tokens,
+        prompt_tokens_details=None,
+        completion_tokens_details=details,
+    )
+    return SimpleNamespace(id=chunk_id, choices=[], usage=usage)
+
+
+def _sync_completion_with_usage(reasoning_tokens=None, **message_attrs):
+    details = (
+        SimpleNamespace(reasoning_tokens=reasoning_tokens)
+        if reasoning_tokens is not None
+        else None
+    )
+    usage = SimpleNamespace(
+        prompt_tokens=10,
+        completion_tokens=20,
+        prompt_tokens_details=None,
+        completion_tokens_details=details,
+    )
+    message = SimpleNamespace(content="Answer", **message_attrs)
+    return SimpleNamespace(
+        id="chatcmpl-1", choices=[SimpleNamespace(message=message)], usage=usage
+    )
+
+
+class TestOpenAICompletionHiddenReasoning:
+    """`api.openai.com` streams no reasoning content, reporting only `reasoning_tokens`.
+
+    `reasoning_content`/`reasoning` are vendor extensions that OpenAI itself does not emit, so for
+    an o-series or GPT-5 model nothing in the stream identifies the reasoning phase. Without the
+    token-count backfill these responses would claim `reasoning_type=None` -- i.e. "this model did
+    not reason" -- and TPOT would then pair a post-reasoning TTFT against a reasoning-inclusive
+    token count, the exact mismatch the metric exists to avoid.
+    """
+
+    @pytest.fixture
+    def endpoint(self):
+        return OpenAICompletionStreamEndpoint(model_id="gpt-5", api_key="k")
+
+    def _invoke(self, endpoint, chunks):
+        with patch.object(endpoint._client.chat.completions, "create") as create:
+            create.return_value = iter(chunks)
+            return endpoint.invoke({"messages": [{"role": "user", "content": "Hi"}]})
+
+    def test_streaming_resolves_unknown_from_token_count(self, endpoint):
+        response = self._invoke(
+            endpoint, [_content_chunk("Answer"), _usage_chunk(reasoning_tokens=8)]
+        )
+
+        assert response.num_tokens_output_reasoning == 8
+        assert response.reasoning_type == "unknown", (
+            "reasoning tokens were billed, so `None` would wrongly assert no reasoning"
+        )
+
+    def test_streaming_stays_unset_when_no_reasoning_tokens(self, endpoint):
+        response = self._invoke(
+            endpoint, [_content_chunk("Answer"), _usage_chunk(reasoning_tokens=0)]
+        )
+
+        assert response.reasoning_type is None
+
+    def test_streamed_reasoning_content_still_wins(self):
+        """A provider that *does* stream reasoning must keep its observed classification."""
+        endpoint = OpenAICompletionStreamEndpoint(
+            model_id="deepseek-reasoner", api_key="k"
+        )
+
+        response = self._invoke(
+            endpoint,
+            [
+                _reasoning_chunk(),
+                _content_chunk("Answer"),
+                _usage_chunk(reasoning_tokens=8),
+            ],
+        )
+
+        assert response.reasoning_type == "verbatim"
+
+    def test_non_streaming_resolves_unknown_from_token_count(self):
+        endpoint = OpenAICompletionEndpoint(model_id="gpt-5", api_key="k")
+
+        with patch.object(endpoint._client.chat.completions, "create") as create:
+            create.return_value = _sync_completion_with_usage(reasoning_tokens=8)
+            response = endpoint.invoke(
+                {"messages": [{"role": "user", "content": "Hi"}]}
+            )
+
+        assert response.reasoning_type == "unknown"
+
+    @pytest.mark.asyncio
+    async def test_tpot_uses_the_answer_only_pairing(self, endpoint):
+        """End-to-end: the backfill is what keeps the Runner off the mismatched pairing."""
+        from llmeter.runner import _Run
+
+        response = self._invoke(
+            endpoint, [_content_chunk("Answer"), _usage_chunk(reasoning_tokens=8)]
+        )
+        # Pin the timings so the two candidate pairings give distinguishable answers
+        response.time_to_first_token = 1.0
+        response.time_to_first_content_token = 1.0
+        response.time_to_last_token = 5.0
+
+        await _Run._compute_time_per_output_token(response)
+
+        # answer-only: (5.0 - 1.0) / ((20 - 8) - 1) == 0.3636...
+        # whole-output (wrong): (5.0 - 1.0) / (20 - 1) == 0.2105...
+        assert response.time_per_output_token == pytest.approx(4.0 / 11)
