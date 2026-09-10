@@ -28,10 +28,6 @@
     "num_tokens_output-p50": 80,
     "num_tokens_output-p90": 104.0,
     "num_tokens_output-p99": 109.4,
-    "time_per_output_token-average": 0.01,
-    "time_per_output_token-p50": 0.01,
-    "time_per_output_token-p90": 0.01,
-    "time_per_output_token-p99": 0.009999999999999998,
     "time_to_last_token-average": 1.6,
     "time_to_last_token-p50": 1.6,
     "time_to_last_token-p90": 2.08,
@@ -39,6 +35,5 @@
     "time_to_first_token-average": 0.7000000000000001,
     "time_to_first_token-p50": 0.7000000000000001,
     "time_to_first_token-p90": 0.9399999999999998,
-    "time_to_first_token-p99": 0.9939999999999999,
-    "output_tps": 80.0
+    "time_to_first_token-p99": 0.9939999999999999
 }

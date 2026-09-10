@@ -44,7 +44,7 @@ def _compute_and_write_stats(
     responses: list[InvocationResponse],
     summary: dict,
     path: Path,
-    legacy: bool = False,
+    legacy_profile: dict | None = None,
 ):
     """Build a Result from the summary metadata, compute stats, write stats.json.
 
@@ -61,8 +61,10 @@ def _compute_and_write_stats(
         responses: Responses to aggregate.
         summary: Run metadata, as written to `summary.json`.
         path: Where to write `stats.json`.
-        legacy: Set `True` for a `v0_1_*`/`v0_2_*` fixture, to rewrite the stats as the emulated
-            release would have saved them rather than as current code computes them.
+        legacy_profile: For a `v0_1_*`/`v0_2_*` fixture, the era profile
+            (`_PRE_V0_1_10_STATS_PROFILE` or `_V0_1_10_TO_V0_2_0_STATS_PROFILE`) describing how that
+            release wrote `stats.json`, so the output matches it rather than current code. `None`
+            for current-format fixtures.
     """
     meta = {k: v for k, v in summary.items() if k not in ("total_requests",)}
     restore_dataclass_types(Result, meta)
@@ -70,48 +72,72 @@ def _compute_and_write_stats(
         responses=responses, total_requests=summary["total_requests"], **meta
     )
     stats = Result._compute_stats(result)
-    if legacy:
-        stats = _as_legacy_stats(stats, summary=summary)
+    if legacy_profile is not None:
+        stats = _as_legacy_stats(stats, summary=summary, profile=legacy_profile)
     _write_json(path, stats)
     return stats
 
 
-_V0_1_TO_V0_2_0_LIVE_AGGREGATION_METRICS = (
-    "time_to_last_token",
-    "time_to_first_token",
-    "time_per_output_token",
-    "num_tokens_output",
-    "num_tokens_input",
-)
+_PRE_V0_1_10_STATS_PROFILE = {
+    "aggregation_metrics": (
+        "time_to_last_token",
+        "time_to_first_token",
+        "num_tokens_output",
+        "num_tokens_input",
+    ),
+    "drop_run_keys": ("total_cached_input_tokens", "total_reasoning_output_tokens"),
+    "add_output_tps": False,
+}
 """
-Metrics the v0.1.x and v0.2.0 `RunningStats` tracked, and therefore the only
-`{metric}-{aggregation}` keys a real `stats.json` from those releases contained.
+How releases before v0.1.10 wrote `stats.json`, as an `_as_legacy_stats` profile
 
-Deliberately *not* the same as what those releases' `Result._compute_stats` produced, which omitted
-`time_per_output_token` and included `num_tokens_input_cached`. The two lists had drifted apart;
-reconciling them onto `llmeter.results._STANDARD_AGGREGATION_METRICS` is part of the release these
-fixtures predate. Since `stats.json` was written from `RunningStats`, it is that list which is
-faithful here.
+These releases had no `RunningStats`, so a live run's stats came from `Result._compute_stats`
+(`_get_stats_from_results` + `_get_run_stats`). That means:
+
+* **`aggregation_metrics`** is all `_compute_stats` aggregated at the time.
+    `num_tokens_input_cached` joined that list *in* v0.1.10, along with the response field itself.
+* **`drop_run_keys`**: `_get_run_stats` gained `total_cached_input_tokens` and
+    `total_reasoning_output_tokens` in v0.1.10, with the response fields they sum.
+* **`add_output_tps`** is `False`: `output_tps` is a `RunningStats.to_stats` key, so it did not
+    exist yet.
+
+Applies to the `v0_1_*` fixtures, whose `responses.jsonl` omit `retries` (added v0.1.5) and the
+cached/reasoning token counts (added v0.1.10) - so they are early-v0.1 on both halves. Verified
+against the v0.1.4 and v0.1.9 sources.
+"""
+
+_V0_1_10_TO_V0_2_0_STATS_PROFILE = {
+    "aggregation_metrics": (
+        "time_to_last_token",
+        "time_to_first_token",
+        "time_per_output_token",
+        "num_tokens_output",
+        "num_tokens_input",
+    ),
+    "drop_run_keys": ("total_cached_input_tokens", "total_reasoning_output_tokens"),
+    "add_output_tps": True,
+}
+"""
+How v0.1.10 through v0.2.0 wrote `stats.json`, as an `_as_legacy_stats` profile
+
+`RunningStats` landed in v0.1.10 (commit `4d9ce3e`, "add low-memory mode, RunningStats, and live
+progress-bar stats"), and from then on the runner set `Result._preloaded_stats` from
+`RunningStats.to_stats`. So for these releases:
+
+* **`aggregation_metrics`** is what `RunningStats` tracked - deliberately *not* the same as those
+    releases' own `_compute_stats` list, which omitted `time_per_output_token` and included
+    `num_tokens_input_cached`. The two had drifted apart; reconciling them onto
+    [`llmeter.results._STANDARD_AGGREGATION_METRICS`][llmeter.results] is part of the release these
+    fixtures predate. Since `stats.json` came from `RunningStats`, that is the faithful list here.
+* **`drop_run_keys`**: these are produced only by `_get_run_stats`, which never ran on the save path.
+* **`add_output_tps`** is `True`, as `to_stats` emitted it.
+
+Applies to `v0_2_visible_only_ttft`, whose responses carry the full v0.2.0 field set. Verified by
+checking out v0.1.12 and v0.2.0, running each, and inspecting the `stats.json` they wrote.
 """
 
 
-_POST_V0_2_0_RUN_STAT_KEYS = (
-    "total_cached_input_tokens",
-    "total_reasoning_output_tokens",
-)
-"""
-Run-level stat keys that v0.1.x/v0.2.0 `RunningStats.to_stats` did **not** write.
-
-They are produced only by `results._get_run_stats`, which never ran on the save path.
-"""
-
-
-def _as_legacy_stats(
-    stats: dict,
-    summary: dict,
-    aggregation_metrics: tuple[str, ...] = _V0_1_TO_V0_2_0_LIVE_AGGREGATION_METRICS,
-    drop_run_keys: tuple[str, ...] = _POST_V0_2_0_RUN_STAT_KEYS,
-) -> dict:
+def _as_legacy_stats(stats: dict, summary: dict, profile: dict) -> dict:
     """Rewrite computed stats as an older LLMeter version's live run would have saved them.
 
     The `v0_1_*`/`v0_2_*` fixtures exist to prove backward compatibility, so their `stats.json` must
@@ -119,6 +145,11 @@ def _as_legacy_stats(
     same responses. Without this, any change to
     `llmeter.results._STANDARD_AGGREGATION_METRICS` silently rewrites the legacy fixtures and they
     stop testing what they claim to.
+
+    `stats.json` is written by `Result.save()` from `Result.stats`, and *which code* produced that
+    changed when `RunningStats` landed in v0.1.10 - so there is no single "legacy" shape, and each
+    fixture has to name an era whose `responses.jsonl` field set matches. Hence the two profiles:
+    [`_PRE_V0_1_10_STATS_PROFILE`][] and [`_V0_1_10_TO_V0_2_0_STATS_PROFILE`][].
 
     Three corrections are applied:
 
@@ -144,13 +175,14 @@ def _as_legacy_stats(
     Args:
         stats: Stats as computed by `Result._compute_stats`.
         summary: The fixture's run metadata, for the `output_tps` window.
-        aggregation_metrics: Metrics the emulated release tracked.
-        drop_run_keys: Run-level keys the emulated release did not save.
+        profile: The era profile to emulate - `_PRE_V0_1_10_STATS_PROFILE` or
+            `_V0_1_10_TO_V0_2_0_STATS_PROFILE`.
 
     Returns:
         A new dict, ordered as the input was.
     """
-    allowed = set(aggregation_metrics)
+    allowed = set(profile["aggregation_metrics"])
+    drop_run_keys = set(profile["drop_run_keys"])
     out = {}
     for key, value in stats.items():
         base, _, aggregation = key.rpartition("-")
@@ -161,9 +193,10 @@ def _as_legacy_stats(
             continue
         out[key] = value
 
-    run_window = _run_window_seconds(summary)
-    if run_window:
-        out["output_tps"] = out["total_output_tokens"] / run_window
+    if profile["add_output_tps"]:
+        run_window = _run_window_seconds(summary)
+        if run_window:
+            out["output_tps"] = out["total_output_tokens"] / run_window
     return out
 
 
@@ -190,13 +223,14 @@ def _run_window_seconds(summary: dict) -> float | None:
 # Scenario: base (modern format, OpenAI endpoint, CostModel + Mlflow callbacks)
 # =============================================================================
 
-#: Response fields added *after* the v0.2.0 release. v0.2.0 shipped cached-input and reasoning
-#: token counts, `retries` and `annotations` -- but neither of the reasoning-aware TTFT fields.
 _POST_V0_2_0_RESPONSE_FIELDS = ("time_to_first_content_token", "reasoning_type")
+"""
+`InvocationResponse` fields added *after* the v0.2.0 release
 
-#: Response fields that did **not** exist in the v0.1.x line. Kept as one list so every "v0_1_*"
-#: fixture strips exactly the same set: a v0.1 snapshot that carries a later field is not really
-#: testing v0.1 compatibility.
+v0.2.0 shipped cached-input and reasoning token counts, `retries` and `annotations` - but neither of
+the reasoning-aware TTFT fields.
+"""
+
 _POST_V0_1_RESPONSE_FIELDS = (
     "num_tokens_input_cached",
     "num_tokens_output_reasoning",
@@ -204,6 +238,27 @@ _POST_V0_1_RESPONSE_FIELDS = (
     "annotations",
     *_POST_V0_2_0_RESPONSE_FIELDS,
 )
+"""
+`InvocationResponse` fields absent from an *early* v0.1 release
+
+Not "absent from the v0.1 line" - the line was not uniform, and three of these arrived during it
+(checked against the released tags):
+
+| Field | Added in |
+| --- | --- |
+| `retries` | v0.1.5 |
+| `num_tokens_input_cached`, `num_tokens_output_reasoning` | v0.1.10 |
+| `annotations` | v0.2.0 |
+| `time_to_first_content_token`, `reasoning_type` | after v0.2.0 |
+
+Stripping all of them therefore pins the `v0_1_*` fixtures to **before v0.1.5**, which is what makes
+them early-v0.1 and why their `stats.json` uses
+[`_PRE_V0_1_10_STATS_PROFILE`][]: v0.1.10 is where `RunningStats` took over the save path, so a
+fixture carrying post-v0.1.10 response fields alongside pre-v0.1.10 stats would be emulating a
+combination that never shipped. `TestLegacyStatsJsonFidelity` asserts the pairing holds.
+
+Kept as one list so every `v0_1_*` fixture strips exactly the same set.
+"""
 
 
 def _as_legacy_json(response, drop_fields, extra=None) -> str:
@@ -586,8 +641,16 @@ def generate_legacy_endpoint_type():
     _write_json(out / "summary.json", summary)
 
     # stats.json
-    # legacy=True: emulate what this release actually wrote, not what current code computes
-    _compute_and_write_stats(responses, summary, out / "stats.json", legacy=True)
+    # This fixture's responses.jsonl omits `retries` (added v0.1.5) and the cached/reasoning
+    # token counts (added v0.1.10), so it represents an *early* v0.1 release -- before
+    # `RunningStats` existed. Its stats must come from the matching era, or the fixture would
+    # claim a response format and a stats format that never shipped together.
+    _compute_and_write_stats(
+        responses,
+        summary,
+        out / "stats.json",
+        legacy_profile=_PRE_V0_1_10_STATS_PROFILE,
+    )
 
     # responses.jsonl — legacy format with flat cost annotations as top-level keys
     legacy_responses = []
@@ -693,8 +756,16 @@ def generate_legacy_str_callbacks():
     _write_json(out / "summary.json", summary)
 
     # stats.json
-    # legacy=True: emulate what this release actually wrote, not what current code computes
-    _compute_and_write_stats(responses, summary, out / "stats.json", legacy=True)
+    # This fixture's responses.jsonl omits `retries` (added v0.1.5) and the cached/reasoning
+    # token counts (added v0.1.10), so it represents an *early* v0.1 release -- before
+    # `RunningStats` existed. Its stats must come from the matching era, or the fixture would
+    # claim a response format and a stats format that never shipped together.
+    _compute_and_write_stats(
+        responses,
+        summary,
+        out / "stats.json",
+        legacy_profile=_PRE_V0_1_10_STATS_PROFILE,
+    )
 
     # responses.jsonl — v0.1 field set, like every other v0_1_* fixture
     _write_jsonl(
@@ -1136,8 +1207,14 @@ def generate_legacy_v0_2_visible_only_ttft():
         "end_time": "2025-02-10T09:00:24Z",
     }
     _write_json(out / "summary.json", summary)
-    # legacy=True: emulate what this release actually wrote, not what current code computes
-    _compute_and_write_stats(responses, summary, out / "stats.json", legacy=True)
+    # v0.2.0 wrote stats from `RunningStats`, and this fixture's responses carry the full
+    # v0.2.0 field set, so both halves belong to the same release.
+    _compute_and_write_stats(
+        responses,
+        summary,
+        out / "stats.json",
+        legacy_profile=_V0_1_10_TO_V0_2_0_STATS_PROFILE,
+    )
 
     # run_config.json records the retired flag, showing where the old semantics came from. Note
     # `Result.load` does not read this file when summary.json exists, which is exactly why

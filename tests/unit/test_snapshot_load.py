@@ -630,33 +630,30 @@ class TestLegacyStatsJsonFidelity:
     """The `stats.json` in a `v0_*` fixture must match what that release actually wrote.
 
     These fixtures exist to prove backward compatibility, so their contents have to be what a user
-    upgrading from v0.1.x/v0.2.0 really has on disk. That is *not* the same as what current code
-    computes from the same responses: a real `stats.json` was written by
-    `RunningStats.to_stats` at the end of a live run, whereas the fixture generator computes stats
-    via `Result._compute_stats`, and in those releases the two had drifted apart.
+    upgrading really has on disk -- which is *not* what current code computes from the same
+    responses. `stats.json` is written by `Result.save()` from `Result.stats`, and which code
+    produced that changed mid-v0.1-line:
 
-    Concretely, v0.1.x/v0.2.0 `RunningStats` tracked `time_per_output_token` but *not*
-    `num_tokens_input_cached`, while their `_compute_stats` did the opposite; and only the former
-    emitted `output_tps`, only the latter the `total_*` breakdown sums.
-    `_generate_fixtures._as_legacy_stats` reconciles that, and these tests keep it honest -- without
+    * **v0.1.0 - v0.1.9**: no `RunningStats` yet, so stats came from `Result._compute_stats`.
+    * **v0.1.10 onwards** (`RunningStats` added in commit `4d9ce3e`): stats came from
+      `RunningStats.to_stats`, whose metric list included `time_per_output_token` but *not*
+      `num_tokens_input_cached` -- the opposite of the same release's `_compute_stats` -- and which
+      also emits `output_tps`.
+
+    So each fixture has to name an era, and its `responses.jsonl` field set has to belong to the same
+    one. The `v0_1_*` fixtures omit `retries` (added v0.1.5) and the cached/reasoning token counts
+    (added v0.1.10), so they are early-v0.1 and get the `_compute_stats` shape;
+    `v0_2_visible_only_ttft` carries the full v0.2.0 field set and gets the `RunningStats` shape.
+
+    `_generate_fixtures._as_legacy_stats` applies this, and these tests keep it honest -- without
     them, any change to `llmeter.results._STANDARD_AGGREGATION_METRICS` silently rewrites the legacy
     fixtures and they quietly stop testing the format they are named after.
     """
 
-    RELEASED_AGGREGATION_METRICS = {
-        "time_to_last_token",
-        "time_to_first_token",
-        "time_per_output_token",
-        "num_tokens_output",
-        "num_tokens_input",
-    }
-    """
-    Metrics the v0.1.x / v0.2.0 `RunningStats` tracked, i.e. the only `{metric}-{aggregation}` keys
-    those releases could have written. Duplicated from the generator on purpose: a test that
-    imported the same constant it is checking would pass no matter what that constant said.
-    """
+    AGGREGATIONS = ("average", "p50", "p90", "p99")
+    """Aggregation suffixes, for telling `{metric}-{aggregation}` keys from run-level ones"""
 
-    RELEASED_RUN_KEYS = {
+    COMMON_RUN_KEYS = {
         "failed_requests",
         "failed_requests_rate",
         "total_input_tokens",
@@ -664,25 +661,61 @@ class TestLegacyStatsJsonFidelity:
         "requests_per_minute",
         "average_input_tokens_per_minute",
         "average_output_tokens_per_minute",
-        "output_tps",
     }
-    """Run-level keys those releases' save path produced."""
+    """Run-level keys every era's save path produced"""
 
     RECOMPUTE_ONLY_RUN_KEYS = {
         "total_cached_input_tokens",
         "total_reasoning_output_tokens",
     }
     """
-    Run-level keys only `results._get_run_stats` produces, so they never reached a saved file.
+    Run-level keys only `results._get_run_stats` produces
+
+    These never reached a saved file in any of these eras - they arrived with v0.1.10, on the
+    *recompute* path only.
     """
 
-    AGGREGATIONS = ("average", "p50", "p90", "p99")
-
-    LEGACY_SNAPSHOTS = [
-        "v0_1_endpoint_type",
-        "v0_1_str_callbacks",
-        "v0_2_visible_only_ttft",
+    ERAS = [
+        # Early v0.1: `_compute_stats`-written, before `RunningStats` existed.
+        (
+            "v0_1_endpoint_type",
+            {
+                "time_to_last_token",
+                "time_to_first_token",
+                "num_tokens_output",
+                "num_tokens_input",
+            },
+            False,
+        ),
+        (
+            "v0_1_str_callbacks",
+            {
+                "time_to_last_token",
+                "time_to_first_token",
+                "num_tokens_output",
+                "num_tokens_input",
+            },
+            False,
+        ),
+        # v0.2.0: `RunningStats`-written.
+        (
+            "v0_2_visible_only_ttft",
+            {
+                "time_to_last_token",
+                "time_to_first_token",
+                "time_per_output_token",
+                "num_tokens_output",
+                "num_tokens_input",
+            },
+            True,
+        ),
     ]
+    """
+    `(fixture, expected aggregated metrics, expects output_tps)` per era
+
+    Deliberately duplicated from `_generate_fixtures` rather than imported: a test that imported the
+    same constant it checks would pass no matter what that constant said.
+    """
 
     @classmethod
     def _split_keys(cls, stats: dict) -> tuple[set[str], set[str]]:
@@ -696,37 +729,77 @@ class TestLegacyStatsJsonFidelity:
                 run_level.add(key)
         return metrics, run_level
 
-    @pytest.fixture
-    def stats(self, snapshots_dir, request):
-        path = snapshots_dir / "legacy" / request.param / "stats.json"
-        return json.loads(path.read_text())
-
-    @pytest.mark.parametrize("stats", LEGACY_SNAPSHOTS, indirect=True)
-    def test_aggregated_metrics_match_the_release(self, stats):
-        metrics, _ = self._split_keys(stats)
-
-        assert metrics == self.RELEASED_AGGREGATION_METRICS
-
-    @pytest.mark.parametrize("stats", LEGACY_SNAPSHOTS, indirect=True)
-    def test_no_aggregations_for_later_metrics(self, stats):
-        """`time_to_first_content_token` post-dates these files and must not appear."""
-        metrics, _ = self._split_keys(stats)
-
-        assert "time_to_first_content_token" not in metrics
-        assert "num_tokens_input_cached" not in metrics, (
-            "tracked by `_compute_stats` in these releases, but not by the save path"
+    @staticmethod
+    def _load(snapshots_dir, fixture: str) -> dict:
+        return json.loads(
+            (snapshots_dir / "legacy" / fixture / "stats.json").read_text()
         )
 
-    @pytest.mark.parametrize("stats", LEGACY_SNAPSHOTS, indirect=True)
-    def test_run_level_keys_match_the_release(self, stats):
-        _, run_level = self._split_keys(stats)
+    @pytest.mark.parametrize("fixture,expected_metrics,_tps", ERAS)
+    def test_aggregated_metrics_match_the_era(
+        self, snapshots_dir, fixture, expected_metrics, _tps
+    ):
+        metrics, _ = self._split_keys(self._load(snapshots_dir, fixture))
 
-        assert self.RELEASED_RUN_KEYS <= run_level, (
-            f"missing keys a real save wrote: {sorted(self.RELEASED_RUN_KEYS - run_level)}"
+        assert metrics == expected_metrics
+
+    @pytest.mark.parametrize("fixture,_metrics,expects_output_tps", ERAS)
+    def test_output_tps_presence_matches_the_era(
+        self, snapshots_dir, fixture, _metrics, expects_output_tps
+    ):
+        """`output_tps` is a `RunningStats.to_stats` key, so it only exists from v0.1.10."""
+        _, run_level = self._split_keys(self._load(snapshots_dir, fixture))
+
+        assert ("output_tps" in run_level) is expects_output_tps
+
+    @pytest.mark.parametrize("fixture,_metrics,_tps", ERAS)
+    def test_common_run_level_keys_present(
+        self, snapshots_dir, fixture, _metrics, _tps
+    ):
+        _, run_level = self._split_keys(self._load(snapshots_dir, fixture))
+
+        assert self.COMMON_RUN_KEYS <= run_level, (
+            f"missing keys a real save wrote: {sorted(self.COMMON_RUN_KEYS - run_level)}"
         )
+
+    @pytest.mark.parametrize("fixture,_metrics,_tps", ERAS)
+    def test_no_recompute_only_run_keys(self, snapshots_dir, fixture, _metrics, _tps):
+        _, run_level = self._split_keys(self._load(snapshots_dir, fixture))
+
         assert not (run_level & self.RECOMPUTE_ONLY_RUN_KEYS), (
             "these come from `_get_run_stats`, which never ran on the save path"
         )
+
+    @pytest.mark.parametrize("fixture,_metrics,_tps", ERAS)
+    def test_no_aggregations_for_later_metrics(
+        self, snapshots_dir, fixture, _metrics, _tps
+    ):
+        """`time_to_first_content_token` post-dates every one of these files."""
+        metrics, _ = self._split_keys(self._load(snapshots_dir, fixture))
+
+        assert "time_to_first_content_token" not in metrics
+
+    def test_early_v0_1_response_fields_match_that_era(self, snapshots_dir):
+        """Guard the coherence the era profiles depend on.
+
+        If these fixtures gained `retries` (v0.1.5) or the cached/reasoning token counts (v0.1.10),
+        they would no longer be early-v0.1 and the `_compute_stats`-shaped stats above would be
+        emulating a combination that never shipped.
+        """
+        for fixture in ("v0_1_endpoint_type", "v0_1_str_callbacks"):
+            path = snapshots_dir / "legacy" / fixture / "responses.jsonl"
+            rows = [
+                json.loads(line)
+                for line in path.read_text().splitlines()
+                if line.strip()
+            ]
+            assert rows, fixture
+            for field in (
+                "retries",
+                "num_tokens_input_cached",
+                "num_tokens_output_reasoning",
+            ):
+                assert all(field not in r for r in rows), f"{fixture}: {field}"
 
 
 class TestLegacyStatsLoadBehaviour:

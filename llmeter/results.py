@@ -417,12 +417,12 @@ class Result:
     def _warn_if_legacy_ttft_semantics(raw_records: list[dict], responses_path) -> None:
         """Warn when a file predates the current `time_to_first_token` definition.
 
-        Before LLMeter 0.2.1, `time_to_first_token` on the reasoning-capable streaming endpoints
-        defaulted to measuring the first *visible* token (the old `ttft_visible_tokens_only=True`),
-        which is what `time_to_first_content_token` means today. Such files therefore report a TTFT
-        that is not comparable with current runs, and a `time_per_output_token` that is understated
-        for reasoning models (it divided the post-reasoning window by a reasoning-inclusive token
-        count).
+        In LLMeter 0.2.0 and earlier, `time_to_first_token` on the reasoning-capable streaming
+        endpoints defaulted to measuring the first *visible* token (the old
+        `ttft_visible_tokens_only=True`), which is what `time_to_first_content_token` means today.
+        Such files therefore report a TTFT that is not comparable with current runs, and a
+        `time_per_output_token` that is understated for reasoning models (it divided the
+        post-reasoning window by a reasoning-inclusive token count).
 
         Detection relies on the **absence of the `time_to_first_content_token` key**, which is why
         this inspects raw records: after `InvocationResponse.from_json`, an absent key and an
