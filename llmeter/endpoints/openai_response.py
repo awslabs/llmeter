@@ -27,6 +27,55 @@ from .base import (
 
 logger = logging.getLogger(__name__)
 
+
+_REASONING_TYPE_PRECEDENCE: dict[ReasoningType, int] = {
+    "verbatim": 0,
+    "summary": 1,
+    "unknown": 1,
+    "redacted": 2,
+}
+"""
+How conservative each [`ReasoningType`][llmeter.endpoints.base.ReasoningType] is, for merging
+
+The Responses API is the only connector that can observe *several different* disclosure levels in one
+response - a reasoning item (or delta) per level - so it needs an explicit ordering where the others
+only need "did we see redaction?". Higher wins.
+
+The ordering is by how much it restricts
+[`time_per_output_token`][llmeter.endpoints.base.InvocationResponse]: only `"verbatim"` permits the
+whole-output pairing, so anything else outranks it, and `"redacted"` outranks `"summary"` to match
+the partial-redaction rule the Bedrock and Anthropic connectors already apply (`"redacted"` wins even
+alongside readable reasoning). `"unknown"` shares `"summary"`'s rank as it has the same effect; it is
+only ever set by
+[`backfill_reasoning_type_from_token_counts`][llmeter.endpoints.base.backfill_reasoning_type_from_token_counts],
+which runs after parsing, so it is not expected on this path.
+"""
+
+
+def _merge_reasoning_type(
+    current: ReasoningType | None, observed: ReasoningType
+) -> ReasoningType:
+    """Combine an already-resolved disclosure level with a newly observed one.
+
+    Keeps whichever is more conservative, per
+    [`_REASONING_TYPE_PRECEDENCE`][llmeter.endpoints.openai_response._REASONING_TYPE_PRECEDENCE], so
+    the result does not depend on the order items or deltas happen to arrive in - and so streaming
+    and non-streaming resolve equivalent content identically.
+
+    Args:
+        current: What has been resolved so far, or `None` if nothing yet.
+        observed: The level just observed.
+
+    Returns:
+        The more conservative of the two.
+    """
+    if current is None:
+        return observed
+    return max(
+        current, observed, key=lambda level: _REASONING_TYPE_PRECEDENCE.get(level, 0)
+    )
+
+
 TOpenAIResponseBase = TypeVar(
     "TOpenAIResponseBase", bound=Response | Iterable[ResponseStreamEvent]
 )
@@ -222,8 +271,11 @@ class OpenAIResponseEndpoint(OpenAIEndpointBase[Response]):
     Reasoning *items* in the response state their own disclosure level, so - as with the streaming
     variant - no `default_reasoning_visibility` is needed here: `content` means the raw reasoning was
     returned (`"verbatim"`), `summary` means only a summary was (`"summary"`), and neither means it
-    was withheld (`"redacted"`). If the response carries no reasoning items at all but does report
-    `reasoning_tokens`,
+    was withheld (`"redacted"`). A response carrying items at *different* levels resolves to the most
+    conservative one present (see
+    [`_merge_reasoning_type`][llmeter.endpoints.openai_response._merge_reasoning_type]).
+
+    If the response carries no reasoning items at all but does report `reasoning_tokens`,
     [`backfill_reasoning_type_from_token_counts`][llmeter.endpoints.base.backfill_reasoning_type_from_token_counts]
     also resolves `"redacted"` - see
     [`silent_reasoning_type`][llmeter.endpoints.base.Endpoint.silent_reasoning_type] for why this
@@ -323,13 +375,17 @@ class OpenAIResponseEndpoint(OpenAIEndpointBase[Response]):
             if getattr(item, "type", None) != "reasoning":
                 continue
             if getattr(item, "content", None):
-                response.reasoning_type = "verbatim"
-                break
-            if getattr(item, "summary", None):
-                response.reasoning_type = "summary"
-            elif response.reasoning_type is None:
+                observed: ReasoningType = "verbatim"
+            elif getattr(item, "summary", None):
+                observed = "summary"
+            else:
                 # A reasoning item disclosing neither raw content nor a summary
-                response.reasoning_type = "redacted"
+                observed = "redacted"
+            # Every item is inspected (no early exit) and merged conservatively, so a response
+            # mixing disclosure levels resolves the same way regardless of item order.
+            response.reasoning_type = _merge_reasoning_type(
+                response.reasoning_type, observed
+            )
 
         usage = raw_response.usage
         if usage is not None:
@@ -455,8 +511,8 @@ class OpenAIResponseStreamEndpoint(OpenAIEndpointBase[Iterable[ResponseStreamEve
         - `ResponseFailedEvent`: captures API-level errors
         - Reasoning events (`response.reasoning_summary_text.delta`,
           `response.reasoning_text.delta`): record `time_to_first_token` and `reasoning_type`
-          (`"summary"` and `"verbatim"` respectively). Their content is discarded and never
-          contributes to `response_text`.
+          (`"summary"` and `"verbatim"` respectively; the most conservative wins if both appear).
+          Their content is discarded and never contributes to `response_text`.
         """
         # The event type states the disclosure level outright, so `reasoning_type` needs no
         # caller-declared default on this endpoint: `reasoning_text` is the reasoning itself,
@@ -485,13 +541,12 @@ class OpenAIResponseStreamEndpoint(OpenAIEndpointBase[Iterable[ResponseStreamEve
             elif event.type in _REASONING_DELTA_FIDELITY:
                 if response.time_to_first_token is None:
                     response.time_to_first_token = now - start_t
-                if response.reasoning_type is None:
-                    response.reasoning_type = _REASONING_DELTA_FIDELITY[event.type]
-                elif response.reasoning_type != _REASONING_DELTA_FIDELITY[event.type]:
-                    # Both a summary and the raw reasoning were streamed. Downgrade to "summary":
-                    # the summary is what arrived first (and set TTFT), so the full-output pairing
-                    # is not safe.
-                    response.reasoning_type = "summary"
+                # Merged conservatively, so a stream carrying both a summary and the raw reasoning
+                # resolves to `"summary"`: the full-output TPOT pairing is not safe when part of the
+                # reasoning only reached us in summarized form.
+                response.reasoning_type = _merge_reasoning_type(
+                    response.reasoning_type, _REASONING_DELTA_FIDELITY[event.type]
+                )
 
             elif event.type == "response.completed":
                 usage = event.response.usage

@@ -375,14 +375,17 @@ def _sync_for_shape(shape: str):
     return _sync_response(items)
 
 
-#: The Responses API states the disclosure level in the response itself - as event types when
-#: streaming, and as reasoning-item fields when not - so this endpoint needs no declared default.
-#: Parametrising over the transport keeps the two readings in agreement, *except* for mixed
-#: disclosure, where they intentionally differ (see the two dedicated tests below).
 _MODES = {
     "streaming": (OpenAIResponseStreamEndpoint, _stream_for_shape),
     "non-streaming": (OpenAIResponseEndpoint, _sync_for_shape),
 }
+"""
+Transports to resolve each reasoning shape through
+
+The Responses API states the disclosure level in the response itself - as event types when streaming,
+and as reasoning-item fields when not - so this endpoint needs no declared default. Parametrising
+over the transport keeps the two readings in agreement for *every* shape, mixed included.
+"""
 
 
 def _resolve(mode: str, shape: str):
@@ -403,6 +406,8 @@ class TestResponsesReasoningTypeResolution:
         [
             ("verbatim", "verbatim"),
             ("summary", "summary"),
+            # Mixed disclosure degrades to the more conservative level, on both transports
+            ("mixed", "summary"),
             # No reasoning at all must stay unset
             ("none", None),
         ],
@@ -410,23 +415,92 @@ class TestResponsesReasoningTypeResolution:
     def test_resolution_by_content_shape(self, mock_openai, mode, shape, expected):
         assert _resolve(mode, shape).reasoning_type == expected
 
-    def test_streaming_mixed_disclosure_downgrades_to_summary(self, mock_openai):
-        """Streaming: the summary arrived *first*, so it is what anchored TTFT.
+    @pytest.mark.parametrize("mode", list(_MODES))
+    def test_mixed_disclosure_resolves_to_summary(self, mock_openai, mode):
+        """Both transports downgrade, so the same disclosure never reads differently.
 
         Claiming `"verbatim"` would let the Runner pair the whole measured window against the full
-        output token count, when the window actually begins at a summary delta.
+        output token count, when part of the reasoning only ever reached us summarized. Non-streaming
+        has no timings to protect, but reporting a *different* level for identical content would make
+        the two transports incomparable - and `BedrockConverse` sets the precedent, preferring
+        `"redacted"` over readable reasoning despite also having no timings.
         """
-        assert _resolve("streaming", "mixed").reasoning_type == "summary"
+        assert _resolve(mode, "mixed").reasoning_type == "summary"
 
-    def test_non_streaming_mixed_disclosure_is_verbatim(self, mock_openai):
-        """Non-streaming deliberately differs, and it is *not* an inconsistency.
+    @pytest.mark.parametrize(
+        "items,why",
+        [
+            (
+                [
+                    _reasoning_item(summary=[SimpleNamespace(text="s")]),
+                    _reasoning_item(content=[SimpleNamespace(text="t")]),
+                ],
+                "summary first",
+            ),
+            (
+                [
+                    _reasoning_item(content=[SimpleNamespace(text="t")]),
+                    _reasoning_item(summary=[SimpleNamespace(text="s")]),
+                ],
+                "raw content first",
+            ),
+        ],
+    )
+    def test_non_streaming_result_is_independent_of_item_order(
+        self, mock_openai, items, why
+    ):
+        """Regression: the old code broke out of the loop on the first `content` item.
 
-        The streaming downgrade exists purely to protect the TPOT pairing, which depends on what
-        anchored TTFT. A non-streaming response has no first-token timings at all, so there is no
-        pairing to protect - and the raw reasoning genuinely is present, so `"verbatim"` is the more
-        accurate description of what the provider disclosed.
+        That made the outcome depend on which item happened to come first, so a response listing raw
+        reasoning before its summary never saw the summary at all.
         """
-        assert _resolve("non-streaming", "mixed").reasoning_type == "verbatim"
+        endpoint = OpenAIResponseEndpoint(model_id="test-model")
+        response = _make_draft_response()
+        endpoint.process_raw_response(
+            _sync_response(items), time.perf_counter(), response
+        )
+
+        assert response.reasoning_type == "summary", why
+
+    @pytest.mark.parametrize(
+        "items,why",
+        [
+            (
+                [
+                    _reasoning_item(),
+                    _reasoning_item(summary=[SimpleNamespace(text="s")]),
+                ],
+                "withheld item before a summarized one",
+            ),
+            (
+                [
+                    _reasoning_item(summary=[SimpleNamespace(text="s")]),
+                    _reasoning_item(),
+                ],
+                "summarized item before a withheld one",
+            ),
+            (
+                [
+                    _reasoning_item(),
+                    _reasoning_item(content=[SimpleNamespace(text="t")]),
+                ],
+                "withheld item alongside raw content",
+            ),
+        ],
+    )
+    def test_redaction_outranks_other_levels(self, mock_openai, items, why):
+        """Matches the partial-redaction rule in the Bedrock and Anthropic connectors.
+
+        Previously a `summary` item overwrote `"redacted"` unconditionally, so whether redaction was
+        reported depended on item order.
+        """
+        endpoint = OpenAIResponseEndpoint(model_id="test-model")
+        response = _make_draft_response()
+        endpoint.process_raw_response(
+            _sync_response(items), time.perf_counter(), response
+        )
+
+        assert response.reasoning_type == "redacted", why
 
     @pytest.mark.parametrize("mode", list(_MODES))
     def test_reasoning_never_leaks_into_response_text(self, mock_openai, mode):
