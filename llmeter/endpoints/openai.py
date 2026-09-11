@@ -40,6 +40,7 @@ from .base import (
     ReasoningType,
     delta_has_reasoning_content,
     infer_reasoning_visibility_from_model_id,
+    validate_reasoning_type,
 )
 
 logger = logging.getLogger(__name__)
@@ -197,10 +198,9 @@ class OpenAIEndpoint(Endpoint[TOpenAICompletionBase], Generic[TOpenAICompletionB
         if default_query is not None:
             client_kwargs["default_query"] = default_query
         self._client = OpenAI(**client_kwargs)
-        self.default_reasoning_visibility = (
+        self.default_reasoning_visibility = validate_reasoning_type(
             default_reasoning_visibility
-            or infer_reasoning_visibility_from_model_id(model_id)
-        )
+        ) or infer_reasoning_visibility_from_model_id(model_id)
 
     @property
     def project(self) -> str | None:

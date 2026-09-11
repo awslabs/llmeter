@@ -40,6 +40,7 @@ from .base import (
     ReasoningType,
     infer_reasoning_visibility_from_model_id,
     warn_if_ttft_visible_tokens_only_set,
+    validate_reasoning_type,
 )
 
 logger = logging.getLogger(__name__)
@@ -182,10 +183,9 @@ class BedrockBase(
             provider="bedrock",
         )
 
-        self.default_reasoning_visibility = (
+        self.default_reasoning_visibility = validate_reasoning_type(
             default_reasoning_visibility
-            or infer_reasoning_visibility_from_model_id(model_id)
-        )
+        ) or infer_reasoning_visibility_from_model_id(model_id)
 
         self.region = region or boto3.session.Session().region_name
         # Persist extra config on the class just so de/serialization catches it:

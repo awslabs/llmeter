@@ -1,6 +1,7 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import json
 from pathlib import Path
 import tempfile
 import time
@@ -1238,6 +1239,41 @@ class TestOpenAICompletionReasoningTypeResolution:
             response,
         )
         assert response.reasoning_type == "verbatim"
+
+    def test_inferred_value_round_trips(self):
+        """The *resolved* value must persist, not just an explicitly declared one.
+
+        `default_reasoning_visibility` is resolved eagerly in `__init__`, so `to_dict()` records the
+        concrete guess rather than `None`. That is what makes a saved endpoint config reproducible --
+        reloading it must not re-run the inference (which could change as the heuristic evolves) or
+        silently drop back to a different default.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            original = OpenAICompletionStreamEndpoint(
+                model_id="anthropic.claude-opus-4-6", api_key="k"
+            )
+            assert original.default_reasoning_visibility == "summary", (
+                "guard: this model ID should infer 'summary', or the test proves nothing"
+            )
+            path = Path(tmpdir) / "endpoint.json"
+            original.save_to_file(path)
+            saved = json.loads(path.read_text())
+            loaded = Endpoint.load_from_file(path)
+
+        assert (
+            saved["__llmeter_state__"]["default_reasoning_visibility"] == "summary"
+        ), "the resolved value must be written to disk, not omitted or left null"
+        assert isinstance(loaded, OpenAICompletionStreamEndpoint)
+        assert loaded.default_reasoning_visibility == "summary"
+
+    def test_invalid_declared_value_is_rejected_at_construction(self):
+        """A typo must fail loudly rather than quietly suppressing TPOT."""
+        with pytest.raises(ValueError, match="not a recognized reasoning type"):
+            OpenAICompletionStreamEndpoint(
+                model_id="gpt-oss-120b",
+                api_key="k",
+                default_reasoning_visibility="verbatm",
+            )
 
     def test_declared_arg_round_trips(self):
         with tempfile.TemporaryDirectory() as tmpdir:

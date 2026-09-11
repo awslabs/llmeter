@@ -13,6 +13,7 @@ from llmeter.endpoints.base import (
     InvocationResponse,
     backfill_reasoning_type_from_token_counts,
     infer_reasoning_visibility_from_model_id,
+    validate_reasoning_type,
 )
 
 # Tests for InvocationResponse
@@ -524,3 +525,42 @@ class TestLlmeterInvokeAppliesReasoningBackfill:
         response = endpoint.invoke({"prompt": "hi"})
 
         assert response.reasoning_type == "redacted"
+
+
+class TestReasoningTypeValidation:
+    """`default_reasoning_visibility` is a `Literal`, so a typo needs a runtime check.
+
+    Anything other than `"verbatim"` steers TPOT onto the answer-only pairing, so an unrecognized
+    value would not fall back to a safe default -- it would quietly *suppress* TPOT while the caller
+    believed they had enabled the whole-output pairing.
+    """
+
+    @pytest.mark.parametrize(
+        "value", ["verbatim", "summary", "redacted", "unknown", None]
+    )
+    def test_accepts_valid_values_and_none(self, value):
+        assert validate_reasoning_type(value) == value
+
+    @pytest.mark.parametrize(
+        "value,why",
+        [
+            ("verbatm", "typo"),
+            ("Verbatim", "wrong case"),
+            ("raw", "plausible-but-wrong synonym"),
+            ("", "empty string"),
+            (0, "non-string"),
+            (True, "bool is not a reasoning type"),
+        ],
+    )
+    def test_rejects_anything_else(self, value, why):
+        with pytest.raises(ValueError, match="not a recognized reasoning type"):
+            validate_reasoning_type(value), why
+
+    def test_error_names_the_argument_and_lists_valid_values(self):
+        with pytest.raises(ValueError) as excinfo:
+            validate_reasoning_type("nope", argument_name="silent_reasoning_type")
+
+        message = str(excinfo.value)
+        assert "silent_reasoning_type" in message
+        for valid in ("verbatim", "summary", "redacted", "unknown"):
+            assert valid in message, "should tell the caller what is accepted"

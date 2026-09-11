@@ -62,6 +62,11 @@ Only `"verbatim"` - and `None`, where there is no reasoning to account for - per
 [`_Run._compute_time_per_output_token`][llmeter.runner._Run._compute_time_per_output_token].
 """
 
+REASONING_TYPES: frozenset[str] = frozenset(
+    ("verbatim", "summary", "redacted", "unknown")
+)
+"""The valid [`ReasoningType`][llmeter.endpoints.base.ReasoningType] values, for runtime checking"""
+
 
 # @dataclass(slots=True)
 @dataclass
@@ -325,6 +330,37 @@ def delta_has_reasoning_content(delta: Any) -> bool:
     if isinstance(blocks, (list, tuple)) and blocks:
         return True
     return False
+
+
+def validate_reasoning_type(
+    value: ReasoningType | None, argument_name: str = "default_reasoning_visibility"
+) -> ReasoningType | None:
+    """Check a caller-supplied reasoning type, raising on anything unrecognized.
+
+    [`ReasoningType`][llmeter.endpoints.base.ReasoningType] is a `Literal`, so a typo is invisible
+    at runtime - and it would fail silently in a way that changes measurements: anything other than
+    `"verbatim"` steers [`time_per_output_token`][llmeter.endpoints.base.InvocationResponse] onto
+    the answer-only pairing, so `default_reasoning_visibility="verbatm"` would quietly suppress
+    TPOT rather than enabling the whole-output pairing the caller asked for. Failing loudly at
+    construction is far cheaper than discovering it in a benchmark.
+
+    Args:
+        value: The value to check. `None` is allowed and returned unchanged - it means "use this
+            endpoint's default" as a configuration parameter, not "no reasoning".
+        argument_name: Name to quote in the error message.
+
+    Returns:
+        `value`, unchanged.
+
+    Raises:
+        ValueError: If `value` is neither `None` nor a recognized reasoning type.
+    """
+    if value is None or value in REASONING_TYPES:
+        return value
+    raise ValueError(
+        f"{argument_name}={value!r} is not a recognized reasoning type. "
+        f"Expected None or one of: {', '.join(sorted(REASONING_TYPES))}"
+    )
 
 
 def infer_reasoning_visibility_from_model_id(model_id: str) -> ReasoningType | None:

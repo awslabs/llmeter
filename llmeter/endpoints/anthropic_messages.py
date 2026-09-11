@@ -90,6 +90,7 @@ from .base import (
     InvocationResponse,
     ReasoningType,
     warn_if_ttft_visible_tokens_only_set,
+    validate_reasoning_type,
 )
 
 logger = logging.getLogger(__name__)
@@ -179,7 +180,9 @@ class AnthropicMessagesEndpoint(
         )
         # Note we deliberately allow passing None to mean "use this endpoint's default" in line
         # with other endpoints - but for Claude this default is "summary" (correct since Claude 4):
-        self.default_reasoning_visibility = default_reasoning_visibility or "summary"
+        self.default_reasoning_visibility = (
+            validate_reasoning_type(default_reasoning_visibility) or "summary"
+        )
         self.aws_region = aws_region
         client_cls = _ANTHROPIC_CLIENTS.get(provider)
         if client_cls is None:

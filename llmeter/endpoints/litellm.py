@@ -19,6 +19,7 @@ from .base import (
     ReasoningType,
     delta_has_reasoning_content,
     infer_reasoning_visibility_from_model_id,
+    validate_reasoning_type,
 )
 
 logger = logging.getLogger(__name__)
@@ -96,10 +97,9 @@ class LiteLLMBase(Endpoint[TLiteLLMResponseBase], Generic[TLiteLLMResponseBase])
         default_reasoning_visibility: ReasoningType | None = None,
     ):
         self.litellm_model = litellm_model
-        self.default_reasoning_visibility = (
+        self.default_reasoning_visibility = validate_reasoning_type(
             default_reasoning_visibility
-            or infer_reasoning_visibility_from_model_id(litellm_model)
-        )
+        ) or infer_reasoning_visibility_from_model_id(litellm_model)
         model_id_inferred, provider, _, _ = get_llm_provider(litellm_model)
 
         logger.info(f"Using model {model_id_inferred} from provider {provider}")

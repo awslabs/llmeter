@@ -26,6 +26,7 @@ from .base import (
     InvocationResponse,
     ReasoningType,
     infer_reasoning_visibility_from_model_id,
+    validate_reasoning_type,
 )
 from .bedrock import BEDROCK_STREAM_ERROR_TYPES
 
@@ -354,10 +355,9 @@ class BedrockInvokeStream(
             input_token_count_jmespath=input_token_count_jmespath,
         )
         self.reasoning_text_jmespath = reasoning_text_jmespath
-        self.default_reasoning_visibility = (
+        self.default_reasoning_visibility = validate_reasoning_type(
             default_reasoning_visibility
-            or infer_reasoning_visibility_from_model_id(model_id)
-        )
+        ) or infer_reasoning_visibility_from_model_id(model_id)
 
     @BedrockInvokeBase.llmeter_invoke
     def invoke(self, payload: dict):
