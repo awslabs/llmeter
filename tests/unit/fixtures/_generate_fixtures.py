@@ -26,20 +26,45 @@ FIXTURES_DIR = Path(__file__).parent / "result_snapshots"
 
 
 def _write_json(path: Path, data: dict):
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(data, indent=4, default=json_default) + "\n")
 
 
 def _write_jsonl(path: Path, lines: list[str]):
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines) + "\n")
 
 
+#: Aggregation suffixes appended to each tracked metric, i.e. the keys `summary_stats_from_list`
+#: produces. Used to tell `{metric}-{aggregation}` keys apart from run-level ones.
+_AGGREGATIONS = ("average", "p50", "p90", "p99")
+
+
 def _compute_and_write_stats(
-    responses: list[InvocationResponse], summary: dict, path: Path
+    responses: list[InvocationResponse],
+    summary: dict,
+    path: Path,
+    legacy_profile: dict | None = None,
 ):
     """Build a Result from the summary metadata, compute stats, write stats.json.
 
-    Passing the full summary metadata (parsed to native types) makes the resulting
-    stats.json mirror what a real ``Result.save()`` produces.
+    Passing the full summary metadata (parsed to native types) makes the resulting stats.json
+    mirror what a `Result.save()` of the *current* release produces.
+
+    Note this goes through `Result._compute_stats`, whereas a real saved `stats.json` is written
+    from `RunningStats.to_stats` at the end of a live run. Those two producers agree on the
+    `{metric}-{aggregation}` keys (both draw from
+    `llmeter.results._STANDARD_AGGREGATION_METRICS`) but not entirely on the run-level ones - see
+    `_as_legacy_stats`.
+
+    Args:
+        responses: Responses to aggregate.
+        summary: Run metadata, as written to `summary.json`.
+        path: Where to write `stats.json`.
+        legacy_profile: For a `v0_1_*`/`v0_2_*` fixture, the era profile
+            (`_PRE_V0_1_10_STATS_PROFILE` or `_V0_1_10_TO_V0_2_0_STATS_PROFILE`) describing how that
+            release wrote `stats.json`, so the output matches it rather than current code. `None`
+            for current-format fixtures.
     """
     meta = {k: v for k, v in summary.items() if k not in ("total_requests",)}
     restore_dataclass_types(Result, meta)
@@ -47,13 +72,222 @@ def _compute_and_write_stats(
         responses=responses, total_requests=summary["total_requests"], **meta
     )
     stats = Result._compute_stats(result)
+    if legacy_profile is not None:
+        stats = _as_legacy_stats(stats, summary=summary, profile=legacy_profile)
     _write_json(path, stats)
     return stats
+
+
+_PRE_V0_1_10_STATS_PROFILE = {
+    "aggregation_metrics": (
+        "time_to_last_token",
+        "time_to_first_token",
+        "num_tokens_output",
+        "num_tokens_input",
+    ),
+    "drop_run_keys": ("total_cached_input_tokens", "total_reasoning_output_tokens"),
+    "add_output_tps": False,
+}
+"""
+How releases before v0.1.10 wrote `stats.json`, as an `_as_legacy_stats` profile
+
+These releases had no `RunningStats`, so a live run's stats came from `Result._compute_stats`
+(`_get_stats_from_results` + `_get_run_stats`). That means:
+
+* **`aggregation_metrics`** is all `_compute_stats` aggregated at the time.
+    `num_tokens_input_cached` joined that list *in* v0.1.10, along with the response field itself.
+* **`drop_run_keys`**: `_get_run_stats` gained `total_cached_input_tokens` and
+    `total_reasoning_output_tokens` in v0.1.10, with the response fields they sum.
+* **`add_output_tps`** is `False`: `output_tps` is a `RunningStats.to_stats` key, so it did not
+    exist yet.
+
+Applies to the `v0_1_*` fixtures, whose `responses.jsonl` omit `retries` (added v0.1.5) and the
+cached/reasoning token counts (added v0.1.10) - so they are early-v0.1 on both halves. Verified
+against the v0.1.4 and v0.1.9 sources.
+"""
+
+_V0_1_10_TO_V0_2_0_STATS_PROFILE = {
+    "aggregation_metrics": (
+        "time_to_last_token",
+        "time_to_first_token",
+        "time_per_output_token",
+        "num_tokens_output",
+        "num_tokens_input",
+    ),
+    "drop_run_keys": ("total_cached_input_tokens", "total_reasoning_output_tokens"),
+    "add_output_tps": True,
+}
+"""
+How v0.1.10 through v0.2.0 wrote `stats.json`, as an `_as_legacy_stats` profile
+
+`RunningStats` landed in v0.1.10 (commit `4d9ce3e`, "add low-memory mode, RunningStats, and live
+progress-bar stats"), and from then on the runner set `Result._preloaded_stats` from
+`RunningStats.to_stats`. So for these releases:
+
+* **`aggregation_metrics`** is what `RunningStats` tracked - deliberately *not* the same as those
+    releases' own `_compute_stats` list, which omitted `time_per_output_token` and included
+    `num_tokens_input_cached`. The two had drifted apart; reconciling them onto
+    [`llmeter.results._STANDARD_AGGREGATION_METRICS`][llmeter.results] is part of the release these
+    fixtures predate. Since `stats.json` came from `RunningStats`, that is the faithful list here.
+* **`drop_run_keys`**: these are produced only by `_get_run_stats`, which never ran on the save path.
+* **`add_output_tps`** is `True`, as `to_stats` emitted it.
+
+Applies to `v0_2_visible_only_ttft`, whose responses carry the full v0.2.0 field set. Verified by
+checking out v0.1.12 and v0.2.0, running each, and inspecting the `stats.json` they wrote.
+"""
+
+
+def _as_legacy_stats(stats: dict, summary: dict, profile: dict) -> dict:
+    """Rewrite computed stats as an older LLMeter version's live run would have saved them.
+
+    The `v0_1_*`/`v0_2_*` fixtures exist to prove backward compatibility, so their `stats.json` must
+    reflect what those releases actually wrote - not what current code happens to compute from the
+    same responses. Without this, any change to
+    `llmeter.results._STANDARD_AGGREGATION_METRICS` silently rewrites the legacy fixtures and they
+    stop testing what they claim to.
+
+    `stats.json` is written by `Result.save()` from `Result.stats`, and *which code* produced that
+    changed when `RunningStats` landed in v0.1.10 - so there is no single "legacy" shape, and each
+    fixture has to name an era whose `responses.jsonl` field set matches. Hence the two profiles:
+    [`_PRE_V0_1_10_STATS_PROFILE`][] and [`_V0_1_10_TO_V0_2_0_STATS_PROFILE`][].
+
+    Three corrections are applied:
+
+    1. **Drop aggregations for metrics the release did not track.** Note most such keys are absent
+        anyway, because the corresponding response fields were stripped by
+        `_POST_V0_1_RESPONSE_FIELDS` and aggregating an all-`None` metric yields no keys. This makes
+        the intent explicit rather than relying on that coincidence.
+    2. **Drop run-level keys the save path did not produce** (`drop_run_keys`).
+    3. **Add `output_tps`**, which `RunningStats.to_stats` wrote but `_compute_stats` has no
+        equivalent of. `to_stats` computed it as `total_output_tokens / run_window` where
+        `run_window = end_time - first_request_time`, so that window is used when the fixture's
+        summary carries both timestamps, falling back to `total_test_time` when it does not.
+
+    !!! note "Rate *values* are not emulated"
+        The other window-derived stats (`requests_per_minute`, `average_input_tokens_per_minute`,
+        `average_output_tokens_per_minute`) keep the values `_get_run_stats` computed, which divides
+        by `total_test_time` rather than by `to_stats`' dispatch window
+        (`last_request_time - first_request_time`) or run window. Their *keys* are correct, and
+        nothing asserts a "true" value for synthetic data, so this is left alone rather than
+        reimplementing `RunningStats`' windowing here. Note the same applies to the
+        current-format fixtures, which are also written via `_compute_stats`.
+
+    Args:
+        stats: Stats as computed by `Result._compute_stats`.
+        summary: The fixture's run metadata, for the `output_tps` window.
+        profile: The era profile to emulate - `_PRE_V0_1_10_STATS_PROFILE` or
+            `_V0_1_10_TO_V0_2_0_STATS_PROFILE`.
+
+    Returns:
+        A new dict, ordered as the input was.
+    """
+    allowed = set(profile["aggregation_metrics"])
+    drop_run_keys = set(profile["drop_run_keys"])
+    out = {}
+    for key, value in stats.items():
+        base, _, aggregation = key.rpartition("-")
+        if aggregation in _AGGREGATIONS and base:
+            if base not in allowed:
+                continue
+        elif key in drop_run_keys:
+            continue
+        out[key] = value
+
+    if profile["add_output_tps"]:
+        run_window = _run_window_seconds(summary)
+        if run_window:
+            out["output_tps"] = out["total_output_tokens"] / run_window
+    return out
+
+
+def _run_window_seconds(summary: dict) -> float | None:
+    """The window `RunningStats.to_stats` used for `output_tps`: `end_time - first_request_time`.
+
+    Falls back to `total_test_time` when the summary lacks either timestamp (as the
+    `v0_2_visible_only_ttft` fixture does), which is the closest available equivalent.
+
+    Args:
+        summary: Run metadata, as written to `summary.json`.
+
+    Returns:
+        Window in seconds, or `None` if no usable duration is available.
+    """
+    first, end = summary.get("first_request_time"), summary.get("end_time")
+    if first and end:
+        parse = lambda ts: datetime.fromisoformat(str(ts).replace("Z", "+00:00"))  # noqa: E731
+        return (parse(end) - parse(first)).total_seconds() or None
+    return summary.get("total_test_time") or None
 
 
 # =============================================================================
 # Scenario: base (modern format, OpenAI endpoint, CostModel + Mlflow callbacks)
 # =============================================================================
+
+_POST_V0_2_0_RESPONSE_FIELDS = ("time_to_first_content_token", "reasoning_type")
+"""
+`InvocationResponse` fields added *after* the v0.2.0 release
+
+v0.2.0 shipped cached-input and reasoning token counts, `retries` and `annotations` - but neither of
+the reasoning-aware TTFT fields.
+"""
+
+_POST_V0_1_RESPONSE_FIELDS = (
+    "num_tokens_input_cached",
+    "num_tokens_output_reasoning",
+    "retries",
+    "annotations",
+    *_POST_V0_2_0_RESPONSE_FIELDS,
+)
+"""
+`InvocationResponse` fields absent from an *early* v0.1 release
+
+Not "absent from the v0.1 line" - the line was not uniform, and three of these arrived during it
+(checked against the released tags):
+
+| Field | Added in |
+| --- | --- |
+| `retries` | v0.1.5 |
+| `num_tokens_input_cached`, `num_tokens_output_reasoning` | v0.1.10 |
+| `annotations` | v0.2.0 |
+| `time_to_first_content_token`, `reasoning_type` | after v0.2.0 |
+
+Stripping all of them therefore pins the `v0_1_*` fixtures to **before v0.1.5**, which is what makes
+them early-v0.1 and why their `stats.json` uses
+[`_PRE_V0_1_10_STATS_PROFILE`][]: v0.1.10 is where `RunningStats` took over the save path, so a
+fixture carrying post-v0.1.10 response fields alongside pre-v0.1.10 stats would be emulating a
+combination that never shipped. `TestLegacyStatsJsonFidelity` asserts the pairing holds.
+
+Kept as one list so every `v0_1_*` fixture strips exactly the same set.
+"""
+
+
+def _as_legacy_json(response, drop_fields, extra=None) -> str:
+    """Serialize a response as an older LLMeter version would have written it.
+
+    Args:
+        response: The `InvocationResponse` to serialize.
+        drop_fields: Field names to remove, i.e. those that post-date the version being emulated.
+        extra: Optional extra top-level keys to merge in (e.g. legacy flat cost annotations).
+    """
+    d = json.loads(response.to_json())
+    for name in drop_fields:
+        d.pop(name, None)
+    if extra:
+        d.update(extra)
+    return json.dumps(d)
+
+
+def _mirror_content_ttft(responses):
+    """Set ``time_to_first_content_token`` equal to ``time_to_first_token``.
+
+    All of these synthetic responses model non-reasoning models, where the first token *is* the
+    first visible content token, so the two metrics coincide. Applied via a helper (rather than
+    written into each response) to keep the distinction from the *legacy* fixtures explicit: those
+    deliberately omit the field entirely, because it did not exist when they were written.
+    """
+    for r in responses:
+        r.time_to_first_content_token = r.time_to_first_token
+    return responses
 
 
 def generate_base():
@@ -213,6 +447,7 @@ def generate_base():
     _write_json(out / "summary.json", summary)
 
     # stats.json
+    _mirror_content_ttft(responses)
     _compute_and_write_stats(responses, summary, out / "stats.json")
 
     # responses.jsonl
@@ -406,7 +641,16 @@ def generate_legacy_endpoint_type():
     _write_json(out / "summary.json", summary)
 
     # stats.json
-    _compute_and_write_stats(responses, summary, out / "stats.json")
+    # This fixture's responses.jsonl omits `retries` (added v0.1.5) and the cached/reasoning
+    # token counts (added v0.1.10), so it represents an *early* v0.1 release -- before
+    # `RunningStats` existed. Its stats must come from the matching era, or the fixture would
+    # claim a response format and a stats format that never shipped together.
+    _compute_and_write_stats(
+        responses,
+        summary,
+        out / "stats.json",
+        legacy_profile=_PRE_V0_1_10_STATS_PROFILE,
+    )
 
     # responses.jsonl — legacy format with flat cost annotations as top-level keys
     legacy_responses = []
@@ -438,15 +682,10 @@ def generate_legacy_endpoint_type():
         },
     ]
     for resp, cost in zip(responses, costs):
-        d = json.loads(resp.to_json())
-        # Remove modern fields that didn't exist in v0.1
-        d.pop("num_tokens_input_cached", None)
-        d.pop("num_tokens_output_reasoning", None)
-        d.pop("retries", None)
-        d.pop("annotations", None)
-        # Add legacy flat cost annotations
-        d.update(cost)
-        legacy_responses.append(json.dumps(d))
+        # Legacy flat cost annotations were written as top-level keys in v0.1
+        legacy_responses.append(
+            _as_legacy_json(resp, _POST_V0_1_RESPONSE_FIELDS, extra=cost)
+        )
     _write_jsonl(out / "responses.jsonl", legacy_responses)
 
     # run_config.json — legacy format
@@ -517,10 +756,22 @@ def generate_legacy_str_callbacks():
     _write_json(out / "summary.json", summary)
 
     # stats.json
-    _compute_and_write_stats(responses, summary, out / "stats.json")
+    # This fixture's responses.jsonl omits `retries` (added v0.1.5) and the cached/reasoning
+    # token counts (added v0.1.10), so it represents an *early* v0.1 release -- before
+    # `RunningStats` existed. Its stats must come from the matching era, or the fixture would
+    # claim a response format and a stats format that never shipped together.
+    _compute_and_write_stats(
+        responses,
+        summary,
+        out / "stats.json",
+        legacy_profile=_PRE_V0_1_10_STATS_PROFILE,
+    )
 
-    # responses.jsonl
-    _write_jsonl(out / "responses.jsonl", [r.to_json() for r in responses])
+    # responses.jsonl — v0.1 field set, like every other v0_1_* fixture
+    _write_jsonl(
+        out / "responses.jsonl",
+        [_as_legacy_json(r, _POST_V0_1_RESPONSE_FIELDS) for r in responses],
+    )
 
     # run_config.json — legacy with string repr callbacks
     run_config = {
@@ -579,6 +830,7 @@ def generate_interrupted_run():
     # NO summary.json — this is the point of this scenario
 
     # responses.jsonl
+    _mirror_content_ttft(responses)
     _write_jsonl(out / "responses.jsonl", [r.to_json() for r in responses])
 
     # run_config.json — modern __llmeter_class__ format (what a *current* interrupted run leaves)
@@ -593,6 +845,13 @@ def generate_interrupted_run():
                 "region": "eu-west-1",
                 "inference_config": None,
                 "max_attempts": 3,
+                # Deliberately retained even though current LLMeter versions no longer emit it, so
+                # that this snapshot represents an endpoint config saved *before*
+                # `ttft_visible_tokens_only` was retired. Note `Result.load` does not instantiate
+                # the endpoint, so loading the *Result* neither exercises nor needs the
+                # deprecation shim; the constructor path is covered by
+                # `test_snapshot_load.py::TestInterruptedRunSnapshot::
+                # test_endpoint_config_with_legacy_ttft_flag_is_constructible`.
                 "ttft_visible_tokens_only": True,
             },
         },
@@ -649,14 +908,9 @@ def generate_legacy_interrupted_run():
     # NO summary.json — recovery path
 
     # responses.jsonl (legacy: no retries/annotations/cached/reasoning fields)
-    legacy_responses = []
-    for resp in responses:
-        d = json.loads(resp.to_json())
-        d.pop("num_tokens_input_cached", None)
-        d.pop("num_tokens_output_reasoning", None)
-        d.pop("retries", None)
-        d.pop("annotations", None)
-        legacy_responses.append(json.dumps(d))
+    legacy_responses = [
+        _as_legacy_json(resp, _POST_V0_1_RESPONSE_FIELDS) for resp in responses
+    ]
     _write_jsonl(out / "responses.jsonl", legacy_responses)
 
     # run_config.json — legacy format with top-level endpoint fields (incl. derived provider)
@@ -791,6 +1045,7 @@ def generate_errors_and_annotations():
     _write_jsonl(out / "responses.jsonl", [r.to_json() for r in responses])
 
     # stats.json — computed from the responses (including errors)
+    _mirror_content_ttft(responses)
     _compute_and_write_stats(responses, summary, out / "stats.json")
 
     print(f"  errors_and_annotations/ done ({len(responses)} responses, 2 errors)")
@@ -840,6 +1095,7 @@ def generate_load_test():
         "end_time": "2025-01-22T12:00:05Z",
     }
     _write_json(out_1 / "summary.json", summary_1)
+    _mirror_content_ttft(responses_1)
     _compute_and_write_stats(responses_1, summary_1, out_1 / "stats.json")
     _write_jsonl(out_1 / "responses.jsonl", [r.to_json() for r in responses_1])
 
@@ -879,12 +1135,112 @@ def generate_load_test():
         "end_time": "2025-01-22T12:05:05Z",
     }
     _write_json(out_3 / "summary.json", summary_3)
+    _mirror_content_ttft(responses_3)
     _compute_and_write_stats(responses_3, summary_3, out_3 / "stats.json")
     _write_jsonl(out_3 / "responses.jsonl", [r.to_json() for r in responses_3])
 
     print(
         f"  load_test/ done (2 subdirs, {len(responses_1)}+{len(responses_3)} responses)"
     )
+
+
+def generate_legacy_v0_2_visible_only_ttft():
+    """A **v0.2.0** run whose `time_to_first_token` actually means *first visible token*.
+
+    Represents the case that motivated `LegacyResultFormatWarning`. Note this is deliberately a
+    v0.2 fixture, not a v0.1 one: `ttft_visible_tokens_only` was introduced *by* the release that
+    became v0.2.0, so no v0.1 file could ever have been written with it. Accordingly this keeps the
+    full v0.2.0 response field set and omits only `time_to_first_content_token`.
+
+    Under the old `ttft_visible_tokens_only=True` default the recorded TTFT is what LLMeter now
+    calls `time_to_first_content_token`, and `time_per_output_token` was computed by dividing the
+    post-reasoning window by a reasoning-inclusive token count.
+
+    Deliberately *not* migratable: `BedrockConverseStream` never records a reasoning-token count, so
+    `num_tokens_output_reasoning` is null and there is no way to tell from the file whether the
+    model reasoned at all, nor to reconstruct the true first-token time. That is why LLMeter warns
+    instead of rewriting.
+    """
+    out = FIXTURES_DIR / "legacy" / "v0_2_visible_only_ttft"
+
+    responses = [
+        InvocationResponse(
+            id=f"synth-vo-{i:03d}",
+            response_text=f"Synthetic visible-only-TTFT response {i}.",
+            input_prompt=f"Synthetic reasoning prompt {i}.",
+            # Under the old default this was the first *visible* token, i.e. it already includes
+            # the model's thinking time.
+            time_to_first_token=2.0 + 0.5 * i,
+            time_to_last_token=5.0 + 0.5 * i,
+            num_tokens_input=40 + 5 * i,
+            # Includes thinking tokens, but with no breakdown recorded to separate them.
+            num_tokens_output=200 + 10 * i,
+            # Old mixed-pairing TPOT: (TTLT - visible TTFT) / (all output tokens - 1)
+            time_per_output_token=(5.0 + 0.5 * i - (2.0 + 0.5 * i))
+            / (200 + 10 * i - 1),
+            error=None,
+            retries=0,
+            request_time=datetime(2025, 2, 10, 9, 0, i, tzinfo=timezone.utc),
+        )
+        for i in range(1, 5)
+    ]
+
+    # Only `time_to_first_content_token` post-dates v0.2.0; everything else it shipped with is
+    # retained (null for the counts Bedrock Converse does not report).
+    _write_jsonl(
+        out / "responses.jsonl",
+        [_as_legacy_json(r, _POST_V0_2_0_RESPONSE_FIELDS) for r in responses],
+    )
+
+    summary = {
+        "total_requests": len(responses),
+        "clients": 2,
+        "n_requests": 4,
+        "model_id": "synthetic.reasoning-model-v1",
+        "output_path": "stale/visible-only-ttft/path",
+        "endpoint_name": "synthetic-visible-only-endpoint",
+        "provider": "bedrock",
+        "run_name": "synthetic-visible-only-ttft",
+        "run_description": "Saved before time_to_first_content_token existed",
+        "total_test_time": 24.0,
+        "start_time": "2025-02-10T09:00:00Z",
+        "end_time": "2025-02-10T09:00:24Z",
+    }
+    _write_json(out / "summary.json", summary)
+    # v0.2.0 wrote stats from `RunningStats`, and this fixture's responses carry the full
+    # v0.2.0 field set, so both halves belong to the same release.
+    _compute_and_write_stats(
+        responses,
+        summary,
+        out / "stats.json",
+        legacy_profile=_V0_1_10_TO_V0_2_0_STATS_PROFILE,
+    )
+
+    # run_config.json records the retired flag, showing where the old semantics came from. Note
+    # `Result.load` does not read this file when summary.json exists, which is exactly why
+    # detection cannot rely on it.
+    _write_json(
+        out / "run_config.json",
+        {
+            "endpoint": {
+                "__llmeter_class__": "llmeter.endpoints.bedrock.BedrockConverseStream",
+                "__llmeter_state__": {
+                    "model_id": "synthetic.reasoning-model-v1",
+                    "endpoint_name": "synthetic-visible-only-endpoint",
+                    "region": "us-east-1",
+                    "inference_config": None,
+                    "max_attempts": 3,
+                    "ttft_visible_tokens_only": True,
+                },
+            },
+            "output_path": "stale/visible-only-ttft/path",
+            "clients": 2,
+            "n_requests": 4,
+            "run_name": "synthetic-visible-only-ttft",
+        },
+    )
+
+    print(f"  legacy/v0_2_visible_only_ttft/ done ({len(responses)} responses)")
 
 
 # =============================================================================
@@ -896,6 +1252,7 @@ if __name__ == "__main__":
     generate_legacy_str_callbacks()
     generate_interrupted_run()
     generate_legacy_interrupted_run()
+    generate_legacy_v0_2_visible_only_ttft()
     generate_errors_and_annotations()
     generate_load_test()
     print("Done!")

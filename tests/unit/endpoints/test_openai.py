@@ -1,9 +1,11 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import json
 from pathlib import Path
 import tempfile
 import time
+from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
@@ -13,7 +15,7 @@ from openai.types.chat.chat_completion import Choice
 from openai.types.chat.chat_completion_message import ChatCompletionMessage
 from openai.types.completion_usage import CompletionUsage
 
-from llmeter.endpoints.base import InvocationResponse
+from llmeter.endpoints.base import Endpoint, InvocationResponse
 from llmeter.endpoints.openai import (
     OpenAICompletionEndpoint,
     OpenAICompletionStreamEndpoint,
@@ -277,6 +279,9 @@ class TestOpenAICompletionEndpoint:
         assert response.response_text == "Hello! How can I help you today?"
         assert response.num_tokens_input == 10
         assert response.num_tokens_output == 8
+        # Non-streaming: neither first-token metric is measurable
+        assert response.time_to_first_token is None
+        assert response.time_to_first_content_token is None
 
     def test_process_raw_response_no_usage(self, endpoint):
         """Test process_raw_response with no usage information."""
@@ -1015,3 +1020,395 @@ class TestStreamMidStreamErrors:
         assert response.error is not None
         assert "connection" in response.error.lower()
         assert response.input_payload is not None
+
+
+# ---------------------------------------------------------------------------
+# Tests: reasoning models on the Chat Completions streaming API
+# ---------------------------------------------------------------------------
+
+
+def _reasoning_chunk(chunk_id="chatcmpl-r1", field="reasoning_content"):
+    """Build a streaming chunk whose delta carries reasoning but no visible content.
+
+    Uses SimpleNamespace rather than MagicMock so that only the attributes set here exist -- a
+    MagicMock would auto-create `reasoning_content` on every delta.
+    """
+    delta = SimpleNamespace(content=None, **{field: "thinking..."})
+    chunk = SimpleNamespace(
+        id=chunk_id, choices=[SimpleNamespace(delta=delta)], usage=None
+    )
+    return chunk
+
+
+def _content_chunk(text, chunk_id="chatcmpl-r1"):
+    delta = SimpleNamespace(content=text)
+    return SimpleNamespace(
+        id=chunk_id, choices=[SimpleNamespace(delta=delta)], usage=None
+    )
+
+
+class TestOpenAICompletionStreamFirstTokenMetrics:
+    @pytest.fixture
+    def endpoint(self):
+        return OpenAICompletionStreamEndpoint(model_id="gpt-oss-120b", api_key="test")
+
+    @pytest.mark.parametrize("field", ["reasoning_content", "reasoning"])
+    @patch("time.perf_counter")
+    def test_reasoning_chunk_sets_ttft_only(self, mock_perf_counter, endpoint, field):
+        """A reasoning-only chunk sets TTFT but not the content TTFT."""
+        mock_perf_counter.side_effect = [100.2, 100.6]
+
+        response = InvocationResponse(response_text=None)
+        endpoint.process_raw_response(
+            iter([_reasoning_chunk(field=field), _content_chunk("Answer")]),
+            100.0,
+            response,
+        )
+
+        assert response.time_to_first_token == pytest.approx(0.2)
+        assert response.time_to_first_content_token == pytest.approx(0.6)
+        assert response.response_text == "Answer"
+
+    def test_reasoning_excluded_from_response_text(self, endpoint):
+        response = InvocationResponse(response_text=None)
+        endpoint.process_raw_response(
+            iter([_reasoning_chunk(), _content_chunk("Visible")]),
+            time.perf_counter(),
+            response,
+        )
+
+        assert response.response_text == "Visible"
+
+    def test_thinking_blocks_recognized(self, endpoint):
+        """LiteLLM-style structured thinking blocks also count as reasoning."""
+        delta = SimpleNamespace(
+            content=None, thinking_blocks=[{"type": "thinking", "thinking": "hmm"}]
+        )
+        chunk = SimpleNamespace(
+            id="c1", choices=[SimpleNamespace(delta=delta)], usage=None
+        )
+
+        response = InvocationResponse(response_text=None)
+        endpoint.process_raw_response(
+            iter([chunk, _content_chunk("Answer")]), time.perf_counter(), response
+        )
+
+        assert response.time_to_first_token is not None
+        assert response.time_to_first_token < response.time_to_first_content_token
+
+    def test_metrics_equal_without_reasoning(self, endpoint):
+        response = InvocationResponse(response_text=None)
+        endpoint.process_raw_response(
+            iter([_content_chunk("Hello")]), time.perf_counter(), response
+        )
+
+        assert response.time_to_first_token is not None
+        assert response.time_to_first_token == response.time_to_first_content_token
+
+    def test_empty_delta_without_reasoning_is_ignored(self, endpoint):
+        """A chunk with neither content nor reasoning must not set any timing."""
+        empty = SimpleNamespace(
+            id="c1",
+            choices=[SimpleNamespace(delta=SimpleNamespace(content=None))],
+            usage=None,
+        )
+
+        response = InvocationResponse(response_text=None)
+        with patch("time.perf_counter") as clock:
+            clock.side_effect = [100.2, 100.6]
+            endpoint.process_raw_response(
+                iter([empty, _content_chunk("Answer")]), 100.0, response
+            )
+
+        assert response.time_to_first_token == pytest.approx(0.6)
+        assert response.time_to_first_content_token == pytest.approx(0.6)
+
+
+# ---------------------------------------------------------------------------
+# Tests: reasoning_type resolution, across both Chat Completions endpoints
+# ---------------------------------------------------------------------------
+
+
+def _sync_completion(**message_attrs):
+    """A non-streaming Chat Completion whose message may carry reasoning fields."""
+    message = SimpleNamespace(content="Answer", **message_attrs)
+    return SimpleNamespace(
+        id="chatcmpl-1", choices=[SimpleNamespace(message=message)], usage=None
+    )
+
+
+def _stream_for_shape(shape: str):
+    chunks = {
+        "reasoning_content": [_reasoning_chunk(field="reasoning_content")],
+        "reasoning": [_reasoning_chunk(field="reasoning")],
+        "none": [],
+    }[shape]
+    return iter([*chunks, _content_chunk("Answer")])
+
+
+def _sync_for_shape(shape: str):
+    attrs = {
+        "reasoning_content": {"reasoning_content": "thinking"},
+        "reasoning": {"reasoning": "thinking"},
+        "none": {},
+    }[shape]
+    return _sync_completion(**attrs)
+
+
+#: Parametrising over the transport is the point: the same provider fields appear in streamed deltas
+#: and in a non-streaming message, so both must resolve equivalent content identically.
+_MODES = {
+    "streaming": (OpenAICompletionStreamEndpoint, _stream_for_shape),
+    "non-streaming": (OpenAICompletionEndpoint, _sync_for_shape),
+}
+
+_SHAPES = ("reasoning_content", "reasoning", "none")
+
+
+def _resolve(mode: str, shape: str, model_id="gpt-oss-120b", declared=None):
+    endpoint_cls, build = _MODES[mode]
+    endpoint = endpoint_cls(
+        model_id=model_id, api_key="k", default_reasoning_visibility=declared
+    )
+    response = InvocationResponse(response_text=None)
+    endpoint.process_raw_response(build(shape), time.perf_counter(), response)
+    return response
+
+
+class TestOpenAICompletionReasoningTypeResolution:
+    """Chat Completions carries no fidelity marker, so this is inferred or declared."""
+
+    @pytest.mark.parametrize("mode", list(_MODES))
+    @pytest.mark.parametrize(
+        "shape,expected",
+        [
+            ("reasoning_content", "verbatim"),
+            ("reasoning", "verbatim"),
+            # No reasoning at all must stay unset, *not* take the endpoint's default
+            ("none", None),
+        ],
+    )
+    def test_resolution_by_content_shape(self, mode, shape, expected):
+        assert _resolve(mode, shape).reasoning_type == expected
+
+    @pytest.mark.parametrize("mode", list(_MODES))
+    @pytest.mark.parametrize(
+        "model_id,expected",
+        [
+            ("gpt-oss-120b", "verbatim"),
+            ("deepseek-reasoner", "verbatim"),
+            ("anthropic.claude-opus-4-6", "summary"),
+            ("bedrock/anthropic.claude-sonnet-4-6", "summary"),
+        ],
+    )
+    def test_inferred_from_model_id(self, mode, model_id, expected):
+        response = _resolve(mode, "reasoning_content", model_id=model_id)
+        assert response.reasoning_type == expected
+
+    @pytest.mark.parametrize("mode", list(_MODES))
+    @pytest.mark.parametrize(
+        "declared,expected",
+        [("verbatim", "verbatim"), ("summary", "summary"), ("unknown", "unknown")],
+    )
+    def test_declared_visibility_overrides_inference(self, mode, declared, expected):
+        response = _resolve(
+            mode,
+            "reasoning_content",
+            model_id="anthropic.claude-opus-4-6",
+            declared=declared,
+        )
+        assert response.reasoning_type == expected
+
+    @pytest.mark.parametrize("mode", list(_MODES))
+    @pytest.mark.parametrize("shape", _SHAPES)
+    def test_reasoning_never_leaks_into_response_text(self, mode, shape):
+        assert _resolve(mode, shape).response_text == "Answer"
+
+    def test_non_streaming_records_no_first_token_metrics(self):
+        response = _resolve("non-streaming", "reasoning_content")
+        assert response.time_to_first_token is None
+        assert response.time_to_first_content_token is None
+
+    def test_reasoning_after_first_content_is_still_detected(self):
+        """Detection must not be gated on TTFT being unset, or late reasoning would be missed."""
+        endpoint = OpenAICompletionStreamEndpoint(model_id="gpt-oss-120b", api_key="k")
+        response = InvocationResponse(response_text=None)
+        endpoint.process_raw_response(
+            iter([_content_chunk("Ans"), _reasoning_chunk(), _content_chunk("wer")]),
+            time.perf_counter(),
+            response,
+        )
+        assert response.reasoning_type == "verbatim"
+
+    def test_inferred_value_round_trips(self):
+        """The *resolved* value must persist, not just an explicitly declared one.
+
+        `default_reasoning_visibility` is resolved eagerly in `__init__`, so `to_dict()` records the
+        concrete guess rather than `None`. That is what makes a saved endpoint config reproducible --
+        reloading it must not re-run the inference (which could change as the heuristic evolves) or
+        silently drop back to a different default.
+        """
+        with tempfile.TemporaryDirectory() as tmpdir:
+            original = OpenAICompletionStreamEndpoint(
+                model_id="anthropic.claude-opus-4-6", api_key="k"
+            )
+            assert original.default_reasoning_visibility == "summary", (
+                "guard: this model ID should infer 'summary', or the test proves nothing"
+            )
+            path = Path(tmpdir) / "endpoint.json"
+            original.save_to_file(path)
+            saved = json.loads(path.read_text())
+            loaded = Endpoint.load_from_file(path)
+
+        assert (
+            saved["__llmeter_state__"]["default_reasoning_visibility"] == "summary"
+        ), "the resolved value must be written to disk, not omitted or left null"
+        assert isinstance(loaded, OpenAICompletionStreamEndpoint)
+        assert loaded.default_reasoning_visibility == "summary"
+
+    def test_invalid_declared_value_is_rejected_at_construction(self):
+        """A typo must fail loudly rather than quietly suppressing TPOT."""
+        with pytest.raises(ValueError, match="not a recognized reasoning type"):
+            OpenAICompletionStreamEndpoint(
+                model_id="gpt-oss-120b",
+                api_key="k",
+                default_reasoning_visibility="verbatm",
+            )
+
+    def test_declared_arg_round_trips(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            original = OpenAICompletionStreamEndpoint(
+                model_id="gpt-oss-120b",
+                api_key="k",
+                default_reasoning_visibility="summary",
+            )
+            path = Path(tmpdir) / "endpoint.json"
+            original.save_to_file(path)
+            loaded = Endpoint.load_from_file(path)
+
+        assert isinstance(loaded, OpenAICompletionStreamEndpoint)
+        assert loaded.model_id == "gpt-oss-120b", "other config must survive too"
+        assert loaded.default_reasoning_visibility == "summary"
+
+
+# ---------------------------------------------------------------------------
+# Tests: reasoning that is billed but never streamed (OpenAI's own models)
+# ---------------------------------------------------------------------------
+
+
+def _usage_chunk(completion_tokens=20, reasoning_tokens=None, chunk_id="chatcmpl-r1"):
+    """A final usage-bearing chunk, optionally reporting a reasoning-token breakdown."""
+    details = (
+        SimpleNamespace(reasoning_tokens=reasoning_tokens)
+        if reasoning_tokens is not None
+        else None
+    )
+    usage = SimpleNamespace(
+        prompt_tokens=10,
+        completion_tokens=completion_tokens,
+        prompt_tokens_details=None,
+        completion_tokens_details=details,
+    )
+    return SimpleNamespace(id=chunk_id, choices=[], usage=usage)
+
+
+def _sync_completion_with_usage(reasoning_tokens=None, **message_attrs):
+    details = (
+        SimpleNamespace(reasoning_tokens=reasoning_tokens)
+        if reasoning_tokens is not None
+        else None
+    )
+    usage = SimpleNamespace(
+        prompt_tokens=10,
+        completion_tokens=20,
+        prompt_tokens_details=None,
+        completion_tokens_details=details,
+    )
+    message = SimpleNamespace(content="Answer", **message_attrs)
+    return SimpleNamespace(
+        id="chatcmpl-1", choices=[SimpleNamespace(message=message)], usage=usage
+    )
+
+
+class TestOpenAICompletionHiddenReasoning:
+    """`api.openai.com` streams no reasoning content, reporting only `reasoning_tokens`.
+
+    `reasoning_content`/`reasoning` are vendor extensions that OpenAI itself does not emit, so for
+    an o-series or GPT-5 model nothing in the stream identifies the reasoning phase. Without the
+    token-count backfill these responses would claim `reasoning_type=None` -- i.e. "this model did
+    not reason" -- and TPOT would then pair a post-reasoning TTFT against a reasoning-inclusive
+    token count, the exact mismatch the metric exists to avoid.
+    """
+
+    @pytest.fixture
+    def endpoint(self):
+        return OpenAICompletionStreamEndpoint(model_id="gpt-5", api_key="k")
+
+    def _invoke(self, endpoint, chunks):
+        with patch.object(endpoint._client.chat.completions, "create") as create:
+            create.return_value = iter(chunks)
+            return endpoint.invoke({"messages": [{"role": "user", "content": "Hi"}]})
+
+    def test_streaming_resolves_unknown_from_token_count(self, endpoint):
+        response = self._invoke(
+            endpoint, [_content_chunk("Answer"), _usage_chunk(reasoning_tokens=8)]
+        )
+
+        assert response.num_tokens_output_reasoning == 8
+        assert response.reasoning_type == "unknown", (
+            "reasoning tokens were billed, so `None` would wrongly assert no reasoning"
+        )
+
+    def test_streaming_stays_unset_when_no_reasoning_tokens(self, endpoint):
+        response = self._invoke(
+            endpoint, [_content_chunk("Answer"), _usage_chunk(reasoning_tokens=0)]
+        )
+
+        assert response.reasoning_type is None
+
+    def test_streamed_reasoning_content_still_wins(self):
+        """A provider that *does* stream reasoning must keep its observed classification."""
+        endpoint = OpenAICompletionStreamEndpoint(
+            model_id="deepseek-reasoner", api_key="k"
+        )
+
+        response = self._invoke(
+            endpoint,
+            [
+                _reasoning_chunk(),
+                _content_chunk("Answer"),
+                _usage_chunk(reasoning_tokens=8),
+            ],
+        )
+
+        assert response.reasoning_type == "verbatim"
+
+    def test_non_streaming_resolves_unknown_from_token_count(self):
+        endpoint = OpenAICompletionEndpoint(model_id="gpt-5", api_key="k")
+
+        with patch.object(endpoint._client.chat.completions, "create") as create:
+            create.return_value = _sync_completion_with_usage(reasoning_tokens=8)
+            response = endpoint.invoke(
+                {"messages": [{"role": "user", "content": "Hi"}]}
+            )
+
+        assert response.reasoning_type == "unknown"
+
+    @pytest.mark.asyncio
+    async def test_tpot_uses_the_answer_only_pairing(self, endpoint):
+        """End-to-end: the backfill is what keeps the Runner off the mismatched pairing."""
+        from llmeter.runner import _Run
+
+        response = self._invoke(
+            endpoint, [_content_chunk("Answer"), _usage_chunk(reasoning_tokens=8)]
+        )
+        # Pin the timings so the two candidate pairings give distinguishable answers
+        response.time_to_first_token = 1.0
+        response.time_to_first_content_token = 1.0
+        response.time_to_last_token = 5.0
+
+        await _Run._compute_time_per_output_token(response)
+
+        # answer-only: (5.0 - 1.0) / ((20 - 8) - 1) == 0.3636...
+        # whole-output (wrong): (5.0 - 1.0) / (20 - 1) == 0.2105...
+        assert response.time_per_output_token == pytest.approx(4.0 / 11)

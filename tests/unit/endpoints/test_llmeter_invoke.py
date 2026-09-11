@@ -9,7 +9,7 @@ error handling, metadata back-fill, and invocation isolation.
 
 from datetime import datetime, timezone
 
-from llmeter.endpoints.base import Endpoint, InvocationResponse
+from llmeter.endpoints.base import Endpoint
 
 # ---------------------------------------------------------------------------
 # Minimal concrete endpoint for testing the decorator in isolation

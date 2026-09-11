@@ -98,13 +98,17 @@ def bedrock_test_model():
 @pytest.fixture(scope="session")
 def bedrock_caching_test_model():
     """
-    Get test model ID for Converse/Invoke tests.
+    Get test model ID for *prompt caching* tests.
+
+    Distinct from `bedrock_test_model` because the standard test model is a Nova model, and Nova
+    doesn't support prompt caching at the time of writing - so caching tests need a model that
+    reports `cacheReadInputTokens`.
 
     The model ID can be overridden via the BEDROCK_CACHING_TEST_MODEL environment variable.
-    Defaults to Claude Haiku 4.5, since Nova models don't yet support caching at writing.
+    Defaults to Claude Sonnet 5.
 
     Returns:
-        str: Bedrock model ID for testing.
+        str: Bedrock model ID for prompt caching tests.
     """
     return os.environ.get("BEDROCK_CACHING_TEST_MODEL", "us.anthropic.claude-sonnet-5")
 
@@ -146,6 +150,25 @@ def bedrock_openai_multimodal_test_model():
     """
     return os.environ.get(
         "BEDROCK_OPENAI_MULTIMODAL_TEST_MODEL", "qwen.qwen3-vl-235b-a22b-instruct"
+    )
+
+
+@pytest.fixture(scope="session")
+def bedrock_anthropic_converse_test_model():
+    """
+    Get an Anthropic model ID for *Converse* API reasoning tests.
+
+    Distinct from `bedrock_anthropic_mantle_test_model`: that one targets the Bedrock Mantle
+    Anthropic Messages endpoint, whereas this is invoked through the standard Converse API, where
+    thinking surfaces as `reasoningContent` deltas instead.
+
+    Can be overridden via the `BEDROCK_ANTHROPIC_CONVERSE_TEST_MODEL` environment variable.
+
+    Returns:
+        str: Anthropic model ID for Converse reasoning testing.
+    """
+    return os.environ.get(
+        "BEDROCK_ANTHROPIC_CONVERSE_TEST_MODEL", "global.anthropic.claude-opus-4-7"
     )
 
 

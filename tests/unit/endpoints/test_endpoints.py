@@ -2,12 +2,19 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import json
+from unittest.mock import MagicMock
 
 import pytest
 
 import llmeter
 import llmeter.endpoints
-from llmeter.endpoints.base import Endpoint, InvocationResponse
+from llmeter.endpoints.base import (
+    Endpoint,
+    InvocationResponse,
+    backfill_reasoning_type_from_token_counts,
+    infer_reasoning_visibility_from_model_id,
+    validate_reasoning_type,
+)
 
 # Tests for InvocationResponse
 
@@ -291,3 +298,269 @@ def test_endpoint_load_error():
     }
     with pytest.raises(KeyError):
         ConcreteEndpoint.load(invalid_config)
+
+
+# ---------------------------------------------------------------------------
+# Tests: base-module reasoning helpers
+# ---------------------------------------------------------------------------
+
+
+class TestDefaultReasoningVisibilityInference:
+    """The model-ID heuristic in `llmeter.endpoints.base`, independent of any endpoint.
+
+    Lives here rather than with a provider's tests because it is provider-agnostic: it handles
+    Bedrock-style `.` namespacing *and* LiteLLM-style `/` prefixes, and is used by the Bedrock,
+    OpenAI-compatible and LiteLLM endpoints alike.
+    """
+
+    @pytest.mark.parametrize(
+        "model_id,expected",
+        [
+            ("anthropic.claude-opus-4-7", "summary"),
+            ("us.anthropic.claude-sonnet-4-6", "summary"),
+            ("global.anthropic.claude-opus-4-7", "summary"),
+            ("openai.gpt-oss-120b-1:0", "verbatim"),
+            ("qwen.qwen3-32b-v1:0", "verbatim"),
+            ("deepseek.r1-v1:0", "verbatim"),
+            # Substring matches must not count -- only whole dot-separated segments
+            ("acme.anthropic-lookalike-v1", "verbatim"),
+            # LiteLLM-style provider prefixes use "/" rather than "."
+            ("bedrock/anthropic.claude-opus-4-6", "summary"),
+            ("anthropic/claude-sonnet-4-6", "summary"),
+            ("openai/gpt-4", "verbatim"),
+        ],
+    )
+    def test_inference_from_model_id(self, model_id, expected):
+        assert infer_reasoning_visibility_from_model_id(model_id) == expected
+
+
+class TestBackfillReasoningTypeFromTokenCounts:
+    """Inferring that reasoning happened from token accounting alone.
+
+    Guards the case where a provider bills for reasoning tokens without streaming anything that
+    identifies them (OpenAI Chat Completions, OpenAI Responses without a requested summary, or any
+    gateway that strips reasoning fields). Left unresolved, `reasoning_type=None` would claim the
+    model did not reason, and TPOT would divide a post-reasoning window by a reasoning-inclusive
+    token count.
+    """
+
+    @pytest.mark.parametrize("reasoning_tokens", [1, 42, 100_000])
+    def test_positive_count_resolves_to_unknown(self, reasoning_tokens):
+        response = InvocationResponse(
+            response_text=None, num_tokens_output_reasoning=reasoning_tokens
+        )
+
+        backfill_reasoning_type_from_token_counts(response)
+
+        assert response.reasoning_type == "unknown"
+
+    @pytest.mark.parametrize(
+        "reasoning_tokens,why",
+        [
+            (None, "provider reported no breakdown at all"),
+            (0, "provider confirmed the model did not reason"),
+        ],
+    )
+    def test_no_evidence_leaves_reasoning_type_unset(self, reasoning_tokens, why):
+        response = InvocationResponse(
+            response_text=None, num_tokens_output_reasoning=reasoning_tokens
+        )
+
+        backfill_reasoning_type_from_token_counts(response)
+
+        assert response.reasoning_type is None, why
+
+    @pytest.mark.parametrize(
+        "established", ["verbatim", "summary", "redacted", "unknown"]
+    )
+    def test_never_overrides_a_value_from_the_response_content(self, established):
+        """Observation beats inference: `"redacted"` in particular must not be downgraded."""
+        response = InvocationResponse(
+            response_text=None,
+            reasoning_type=established,
+            num_tokens_output_reasoning=99,
+        )
+
+        backfill_reasoning_type_from_token_counts(response)
+
+        assert response.reasoning_type == established
+
+    @pytest.mark.parametrize(
+        "reasoning_tokens,why",
+        [
+            (True, "bool is an int subclass but is not a token count"),
+            ("7", "a string count is not trustworthy"),
+            (7.5, "a float count is not trustworthy"),
+            (MagicMock(), "a placeholder/mock attribute must not look like a count"),
+        ],
+    )
+    def test_non_integer_counts_are_ignored(self, reasoning_tokens, why):
+        response = InvocationResponse(
+            response_text=None, num_tokens_output_reasoning=reasoning_tokens
+        )
+
+        backfill_reasoning_type_from_token_counts(response)
+
+        assert response.reasoning_type is None, why
+
+
+class TestSilentReasoningTypeByConnector:
+    """Which label each connector uses for reasoning it can see was billed but not disclosed.
+
+    `"redacted"` and `"unknown"` route TPOT identically, so this is purely about how confidently the
+    situation can be described - which differs by how completely the connector can parse its API.
+    Pinned here, in one place, because the rationale is a cross-connector judgement rather than a
+    property of any single endpoint.
+    """
+
+    def test_default_is_the_cautious_label(self):
+        """Anything that has not opted in must not claim withholding it cannot demonstrate."""
+        assert Endpoint.silent_reasoning_type == "unknown"
+
+    @pytest.mark.parametrize(
+        "module,class_names,expected,why",
+        [
+            (
+                "llmeter.endpoints.openai_response",
+                ["OpenAIResponseEndpoint", "OpenAIResponseStreamEndpoint"],
+                "redacted",
+                "the Responses schema states disclosure structurally, so silence is withholding",
+            ),
+            (
+                "llmeter.endpoints.openai",
+                ["OpenAICompletionEndpoint", "OpenAICompletionStreamEndpoint"],
+                "unknown",
+                "Chat Completions has no reasoning field, so an unrecognized vendor extension is "
+                "indistinguishable from withholding",
+            ),
+            (
+                "llmeter.endpoints.anthropic_messages",
+                ["AnthropicMessages", "AnthropicMessagesStream"],
+                "unknown",
+                "every documented thinking mode leaves a trace, so reaching the fallback means "
+                "something undocumented happened and is worth surfacing",
+            ),
+            (
+                "llmeter.endpoints.litellm",
+                ["LiteLLM", "LiteLLMStreaming"],
+                "unknown",
+                "LiteLLM may not normalize a given provider's reasoning fields",
+            ),
+            (
+                "llmeter.endpoints.bedrock",
+                ["BedrockConverse", "BedrockConverseStream"],
+                "unknown",
+                "Converse reports no reasoning-token breakdown, so this is unreachable anyway",
+            ),
+        ],
+    )
+    def test_per_connector_label(self, module, class_names, expected, why):
+        mod = pytest.importorskip(module)
+        for name in class_names:
+            assert getattr(mod, name).silent_reasoning_type == expected, (
+                f"{name}: {why}"
+            )
+
+    def test_not_serialized_with_the_endpoint(self):
+        """A class-level constant describing the API, not user configuration."""
+        endpoint = ConcreteEndpoint("test_endpoint", "test_model", "test_provider")
+
+        assert "silent_reasoning_type" not in endpoint.to_dict()
+
+
+class TestLlmeterInvokeAppliesReasoningBackfill:
+    """The backfill is wired into `llmeter_invoke`, so custom endpoints get it for free."""
+
+    class _HiddenReasoningEndpoint(Endpoint[dict]):
+        """An endpoint whose provider bills reasoning tokens but streams no reasoning content."""
+
+        def __init__(
+            self, reasoning_tokens: int | None, reasoning_type=None, silent=None
+        ):
+            super().__init__(
+                endpoint_name="hidden", model_id="test-model", provider="test"
+            )
+            self._reasoning_tokens = reasoning_tokens
+            self._declared_type = reasoning_type
+            if silent is not None:
+                self.silent_reasoning_type = silent
+
+        @Endpoint.llmeter_invoke
+        def invoke(self, payload: dict) -> dict:
+            return payload
+
+        def process_raw_response(self, raw_response, start_t, response) -> None:
+            response.response_text = "Answer"
+            response.num_tokens_output = 20
+            response.num_tokens_output_reasoning = self._reasoning_tokens
+            response.reasoning_type = self._declared_type
+
+    def test_backfilled_when_endpoint_leaves_it_unset(self):
+        endpoint = self._HiddenReasoningEndpoint(reasoning_tokens=12)
+
+        response = endpoint.invoke({"prompt": "hi"})
+
+        assert response.reasoning_type == "unknown"
+
+    def test_not_backfilled_without_reasoning_tokens(self):
+        endpoint = self._HiddenReasoningEndpoint(reasoning_tokens=None)
+
+        response = endpoint.invoke({"prompt": "hi"})
+
+        assert response.reasoning_type is None
+
+    def test_endpoint_classification_is_preserved(self):
+        endpoint = self._HiddenReasoningEndpoint(
+            reasoning_tokens=12, reasoning_type="summary"
+        )
+
+        response = endpoint.invoke({"prompt": "hi"})
+
+        assert response.reasoning_type == "summary"
+
+    def test_uses_the_endpoints_declared_label(self):
+        """`llmeter_invoke` must pass `silent_reasoning_type` through, not hard-code a default."""
+        endpoint = self._HiddenReasoningEndpoint(reasoning_tokens=12, silent="redacted")
+
+        response = endpoint.invoke({"prompt": "hi"})
+
+        assert response.reasoning_type == "redacted"
+
+
+class TestReasoningTypeValidation:
+    """`default_reasoning_visibility` is a `Literal`, so a typo needs a runtime check.
+
+    Anything other than `"verbatim"` steers TPOT onto the answer-only pairing, so an unrecognized
+    value would not fall back to a safe default -- it would quietly *suppress* TPOT while the caller
+    believed they had enabled the whole-output pairing.
+    """
+
+    @pytest.mark.parametrize(
+        "value", ["verbatim", "summary", "redacted", "unknown", None]
+    )
+    def test_accepts_valid_values_and_none(self, value):
+        assert validate_reasoning_type(value) == value
+
+    @pytest.mark.parametrize(
+        "value,why",
+        [
+            ("verbatm", "typo"),
+            ("Verbatim", "wrong case"),
+            ("raw", "plausible-but-wrong synonym"),
+            ("", "empty string"),
+            (0, "non-string"),
+            (True, "bool is not a reasoning type"),
+        ],
+    )
+    def test_rejects_anything_else(self, value, why):
+        with pytest.raises(ValueError, match="not a recognized reasoning type"):
+            validate_reasoning_type(value), why
+
+    def test_error_names_the_argument_and_lists_valid_values(self):
+        with pytest.raises(ValueError) as excinfo:
+            validate_reasoning_type("nope", argument_name="silent_reasoning_type")
+
+        message = str(excinfo.value)
+        assert "silent_reasoning_type" in message
+        for valid in ("verbatim", "summary", "redacted", "unknown"):
+            assert valid in message, "should tell the caller what is accepted"

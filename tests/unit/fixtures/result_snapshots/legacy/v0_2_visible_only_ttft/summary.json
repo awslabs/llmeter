@@ -1,0 +1,14 @@
+{
+    "total_requests": 4,
+    "clients": 2,
+    "n_requests": 4,
+    "model_id": "synthetic.reasoning-model-v1",
+    "output_path": "stale/visible-only-ttft/path",
+    "endpoint_name": "synthetic-visible-only-endpoint",
+    "provider": "bedrock",
+    "run_name": "synthetic-visible-only-ttft",
+    "run_description": "Saved before time_to_first_content_token existed",
+    "total_test_time": 24.0,
+    "start_time": "2025-02-10T09:00:00Z",
+    "end_time": "2025-02-10T09:00:24Z"
+}

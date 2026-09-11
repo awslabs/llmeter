@@ -11,18 +11,48 @@ sequenceDiagram
 
     Client->>LLM: Send request
     Note right of Client: ⏱ Clock starts
-    LLM-->>Client: First token arrives
+    LLM-->>Client: First reasoning token
     Note right of Client: ⏱ TTFT
-    LLM-->>Client: ...tokens streaming...
+    LLM-->>Client: ...reasoning tokens...
+    LLM-->>Client: First answer token
+    Note right of Client: ⏱ TTFCT
+    LLM-->>Client: ...visible tokens...
     LLM-->>Client: Last token arrives
     Note right of Client: ⏱ TTLT
 ```
 
 ### Time to First Token (TTFT)
 
-The time a consumer waits before receiving any response. For streaming endpoints, this is the delay before the first chunk arrives. TTFT is primarily influenced by the model's prefill phase (processing the input prompt) and network latency.
+The delay before the model produces its first output (either content or reasoning) token. TTFT is only measurable for streaming requests, and is primarily influenced by:
 
-When comparing two endpoints, TTFT is most meaningful when the input token count is the same (or close enough that the difference is smaller than the precision you want to measure).
+- The model's prefill phase (processing the input prompt)
+- Any queueing at the endpoint, and
+- Network latency
+
+Since it includes the time taken to process your input prompt, comparing TTFT between models/endpoints is most meaningful when the input prompts are the same (or at least very close in length), and reasoning time is excluded.
+
+!!! warning "Important differences between reasoning models"
+    For models that generate reasoning or "thinking" before their final answer but **don't expose** this raw reasoning to clients in the response stream, TTFT will also include reasoning time - and therefore vary depending on both your configured reasoning effort and the amount of thinking required for each input prompt: Making it less useful as a comparison metric.
+
+    Some models expose thinking only indirectly - summarized or redacted instead of raw. Anthropic Claude 4 and later return *summarized* thinking, while Claude 3.7 Sonnet returns its original thinking but [occasionally encrypts parts of it](https://docs.aws.amazon.com/bedrock/latest/userguide/claude-messages-thinking-encryption.html). Other models emit only the reasoning token count. LLMeter tracks the reasoning
+    disclosure level on [`InvocationResponse.reasoning_type`][llmeter.endpoints.base.InvocationResponse], and users should:
+
+    1. Ensure your LLMeter Endpoints are configured to correctly declare the reasoning type where it cannot be detected from the response, and
+    2. Consider TTFT as including all of the reasoning time when `reasoning_type` is `redacted`
+       (which covers Anthropic's `thinking.display: "omitted"`), and at least some fraction of it
+       when `summary` or `unknown`.
+
+### Time to First Content Token (TTFCT)
+
+For a reasoning (or "thinking") model, the first tokens the endpoint generates are internal reasoning tokens, which are not part of the final answer and may not be visible to users depending on your overall application's design.
+
+As a result, both metrics are potentially interesting and LLMeter reports both:
+
+- **TTFT** comes as close as possible to isolating prefill, queueing, and network cost, so it stays more comparable across models and across reasoning budgets. It's the number to use when benchmarking serving infrastructure.
+- **TTFCT** is how long a user waits before starting to receive finalized output:
+    - It's always equal to or longer than TTFT, because it includes the reasoning phase too
+    - It's a better measure for user experience in cases where responses are streamed but users only see (or care about) the answer - not the model's internal thinking.
+    - It's *not* usefully comparable between serving providers, unless the same prompts and reasoning configurations are being used and tests are averaging over multiple attempts.
 
 ### Time to Last Token (TTLT)
 
@@ -30,17 +60,39 @@ The total end-to-end latency from sending the request to receiving the complete 
 
 ### Time Per Output Token (TPOT)
 
-The average generation speed per token, computed as:
+The average generation speed per output token, **after** output starts.
+
+TPOT excludes the initial waiting period to give a measure of output speed that's roughly comparable even across different input prompt lengths, request queue times, or final output lengths: Answering the question "Once the model starts generating, how fast is it?".
+
+For models that directly expose their reasoning stream, or go straight to answer generation without reasoning at all, LLMeter calculates this as:
 
 ```text
 TPOT = (TTLT - TTFT) / (output_tokens - 1)
 ```
 
-Ideally (excluding non-linear approaches like speculative decoding), TPOT should be a property of the underlying accelerated compute and largely independent of the number of input and generated tokens. This makes TPOT a useful metric for comparing endpoints even when the workloads differ.
+Some models do reason but **don't output the raw reasoning stream** - providing only a summary (Claude 4+ with `thinking.display="summarized"`), omitting it altogether (the default on Claude Opus 4.7 and Mythos), or redacting it (as Claude 3.7 Sonnet does sometimes). This would skew the TPOT calculation above because the observed time window no longer aligns with the total number of output tokens being generated. The inferred reasoning visibility for each response is stored on [`InvocationResponse.reasoning_type`][llmeter.endpoints.base.InvocationResponse].
+
+Where possible in these cases, LLMeter will instead calculate TPOT based only on the answer content - excluding reasoning:
+
+```text
+TPOT = (TTLT - TTFCT) / (visible_output_tokens - 1)
+```
+
+This *only* works for endpoints that report the breakdown of total output token count by reasoning versus content, and assumes that all reasoning happens before the first content token output (not interleaved).
+
+
+!!! warning "Check your Endpoint's reasoning configurations"
+    Usefully-comparable TPOT and TTFT measurements depend on accurate and consistent treatment of reasoning/thinking. Some APIs (such as OpenAI Responses) make it structurally explicit in the response whether reasoning output is verbatim or summarized... But others (including Anthropic Messages, Bedrock Converse, and OpenAI Chat Completions) are ambiguous. Intermediate gateway layers can also change or mask provider behaviour.
+
+    - **Request** reasoning output, if it's disabled by default on your target model, for more usefully-comparable TTFT statistics.
+    - **Check** your target LLMeter Endpoint class for configuration parameters like `default_reasoning_visibility` controlling whether output reasoning is treated as verbatim, summarized, or something else.
+    - **Validate** that the populated [`InvocationResponse.reasoning_type`][llmeter.endpoints.base.InvocationResponse] field in your responses is consistent with your model's actual reasoning streaming behaviour.
+
+For models that don't share either the raw reasoning stream or the breakdown of reasoning versus answer token count, or other cases where the required data points aren't available, `time_per_output_token` is left unset rather than giving a faulty approximation.
 
 ### Streaming vs non-streaming
 
-TTFT, TPOT, and the distinction from TTLT only apply to streaming endpoints. Non-streaming endpoints report only TTLT (the total round-trip time) since the entire response arrives at once.
+TTFT, TTFCT, TPOT, and the distinction from TTLT only apply to streaming endpoints. Non-streaming endpoints report only TTLT (the total round-trip time) since the entire response arrives at once.
 
 !!! note
     TTLT may differ between streaming and non-streaming invocations of the same model, so always test the invocation method you'll actually be using. Don't choose to test streaming only because it provides additional metrics.
@@ -48,6 +100,11 @@ TTFT, TPOT, and the distinction from TTLT only apply to streaming endpoints. Non
 ### Token counts
 
 Input and output token counts are fundamental to understanding latency behavior. TTFT tends to scale with input length, while TTLT scales with output length. Token counts are also the primary cost driver for most pay-per-use LLM APIs.
+
+For reasoning models, `num_tokens_output` is the provider-reported total and **includes** reasoning tokens, since that is what you are billed for. Where the provider breaks the figure down, the reasoning portion is also reported separately as `num_tokens_output_reasoning`.
+
+!!! note
+    Anthropic computes `thinking_tokens` by re-tokenizing the raw reasoning text, so it can differ from the model's exact generation count by a few tokens, and it reflects the *raw* reasoning rather than the possibly-shorter summarized thinking returned in the response body. Visible-token counts derived from it — and hence the fallback TPOT — are close approximations rather than exact figures.
 
 ### Why distributions matter
 
@@ -97,12 +154,15 @@ Each request produces an `InvocationResponse` with:
 | --- | --- | --- |
 | `response_text` | string | The generated text from the model. `None` on error. |
 | `id` | string | A unique identifier for the invocation. Extracted from the API response when available (e.g. OpenAI response ID, AWS RequestId), otherwise auto-generated. |
-| `time_to_first_token` | seconds | TTFT. Only populated for streaming endpoints. |
+| `time_to_first_token` | seconds | TTFT — first output token of any kind, reasoning included. Only populated for streaming endpoints. |
+| `time_to_first_content_token` | seconds | TTFCT — first answer (non-reasoning) token. Only populated for streaming endpoints. Equal to `time_to_first_token` when the model emits no reasoning tokens. |
 | `time_to_last_token` | seconds | TTLT. Always populated on successful requests. |
-| `time_per_output_token` | seconds | TPOT. Only available when `num_tokens_output > 1`. |
+| `time_per_output_token` | seconds | TPOT. Requires more than one output token, and a consistent time/token pairing (see [TPOT](#time-per-output-token-tpot)). |
 | `num_tokens_input` | count | Input token count. Reported by the endpoint or estimated by a tokenizer configured on the `Runner`. |
-| `num_tokens_output` | count | Output token count. Reported by the endpoint or estimated by a tokenizer configured on the `Runner`. |
-| `num_tokens_input_cached` | count | Input tokens served from prompt cache. Reported by Bedrock (`cacheReadInputTokens`) and OpenAI (`cached_tokens`). `None` when caching is not active. |
+| `num_tokens_output` | count | Output token count, **including** reasoning tokens. Reported by the endpoint or estimated by a tokenizer configured on the `Runner`. |
+| `num_tokens_input_cached` | count | Input tokens served from prompt cache. Reported by Bedrock (`cacheReadInputTokens`), OpenAI and LiteLLM (`prompt_tokens_details.cached_tokens`). `None` when the endpoint doesn't report a cache breakdown. |
+| `num_tokens_output_reasoning` | count | The reasoning portion of `num_tokens_output`. Populated where the provider breaks it out (e.g. OpenAI `reasoning_tokens`, Anthropic `thinking_tokens`); `None` otherwise. |
+| `reasoning_type` | string | How the model's reasoning was disclosed: `"verbatim"`, `"summary"`, `"redacted"`, `"unknown"`, or `None` (no reasoning observed). Resolved from the response content where possible, and otherwise from a positive `num_tokens_output_reasoning`, which yields `"unknown"`. See [`ReasoningType`][llmeter.endpoints.base.ReasoningType]. |
 | `input_payload` | dict | The full API request payload as sent to the provider (after `prepare_payload` processing). |
 | `input_prompt` | string | The user-facing input text extracted from the payload, used for observability and as a token-counting fallback. |
 | `error` | string | Error message if the request failed, `None` otherwise. Partial data (text, timing) may still be present alongside an error for streaming endpoints that fail mid-stream. |
@@ -122,12 +182,13 @@ After a batch of requests completes, the `Runner` computes aggregate statistics 
 | `total_input_tokens` | Sum of `num_tokens_input` across all requests. |
 | `total_output_tokens` | Sum of `num_tokens_output` across all requests. |
 | `total_cached_input_tokens` | Sum of `num_tokens_input_cached` across all requests. Only non-zero when prompt caching is active. |
+| `total_reasoning_output_tokens` | Sum of `num_tokens_output_reasoning` across all requests. Only non-zero for reasoning models on providers that report the breakdown. |
 | `average_input_tokens_per_minute` | Total input tokens divided by test time, scaled to per-minute rate. |
 | `average_output_tokens_per_minute` | Total output tokens divided by test time, scaled to per-minute rate. |
 
 #### Distribution statistics
 
-For each of the five core per-request metrics (`time_to_last_token`, `time_to_first_token`, `num_tokens_output`, `num_tokens_input`, `num_tokens_input_cached`), LLMeter computes distributional aggregates across all successful responses. Each metric gets the following aggregations, accessible as `{metric}-{aggregation}` keys in `Result.stats`:
+For each of the six core per-request metrics (`time_to_last_token`, `time_to_first_token`, `time_to_first_content_token`, `num_tokens_output`, `num_tokens_input`, `num_tokens_input_cached`), LLMeter computes distributional aggregates across all successful responses. Each metric gets the following aggregations, accessible as `{metric}-{aggregation}` keys in `Result.stats`:
 
 | Aggregation | Key suffix | Description |
 | --- | --- | --- |
@@ -139,7 +200,18 @@ For each of the five core per-request metrics (`time_to_last_token`, `time_to_fi
 For example, `Result.stats["time_to_first_token-p90"]` gives the 90th percentile TTFT across all requests in the run.
 
 !!! tip
-    `NaN` values (from failed requests) are automatically excluded from all aggregation calculations.
+    `NaN` values (from failed requests) are automatically excluded from all aggregation calculations. Metrics that are `None` for a given request (for example `time_to_first_token` on a non-streaming endpoint) are excluded too, so a metric that is never populated simply has no aggregation keys.
+
+When working with a `Result` that has the responses loaded into memory, you can also calculate summary stats for any other numeric field on `InvocationResponse` yourself:
+
+```python
+from llmeter.utils import summary_stats_from_list
+
+# Note: call `result.load_responses()` first, if responses not already in memory
+
+tpots = [v for v in result.get_dimension("time_per_output_token") if v is not None]
+print(summary_stats_from_list(tpots))  # {'average': ..., 'p50': ..., 'p90': ..., 'p99': ...}
+```
 
 #### Accessing statistics
 

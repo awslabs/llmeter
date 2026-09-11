@@ -1,7 +1,11 @@
 # Copyright Amazon.com, Inc. or its affiliates. All Rights Reserved.
 # SPDX-License-Identifier: Apache-2.0
 
+import time
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from llmeter.endpoints.base import InvocationResponse
 from llmeter.endpoints.litellm import LiteLLM, LiteLLMBase, LiteLLMStreaming
@@ -244,6 +248,9 @@ class TestLiteLLM:
         assert result.response_text == "Test response"
         assert result.num_tokens_input == 15
         assert result.num_tokens_output == 8
+        # Non-streaming: neither first-token metric is measurable
+        assert result.time_to_first_token is None
+        assert result.time_to_first_content_token is None
 
     def test_process_raw_response_no_usage(self):
         """Test process_raw_response without usage info."""
@@ -488,3 +495,520 @@ class TestLiteLLMStreaming:
 
         # With 1 token, (num_tokens_output - 1) = 0, so time_per_output_token should be None
         assert result.time_per_output_token is None
+
+
+# ---------------------------------------------------------------------------
+# Tests: reasoning models via LiteLLM
+# ---------------------------------------------------------------------------
+
+
+def _ns_chunk(chunk_id="c1", content=None, usage=None, **delta_attrs):
+    """Build a LiteLLM-shaped streaming chunk.
+
+    Uses SimpleNamespace rather than MagicMock so only the attributes set here exist -- a
+    MagicMock would auto-create `reasoning_content` on every delta.
+    """
+    delta = SimpleNamespace(content=content, **delta_attrs)
+    return SimpleNamespace(
+        id=chunk_id, choices=[SimpleNamespace(delta=delta)], usage=usage
+    )
+
+
+def _stream(chunks):
+    stream = MagicMock()
+    stream.__iter__ = lambda self: iter(chunks)
+    return stream
+
+
+class TestLiteLLMStreamingFirstTokenMetrics:
+    def setup_method(self):
+        with patch("llmeter.endpoints.litellm.get_llm_provider") as mock_get_provider:
+            mock_get_provider.return_value = ("gpt-3.5-turbo", "openai", None, None)
+            self.endpoint = LiteLLMStreaming(litellm_model="gpt-3.5-turbo")
+
+    @patch("time.perf_counter")
+    def test_reasoning_content_sets_ttft_only(self, mock_time):
+        """LiteLLM's normalized `reasoning_content` sets TTFT but not the content TTFT."""
+        mock_time.side_effect = [100.2, 100.6]
+
+        response = InvocationResponse(response_text=None)
+        self.endpoint.process_raw_response(
+            _stream(
+                [
+                    _ns_chunk(reasoning_content="thinking..."),
+                    _ns_chunk(content="Answer"),
+                ]
+            ),
+            100.0,
+            response,
+        )
+
+        assert response.time_to_first_token == pytest.approx(0.2)
+        assert response.time_to_first_content_token == pytest.approx(0.6)
+        assert response.response_text == "Answer"
+
+    @patch("time.perf_counter")
+    def test_thinking_blocks_set_ttft(self, mock_time):
+        mock_time.side_effect = [100.3, 100.9]
+
+        response = InvocationResponse(response_text=None)
+        self.endpoint.process_raw_response(
+            _stream(
+                [
+                    _ns_chunk(
+                        thinking_blocks=[{"type": "thinking", "thinking": "hmm"}]
+                    ),
+                    _ns_chunk(content="Answer"),
+                ]
+            ),
+            100.0,
+            response,
+        )
+
+        assert response.time_to_first_token == pytest.approx(0.3)
+        assert response.time_to_first_content_token == pytest.approx(0.9)
+
+    def test_reasoning_excluded_from_response_text(self):
+        response = InvocationResponse(response_text=None)
+        self.endpoint.process_raw_response(
+            _stream(
+                [
+                    _ns_chunk(reasoning_content="internal"),
+                    _ns_chunk(content="Visible"),
+                ]
+            ),
+            time.perf_counter(),
+            response,
+        )
+
+        assert response.response_text == "Visible"
+
+    def test_metrics_equal_without_reasoning(self):
+        response = InvocationResponse(response_text=None)
+        self.endpoint.process_raw_response(
+            _stream([_ns_chunk(content="Hello")]), time.perf_counter(), response
+        )
+
+        assert response.time_to_first_token is not None
+        assert response.time_to_first_token == response.time_to_first_content_token
+
+    def test_usage_only_chunk_with_empty_choices(self):
+        """A final usage-only chunk with no choices must not raise IndexError."""
+        usage = SimpleNamespace(prompt_tokens=7, completion_tokens=3)
+        final = SimpleNamespace(id="c1", choices=[], usage=usage)
+
+        response = InvocationResponse(response_text=None)
+        self.endpoint.process_raw_response(
+            _stream([_ns_chunk(content="Hi"), final]), time.perf_counter(), response
+        )
+
+        assert response.error is None
+        assert response.response_text == "Hi"
+        assert response.num_tokens_input == 7
+        assert response.num_tokens_output == 3
+
+
+# ---------------------------------------------------------------------------
+# Tests: reasoning_type resolution, across both LiteLLM endpoints
+# ---------------------------------------------------------------------------
+
+
+def _sync_response(**message_attrs):
+    """A non-streaming LiteLLM response whose message may carry reasoning fields."""
+    message = SimpleNamespace(content="Answer", **message_attrs)
+    return SimpleNamespace(
+        id="resp-1",
+        choices=[SimpleNamespace(message=message)],
+        usage=SimpleNamespace(prompt_tokens=10, completion_tokens=20),
+    )
+
+
+def _stream_for_shape(shape: str):
+    chunks = {
+        "reasoning_content": [_ns_chunk(reasoning_content="thinking")],
+        "thinking_blocks": [
+            _ns_chunk(thinking_blocks=[{"type": "thinking", "thinking": "hmm"}])
+        ],
+        "none": [],
+    }[shape]
+    return _stream([*chunks, _ns_chunk(content="Answer")])
+
+
+def _sync_for_shape(shape: str):
+    attrs = {
+        "reasoning_content": {"reasoning_content": "thinking"},
+        "thinking_blocks": {
+            "thinking_blocks": [{"type": "thinking", "thinking": "hmm"}]
+        },
+        "none": {},
+    }[shape]
+    return _sync_response(**attrs)
+
+
+#: Parametrising over the transport is the point: LiteLLM normalizes reasoning onto the same fields
+#: for both, so streaming and non-streaming must resolve equivalent content identically.
+_MODES = {
+    "streaming": (LiteLLMStreaming, _stream_for_shape),
+    "non-streaming": (LiteLLM, _sync_for_shape),
+}
+
+_SHAPES = ("reasoning_content", "thinking_blocks", "none")
+
+
+def _resolve(mode: str, shape: str, litellm_model="openai/gpt-oss-120b", declared=None):
+    endpoint_cls, build = _MODES[mode]
+    with patch("llmeter.endpoints.litellm.get_llm_provider") as mock_provider:
+        mock_provider.return_value = (litellm_model, "openai", None, None)
+        endpoint = endpoint_cls(
+            litellm_model=litellm_model, default_reasoning_visibility=declared
+        )
+    response = InvocationResponse(response_text=None)
+    endpoint.process_raw_response(build(shape), time.perf_counter(), response)
+    return response
+
+
+class TestLiteLLMReasoningTypeResolution:
+    """LiteLLM exposes no fidelity marker, so resolution comes from the model string or a declaration.
+
+    Covers the non-streaming endpoint too: it records `reasoning_type` from the response message,
+    which was previously untested even though the library sets it.
+    """
+
+    @pytest.mark.parametrize("mode", list(_MODES))
+    @pytest.mark.parametrize(
+        "shape,expected",
+        [
+            ("reasoning_content", "verbatim"),
+            ("thinking_blocks", "verbatim"),
+            # No reasoning at all must stay unset, *not* take the endpoint's default
+            ("none", None),
+        ],
+    )
+    def test_resolution_by_content_shape(self, mode, shape, expected):
+        assert _resolve(mode, shape).reasoning_type == expected
+
+    @pytest.mark.parametrize("mode", list(_MODES))
+    @pytest.mark.parametrize(
+        "litellm_model,expected",
+        [
+            ("anthropic/claude-sonnet-4-6", "summary"),
+            ("bedrock/anthropic.claude-opus-4-6", "summary"),
+            ("deepseek/deepseek-reasoner", "verbatim"),
+            ("openai/gpt-oss-120b", "verbatim"),
+        ],
+    )
+    def test_inferred_from_provider_prefix(self, mode, litellm_model, expected):
+        response = _resolve(mode, "reasoning_content", litellm_model=litellm_model)
+        assert response.reasoning_type == expected
+
+    @pytest.mark.parametrize("mode", list(_MODES))
+    @pytest.mark.parametrize(
+        "declared,expected",
+        [
+            ("verbatim", "verbatim"),
+            ("summary", "summary"),
+            # Declining is explicit, and must still record that reasoning happened
+            ("unknown", "unknown"),
+        ],
+    )
+    def test_declared_visibility_overrides_inference(self, mode, declared, expected):
+        response = _resolve(
+            mode,
+            "reasoning_content",
+            litellm_model="anthropic/claude-3-7-sonnet",
+            declared=declared,
+        )
+        assert response.reasoning_type == expected
+
+    @pytest.mark.parametrize("mode", list(_MODES))
+    @pytest.mark.parametrize("shape", _SHAPES)
+    def test_reasoning_never_leaks_into_response_text(self, mode, shape):
+        assert _resolve(mode, shape).response_text == "Answer"
+
+    def test_non_streaming_records_no_first_token_metrics(self):
+        response = _resolve("non-streaming", "reasoning_content")
+        assert response.time_to_first_token is None
+        assert response.time_to_first_content_token is None
+
+
+# ---------------------------------------------------------------------------
+# Tests: reasoning-token accounting, and reasoning that is billed but never streamed
+# ---------------------------------------------------------------------------
+
+
+def _usage(completion_tokens=20, reasoning_tokens=None, cached_tokens=None):
+    """A LiteLLM `Usage`-shaped object, optionally carrying the token breakdowns."""
+    return SimpleNamespace(
+        prompt_tokens=10,
+        completion_tokens=completion_tokens,
+        completion_tokens_details=(
+            SimpleNamespace(reasoning_tokens=reasoning_tokens)
+            if reasoning_tokens is not None
+            else None
+        ),
+        prompt_tokens_details=(
+            SimpleNamespace(cached_tokens=cached_tokens)
+            if cached_tokens is not None
+            else None
+        ),
+    )
+
+
+def _endpoint(endpoint_cls, litellm_model="anthropic/claude-opus-4-7"):
+    with patch("llmeter.endpoints.litellm.get_llm_provider") as mock_provider:
+        mock_provider.return_value = (litellm_model, "anthropic", None, None)
+        return endpoint_cls(litellm_model=litellm_model)
+
+
+class TestLiteLLMReasoningTokenCounts:
+    """LiteLLM normalizes provider reasoning-token counts onto `completion_tokens_details`.
+
+    Without reading it, `num_tokens_output_reasoning` stayed `None`, which made the answer-only TPOT
+    pairing uncomputable -- so every summarized/withheld-reasoning run through LiteLLM reported no
+    TPOT at all.
+    """
+
+    @pytest.mark.parametrize(
+        "reasoning_tokens,expected", [(7, 7), (0, 0), (None, None)]
+    )
+    def test_streaming_extracts_the_breakdown(self, reasoning_tokens, expected):
+        endpoint = _endpoint(LiteLLMStreaming)
+        response = InvocationResponse(response_text=None)
+
+        endpoint.process_raw_response(
+            _stream(
+                [
+                    _ns_chunk(content="Answer"),
+                    _ns_chunk(usage=_usage(reasoning_tokens=reasoning_tokens)),
+                ]
+            ),
+            time.perf_counter(),
+            response,
+        )
+
+        assert response.num_tokens_output_reasoning == expected
+
+    @pytest.mark.parametrize(
+        "reasoning_tokens,expected", [(7, 7), (0, 0), (None, None)]
+    )
+    def test_non_streaming_extracts_the_breakdown(self, reasoning_tokens, expected):
+        endpoint = _endpoint(LiteLLM)
+        raw = _sync_response()
+        raw.usage = _usage(reasoning_tokens=reasoning_tokens)
+        response = InvocationResponse(response_text=None)
+
+        endpoint.process_raw_response(raw, time.perf_counter(), response)
+
+        assert response.num_tokens_output_reasoning == expected
+
+    def test_details_as_mapping_supported(self):
+        """Some LiteLLM versions/providers deliver the details as a plain dict."""
+        endpoint = _endpoint(LiteLLM)
+        raw = _sync_response()
+        raw.usage = SimpleNamespace(
+            prompt_tokens=10,
+            completion_tokens=20,
+            completion_tokens_details={"reasoning_tokens": 5},
+        )
+        response = InvocationResponse(response_text=None)
+
+        endpoint.process_raw_response(raw, time.perf_counter(), response)
+
+        assert response.num_tokens_output_reasoning == 5
+
+    def test_placeholder_details_are_not_mistaken_for_a_count(self):
+        endpoint = _endpoint(LiteLLM)
+        raw = _sync_response()
+        raw.usage = MagicMock(prompt_tokens=10, completion_tokens=20)
+        response = InvocationResponse(response_text=None)
+
+        endpoint.process_raw_response(raw, time.perf_counter(), response)
+
+        assert response.num_tokens_output_reasoning is None
+
+    def test_usage_without_details_attribute(self):
+        endpoint = _endpoint(LiteLLM)
+        raw = _sync_response()
+        raw.usage = SimpleNamespace(prompt_tokens=10, completion_tokens=20)
+        response = InvocationResponse(response_text=None)
+
+        endpoint.process_raw_response(raw, time.perf_counter(), response)
+
+        assert response.num_tokens_output_reasoning is None
+
+
+class TestLiteLLMHiddenReasoning:
+    """A gateway can pass usage through while stripping (or renaming) the reasoning fields."""
+
+    def _invoke(
+        self, endpoint_cls, chunks_or_raw, litellm_model="anthropic/claude-opus-4-7"
+    ):
+        endpoint = _endpoint(endpoint_cls, litellm_model=litellm_model)
+        with patch("llmeter.endpoints.litellm.completion") as completion:
+            completion.return_value = chunks_or_raw
+            return endpoint.invoke({"messages": [{"role": "user", "content": "Hi"}]})
+
+    def test_streaming_resolves_unknown_from_token_count(self):
+        response = self._invoke(
+            LiteLLMStreaming,
+            _stream(
+                [
+                    _ns_chunk(content="Answer"),
+                    _ns_chunk(usage=_usage(reasoning_tokens=8)),
+                ]
+            ),
+        )
+
+        assert response.num_tokens_output_reasoning == 8
+        assert response.reasoning_type == "unknown"
+
+    def test_streaming_stays_unset_without_reasoning_tokens(self):
+        response = self._invoke(
+            LiteLLMStreaming,
+            _stream(
+                [
+                    _ns_chunk(content="Answer"),
+                    _ns_chunk(usage=_usage(reasoning_tokens=0)),
+                ]
+            ),
+        )
+
+        assert response.reasoning_type is None
+
+    def test_streamed_reasoning_still_wins(self):
+        """`"summary"` from the Anthropic model prefix is more precise than `"unknown"`."""
+        response = self._invoke(
+            LiteLLMStreaming,
+            _stream(
+                [
+                    _ns_chunk(reasoning_content="thinking"),
+                    _ns_chunk(content="Answer"),
+                    _ns_chunk(usage=_usage(reasoning_tokens=8)),
+                ]
+            ),
+        )
+
+        assert response.reasoning_type == "summary"
+
+    def test_non_streaming_resolves_unknown_from_token_count(self):
+        raw = _sync_response()
+        raw.usage = _usage(reasoning_tokens=8)
+
+        response = self._invoke(LiteLLM, raw)
+
+        assert response.reasoning_type == "unknown"
+
+
+class TestLiteLLMCachedInputTokens:
+    """LiteLLM normalizes prompt-cache hits onto `prompt_tokens_details.cached_tokens`.
+
+    Prompt caching dominates TTFT, so a benchmark that silently reports `None` here can't explain
+    its own latency distribution -- and it makes LLMeter's cache reporting inconsistent between
+    LiteLLM and the Bedrock/OpenAI connectors, which have always populated it.
+    """
+
+    @pytest.mark.parametrize("cached_tokens,expected", [(6, 6), (0, 0), (None, None)])
+    def test_streaming_extracts_cached_tokens(self, cached_tokens, expected):
+        endpoint = _endpoint(LiteLLMStreaming)
+        response = InvocationResponse(response_text=None)
+
+        endpoint.process_raw_response(
+            _stream(
+                [
+                    _ns_chunk(content="Answer"),
+                    _ns_chunk(usage=_usage(cached_tokens=cached_tokens)),
+                ]
+            ),
+            time.perf_counter(),
+            response,
+        )
+
+        assert response.num_tokens_input_cached == expected
+
+    @pytest.mark.parametrize("cached_tokens,expected", [(6, 6), (0, 0), (None, None)])
+    def test_non_streaming_extracts_cached_tokens(self, cached_tokens, expected):
+        endpoint = _endpoint(LiteLLM)
+        raw = _sync_response()
+        raw.usage = _usage(cached_tokens=cached_tokens)
+        response = InvocationResponse(response_text=None)
+
+        endpoint.process_raw_response(raw, time.perf_counter(), response)
+
+        assert response.num_tokens_input_cached == expected
+
+    def test_details_as_mapping_supported(self):
+        endpoint = _endpoint(LiteLLM)
+        raw = _sync_response()
+        raw.usage = SimpleNamespace(
+            prompt_tokens=10,
+            completion_tokens=20,
+            prompt_tokens_details={"cached_tokens": 4},
+        )
+        response = InvocationResponse(response_text=None)
+
+        endpoint.process_raw_response(raw, time.perf_counter(), response)
+
+        assert response.num_tokens_input_cached == 4
+
+    def test_placeholder_details_are_not_mistaken_for_a_count(self):
+        endpoint = _endpoint(LiteLLM)
+        raw = _sync_response()
+        raw.usage = MagicMock(prompt_tokens=10, completion_tokens=20)
+        response = InvocationResponse(response_text=None)
+
+        endpoint.process_raw_response(raw, time.perf_counter(), response)
+
+        assert response.num_tokens_input_cached is None
+
+    def test_both_breakdowns_coexist(self):
+        """Reading one must not clobber the other."""
+        endpoint = _endpoint(LiteLLMStreaming)
+        response = InvocationResponse(response_text=None)
+
+        endpoint.process_raw_response(
+            _stream(
+                [
+                    _ns_chunk(content="Answer"),
+                    _ns_chunk(usage=_usage(reasoning_tokens=8, cached_tokens=6)),
+                ]
+            ),
+            time.perf_counter(),
+            response,
+        )
+
+        assert response.num_tokens_output_reasoning == 8
+        assert response.num_tokens_input_cached == 6
+
+
+class TestLiteLLMUsageAgainstRealSdkTypes:
+    """Pin the field paths against the installed `litellm` types, not just hand-built stubs.
+
+    A stub can't catch LiteLLM renaming a wrapper field; constructing the real `Usage` object can.
+    """
+
+    def test_real_usage_object_is_parsed(self):
+        from litellm.types.utils import (
+            CompletionTokensDetailsWrapper,
+            PromptTokensDetailsWrapper,
+            Usage,
+        )
+
+        endpoint = _endpoint(LiteLLM)
+        raw = _sync_response()
+        raw.usage = Usage(
+            prompt_tokens=10,
+            completion_tokens=20,
+            total_tokens=30,
+            completion_tokens_details=CompletionTokensDetailsWrapper(
+                reasoning_tokens=8
+            ),
+            prompt_tokens_details=PromptTokensDetailsWrapper(cached_tokens=6),
+        )
+        response = InvocationResponse(response_text=None)
+
+        endpoint.process_raw_response(raw, time.perf_counter(), response)
+
+        assert response.num_tokens_input == 10
+        assert response.num_tokens_output == 20
+        assert response.num_tokens_output_reasoning == 8
+        assert response.num_tokens_input_cached == 6

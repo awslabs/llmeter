@@ -26,6 +26,7 @@ from datetime import datetime
 
 import pytest
 
+from ._prompts import SIMPLE_PROMPT
 from llmeter.endpoints.bedrock_invoke import BedrockInvoke
 
 
@@ -506,3 +507,62 @@ def test_round_trip_invoke_structure(
     assert response.error is None, (
         f"Response should not contain errors: {response.error}"
     )
+
+
+@pytest.mark.integ
+def test_bedrock_invoke_stream_exposes_no_reasoning_content(
+    aws_credentials, aws_region
+):
+    """InvokeModelWithResponseStream does not expose reasoning, even for a reasoning model.
+
+    Measured against ``openai.gpt-oss-120b``: the streamed chunks carry only
+    ``choices[0].delta.{content,role}`` -- no ``reasoning_content`` -- even though the *same model*
+    via the Converse API does emit ``reasoningContent`` deltas. So this endpoint's reasoning support
+    (``reasoning_text_jmespath``) has nothing to match on Bedrock today, and `reasoning_type` is
+    correctly `None`.
+
+    Kept as a regression test in the opposite direction: if Bedrock starts exposing reasoning on
+    this path, this test fails and tells us the default JMESPath now has something to match (and
+    that TPOT handling for Anthropic models on this endpoint needs revisiting, since it reports no
+    reasoning-token breakdown).
+
+    Args:
+        aws_credentials: Boto3 session with valid AWS credentials (from fixture).
+        aws_region: AWS region for testing (from fixture).
+
+    AWS Permissions Required:
+        - bedrock:InvokeModelWithResponseStream
+
+    Estimated Cost:
+        ~$0.001 per test run
+    """
+    import os
+
+    from llmeter.endpoints.bedrock_invoke import BedrockInvokeStream
+
+    model_id = os.environ.get("BEDROCK_REASONING_TEST_MODEL", "openai.gpt-oss-120b-1:0")
+
+    endpoint = BedrockInvokeStream(model_id=model_id, region=aws_region)
+    payload = {
+        "messages": [{"role": "user", "content": SIMPLE_PROMPT}],
+        "max_completion_tokens": 512,
+        "stream": True,
+    }
+
+    response = endpoint.invoke(payload)
+
+    assert response.error is None, f"Response error: {response.error}"
+    assert response.response_text is not None and response.response_text.strip()
+
+    assert response.reasoning_type is None, (
+        f"Expected no reasoning to be exposed on this path, but got "
+        f"{response.reasoning_type!r}. If Bedrock now streams reasoning here, the default "
+        f"`reasoning_text_jmespath` is matching -- update this test and check the TPOT "
+        f"consequences documented for this endpoint."
+    )
+    # With no reasoning detected, the two first-token metrics necessarily coincide
+    assert response.time_to_first_token is not None
+    assert response.time_to_first_token == response.time_to_first_content_token
+
+    # This endpoint never reports the reasoning/answer token split
+    assert response.num_tokens_output_reasoning is None

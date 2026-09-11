@@ -18,9 +18,63 @@ from openai.types.responses.response_create_params import (
 )
 
 # Local Dependencies:
-from .base import Endpoint, InvocationResponse
+from .base import (
+    Endpoint,
+    InvocationResponse,
+    ReasoningType,
+    warn_if_ttft_visible_tokens_only_set,
+)
 
 logger = logging.getLogger(__name__)
+
+
+_REASONING_TYPE_PRECEDENCE: dict[ReasoningType, int] = {
+    "verbatim": 0,
+    "summary": 1,
+    "unknown": 1,
+    "redacted": 2,
+}
+"""
+How conservative each [`ReasoningType`][llmeter.endpoints.base.ReasoningType] is, for merging
+
+The Responses API is the only connector that can observe *several different* disclosure levels in one
+response - a reasoning item (or delta) per level - so it needs an explicit ordering where the others
+only need "did we see redaction?". Higher wins.
+
+The ordering is by how much it restricts
+[`time_per_output_token`][llmeter.endpoints.base.InvocationResponse]: only `"verbatim"` permits the
+whole-output pairing, so anything else outranks it, and `"redacted"` outranks `"summary"` to match
+the partial-redaction rule the Bedrock and Anthropic connectors already apply (`"redacted"` wins even
+alongside readable reasoning). `"unknown"` shares `"summary"`'s rank as it has the same effect; it is
+only ever set by
+[`backfill_reasoning_type_from_token_counts`][llmeter.endpoints.base.backfill_reasoning_type_from_token_counts],
+which runs after parsing, so it is not expected on this path.
+"""
+
+
+def _merge_reasoning_type(
+    current: ReasoningType | None, observed: ReasoningType
+) -> ReasoningType:
+    """Combine an already-resolved disclosure level with a newly observed one.
+
+    Keeps whichever is more conservative, per
+    [`_REASONING_TYPE_PRECEDENCE`][llmeter.endpoints.openai_response._REASONING_TYPE_PRECEDENCE], so
+    the result does not depend on the order items or deltas happen to arrive in - and so streaming
+    and non-streaming resolve equivalent content identically.
+
+    Args:
+        current: What has been resolved so far, or `None` if nothing yet.
+        observed: The level just observed.
+
+    Returns:
+        The more conservative of the two.
+    """
+    if current is None:
+        return observed
+    return max(
+        current, observed, key=lambda level: _REASONING_TYPE_PRECEDENCE.get(level, 0)
+    )
+
 
 TOpenAIResponseBase = TypeVar(
     "TOpenAIResponseBase", bound=Response | Iterable[ResponseStreamEvent]
@@ -29,6 +83,17 @@ TOpenAIResponseBase = TypeVar(
 
 class OpenAIEndpointBase(Endpoint[TOpenAIResponseBase], Generic[TOpenAIResponseBase]):
     """Base class for OpenAI Responses API endpoints (streaming and non-streaming)"""
+
+    silent_reasoning_type: ReasoningType = "redacted"
+    """
+    reasoning_type applied when reasoning tokens were billed but no reasoning content parsed
+
+    Unlike Chat Completions, the Responses schema states reasoning disclosure outright - distinct
+    event types when streaming, distinct item fields when not. So if reasoning tokens were billed
+    and *none* of those appeared, the API withheld the reasoning rather than us failing to
+    recognize it, and `"redacted"` is a supportable claim. It also matches what a reasoning item
+    disclosing neither content nor summary already yields.
+    """
 
     def __init__(
         self,
@@ -197,6 +262,24 @@ class OpenAIResponseEndpoint(OpenAIEndpointBase[Response]):
     This endpoint provides access to OpenAI's newer Responses API which offers
     structured outputs, better response format control, and improved multi-turn
     conversation handling.
+
+    Neither first-token metric is measurable without streaming, but whether the model reasoned is
+    still recorded on [`reasoning_type`][llmeter.endpoints.base.ReasoningType], informationally:
+    with no `time_to_first_token` there is no TPOT pairing for it to select, but reporting `None`
+    for a model that demonstrably reasoned would be misleading.
+
+    Reasoning *items* in the response state their own disclosure level, so - as with the streaming
+    variant - no `default_reasoning_visibility` is needed here: `content` means the raw reasoning was
+    returned (`"verbatim"`), `summary` means only a summary was (`"summary"`), and neither means it
+    was withheld (`"redacted"`). A response carrying items at *different* levels resolves to the most
+    conservative one present (see
+    [`_merge_reasoning_type`][llmeter.endpoints.openai_response._merge_reasoning_type]).
+
+    If the response carries no reasoning items at all but does report `reasoning_tokens`,
+    [`backfill_reasoning_type_from_token_counts`][llmeter.endpoints.base.backfill_reasoning_type_from_token_counts]
+    also resolves `"redacted"` - see
+    [`silent_reasoning_type`][llmeter.endpoints.base.Endpoint.silent_reasoning_type] for why this
+    connector can make that claim where others cannot.
     """
 
     def __init__(
@@ -282,6 +365,28 @@ class OpenAIResponseEndpoint(OpenAIEndpointBase[Response]):
         response.id = raw_response.id
         response.response_text = raw_response.output_text
 
+        # Reasoning items state their own disclosure level, exactly as the streaming event types do,
+        # so this endpoint needs no caller-declared default. There are no first-token timings on a
+        # non-streaming response, so this is informational rather than feeding TPOT.
+        # Type-guarded rather than truthiness-guarded: a placeholder/mock object would otherwise
+        # be treated as an output list and raise on iteration.
+        output_items = getattr(raw_response, "output", None)
+        for item in output_items if isinstance(output_items, (list, tuple)) else ():
+            if getattr(item, "type", None) != "reasoning":
+                continue
+            if getattr(item, "content", None):
+                observed: ReasoningType = "verbatim"
+            elif getattr(item, "summary", None):
+                observed = "summary"
+            else:
+                # A reasoning item disclosing neither raw content nor a summary
+                observed = "redacted"
+            # Every item is inspected (no early exit) and merged conservatively, so a response
+            # mixing disclosure levels resolves the same way regardless of item order.
+            response.reasoning_type = _merge_reasoning_type(
+                response.reasoning_type, observed
+            )
+
         usage = raw_response.usage
         if usage is not None:
             response.num_tokens_input = usage.input_tokens
@@ -304,13 +409,19 @@ class OpenAIResponseStreamEndpoint(OpenAIEndpointBase[Iterable[ResponseStreamEve
     This endpoint provides streaming access to OpenAI's Responses API, enabling time-to-first-token
     measurements and incremental response processing.
 
-    Args:
-        ttft_visible_tokens_only: Controls how `time_to_first_token` is measured for reasoning
-            models. When `True` (default), TTFT records the time to the first *visible* text token
-            (`response.output_text.delta`), ignoring reasoning events. When `False`, TTFT records
-            the time to the first token of any kind — including reasoning summary or reasoning text
-            deltas — giving a measure of when the model first started producing output. Has no
-            effect for non-reasoning models.
+    Supports collecting both [`time_to_first_token`][llmeter.endpoints.base.InvocationResponse] and
+    [`time_to_first_content_token`][llmeter.endpoints.base.InvocationResponse] where reasoning is
+    emitted by the model.
+
+    !!! warning "GPT model reasoning events require opting in"
+        The OpenAI Responses API emits `response.reasoning_summary_text.delta` (and, where
+        supported, `response.reasoning_text.delta`) only when the request asks for them - e.g.
+        `reasoning={"effort": "medium", "summary": "auto"}`. **Without that, a reasoning model
+        streams nothing during its reasoning phase**, so TTFT and TTFCT are identical and both land
+        after reasoning is complete. Request reasoning summaries if you want a first-token metric
+        that more closely (but still not exactly) reflects when generation actually started.
+
+        Compatible endpoints from other providers may implement different behaviour.
     """
 
     def __init__(
@@ -319,7 +430,7 @@ class OpenAIResponseStreamEndpoint(OpenAIEndpointBase[Iterable[ResponseStreamEve
         endpoint_name: str = "openai-response-stream",
         api_key: str | None = None,
         provider: str = "openai",
-        ttft_visible_tokens_only: bool = True,
+        ttft_visible_tokens_only: bool | None = None,
         organization: str | None = None,
         project: str | None = None,
         base_url: str | httpx.URL | None = None,
@@ -337,8 +448,11 @@ class OpenAIResponseStreamEndpoint(OpenAIEndpointBase[Iterable[ResponseStreamEve
             endpoint_name: Name of the endpoint (default: "openai-response-stream")
             api_key: OpenAI API key (optional, uses OPENAI_API_KEY env var if not provided)
             provider: Provider name (default: "openai")
-            ttft_visible_tokens_only: When True (default), TTFT measures time to first visible text
-                token. When False, TTFT includes reasoning token events.
+            ttft_visible_tokens_only: **Deprecated and ignored.**  In current LLMeter,
+                [`time_to_first_token`][llmeter.endpoints.base.InvocationResponse] is recorded when
+                *any* token is received (including internal thinking/reasoning), and
+                [`time_to_first_content_token`][llmeter.endpoints.base.InvocationResponse] when an
+                actual output token is received. Since both are now recorded this param is ignored.
             organization: OpenAI organization ID. Defaults to None.
             project: OpenAI project ID. Defaults to None.
             base_url: Override the default base URL for the API.
@@ -364,7 +478,7 @@ class OpenAIResponseStreamEndpoint(OpenAIEndpointBase[Iterable[ResponseStreamEve
             default_query=default_query,
             **kwargs,
         )
-        self.ttft_visible_tokens_only = ttft_visible_tokens_only
+        warn_if_ttft_visible_tokens_only_set(ttft_visible_tokens_only)
 
     @OpenAIEndpointBase.llmeter_invoke
     def invoke(self, payload: ResponseCreateParamsStreaming):
@@ -391,19 +505,22 @@ class OpenAIResponseStreamEndpoint(OpenAIEndpointBase[Iterable[ResponseStreamEve
         Processes typed events from the stream:
 
         - `ResponseCreatedEvent`: captures `response.id`
-        - `ResponseTextDeltaEvent`: accumulates text deltas, records TTFT
+        - `ResponseTextDeltaEvent`: accumulates text deltas, records `time_to_first_token` and
+          `time_to_first_content_token`
         - `ResponseCompletedEvent`: extracts usage from `response.usage`
         - `ResponseFailedEvent`: captures API-level errors
         - Reasoning events (`response.reasoning_summary_text.delta`,
-          `response.reasoning_text.delta`): when `ttft_visible_tokens_only` is ``False``, these set
-          TTFT on the first reasoning token.
+          `response.reasoning_text.delta`): record `time_to_first_token` and `reasoning_type`
+          (`"summary"` and `"verbatim"` respectively; the most conservative wins if both appear).
+          Their content is discarded and never contributes to `response_text`.
         """
-        _REASONING_DELTA_TYPES = frozenset(
-            (
-                "response.reasoning_summary_text.delta",
-                "response.reasoning_text.delta",
-            )
-        )
+        # The event type states the disclosure level outright, so `reasoning_type` needs no
+        # caller-declared default on this endpoint: `reasoning_text` is the reasoning itself,
+        # `reasoning_summary_text` is a summary of it.
+        _REASONING_DELTA_FIDELITY: dict[str, ReasoningType] = {
+            "response.reasoning_text.delta": "verbatim",
+            "response.reasoning_summary_text.delta": "summary",
+        }
 
         for event in raw_response:
             now = time.perf_counter()
@@ -413,18 +530,23 @@ class OpenAIResponseStreamEndpoint(OpenAIEndpointBase[Iterable[ResponseStreamEve
             elif event.type == "response.output_text.delta":
                 if response.response_text is None:
                     response.response_text = event.delta
-                    if response.time_to_first_token is None:
-                        response.time_to_first_token = now - start_t
                 else:
                     response.response_text += event.delta
-                response.time_to_last_token = now - start_t
-
-            elif (
-                not self.ttft_visible_tokens_only
-                and event.type in _REASONING_DELTA_TYPES
-            ):
                 if response.time_to_first_token is None:
                     response.time_to_first_token = now - start_t
+                if response.time_to_first_content_token is None:
+                    response.time_to_first_content_token = now - start_t
+                response.time_to_last_token = now - start_t
+
+            elif event.type in _REASONING_DELTA_FIDELITY:
+                if response.time_to_first_token is None:
+                    response.time_to_first_token = now - start_t
+                # Merged conservatively, so a stream carrying both a summary and the raw reasoning
+                # resolves to `"summary"`: the full-output TPOT pairing is not safe when part of the
+                # reasoning only reached us in summarized form.
+                response.reasoning_type = _merge_reasoning_type(
+                    response.reasoning_type, _REASONING_DELTA_FIDELITY[event.type]
+                )
 
             elif event.type == "response.completed":
                 usage = event.response.usage

@@ -196,6 +196,9 @@ class TestOpenAIResponseEndpointResponseParsing:
         assert response.num_tokens_output == 15
         assert response.time_to_last_token is not None
         assert response.time_to_last_token > 0
+        # Non-streaming: neither first-token metric is measurable
+        assert response.time_to_first_token is None
+        assert response.time_to_first_content_token is None
         assert response.error is None
 
     @patch("llmeter.endpoints.openai_response.OpenAI")

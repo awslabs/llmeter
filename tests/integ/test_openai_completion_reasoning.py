@@ -38,6 +38,7 @@ try:
 except ImportError:
     OPENAI_AVAILABLE = False
 
+from ._prompts import SIMPLE_ANSWER, SIMPLE_PROMPT
 from llmeter.endpoints.openai import (
     OpenAICompletionEndpoint,
     OpenAICompletionStreamEndpoint,
@@ -98,7 +99,7 @@ def test_completion_non_streaming_reasoning_tokens(
     )
 
     payload = OpenAICompletionEndpoint.create_payload(
-        user_message="What is 15 * 37? Reply with just the number.",
+        user_message=SIMPLE_PROMPT,
         max_tokens=200,
     )
 
@@ -112,14 +113,12 @@ def test_completion_non_streaming_reasoning_tokens(
     # Verify response text
     assert response.response_text is not None, "Response text should not be None"
     assert len(response.response_text) > 0, "Response text should not be empty"
-    assert "555" in response.response_text, (
-        f"Expected '555' in response, got: {response.response_text}"
+    assert SIMPLE_ANSWER in response.response_text, (
+        f"Expected {SIMPLE_ANSWER!r} in response, got: {response.response_text}"
     )
 
     # Verify token counts
-    assert response.num_tokens_input is not None, (
-        "Input token count should not be None"
-    )
+    assert response.num_tokens_input is not None, "Input token count should not be None"
     assert response.num_tokens_input > 0, "Input token count should be positive"
     assert response.num_tokens_output is not None, (
         "Output token count should not be None"
@@ -158,7 +157,7 @@ def test_completion_streaming_reasoning_tokens(
     - Response text assembled from stream chunks
     - num_tokens_output_reasoning from the final usage chunk
     - Standard token counts (input, output)
-    - TTFT and TTLT timing
+    - Both first-token metrics, plus TTLT timing
     """
     token = provide_token(region=aws_region)
     base_url = _mantle_base_url(aws_region)
@@ -170,7 +169,7 @@ def test_completion_streaming_reasoning_tokens(
     )
 
     payload = OpenAICompletionStreamEndpoint.create_payload(
-        user_message="What is 15 * 37? Reply with just the number.",
+        user_message=SIMPLE_PROMPT,
         max_tokens=200,
     )
 
@@ -184,14 +183,12 @@ def test_completion_streaming_reasoning_tokens(
     # Verify response text
     assert response.response_text is not None, "Response text should not be None"
     assert len(response.response_text) > 0, "Response text should not be empty"
-    assert "555" in response.response_text, (
-        f"Expected '555' in response, got: {response.response_text}"
+    assert SIMPLE_ANSWER in response.response_text, (
+        f"Expected {SIMPLE_ANSWER!r} in response, got: {response.response_text}"
     )
 
     # Verify token counts
-    assert response.num_tokens_input is not None, (
-        "Input token count should not be None"
-    )
+    assert response.num_tokens_input is not None, "Input token count should not be None"
     assert response.num_tokens_input > 0, "Input token count should be positive"
     assert response.num_tokens_output is not None, (
         "Output token count should not be None"
@@ -208,22 +205,108 @@ def test_completion_streaming_reasoning_tokens(
             f"<= total output tokens ({response.num_tokens_output})"
         )
 
-    # Verify TTFT
+    # Verify TTFT (first token of any kind, i.e. the first `reasoning_content` chunk)
     assert response.time_to_first_token is not None, (
         "Time to first token should not be None"
     )
     assert response.time_to_first_token > 0, "TTFT should be positive"
 
+    # Verify content TTFT (first chunk with visible `delta.content`)
+    assert response.time_to_first_content_token is not None, (
+        "Time to first content token should not be None"
+    )
+    assert response.time_to_first_token <= response.time_to_first_content_token, (
+        f"TTFT ({response.time_to_first_token:.3f}s) must not exceed content TTFT "
+        f"({response.time_to_first_content_token:.3f}s)"
+    )
+
     # Verify TTLT
     assert response.time_to_last_token is not None, (
         "Time to last token should not be None"
     )
-    assert response.time_to_last_token > 0, "TTLT should be positive"
-
-    # Verify TTLT >= TTFT
-    assert response.time_to_last_token >= response.time_to_first_token, (
-        "TTLT should be >= TTFT"
+    assert response.time_to_last_token >= response.time_to_first_content_token, (
+        "TTLT should be >= content TTFT"
     )
 
     # Verify response ID
     assert response.id is not None, "Response should have an ID"
+
+
+@pytest.mark.integ
+@pytest.mark.skipif(not OPENAI_AVAILABLE, reason="OpenAI SDK not installed")
+def test_completion_streaming_reasoning_precedes_visible_text(
+    aws_credentials, aws_region, reasoning_model_id
+):
+    """`reasoning_content` chunks are detected, so TTFT precedes the first visible token.
+
+    Before reasoning support was added to this endpoint, `reasoning_content` chunks were
+    silently skipped and TTFT was really the time to the first *visible* token. This asserts
+    the two metrics are now distinguishable.
+
+    Note this requires the model to actually stream `reasoning_content`. It is separated from
+    the metric-plumbing test above so that a model or prompt which happens not to trigger
+    reasoning fails here only, and diagnosably.
+    """
+    token = provide_token(region=aws_region)
+
+    endpoint = OpenAICompletionStreamEndpoint(
+        model_id=reasoning_model_id,
+        api_key=token,
+        base_url=_mantle_base_url(aws_region),
+    )
+    payload = OpenAICompletionStreamEndpoint.create_payload(
+        user_message=SIMPLE_PROMPT,
+        max_tokens=200,
+    )
+
+    response = endpoint.invoke(payload)
+
+    assert response.error is None, f"Response error: {response.error}"
+    assert response.time_to_first_token is not None
+    assert response.time_to_first_content_token is not None
+    assert response.time_to_first_token < response.time_to_first_content_token, (
+        f"Expected reasoning to precede visible text, but TTFT "
+        f"({response.time_to_first_token:.3f}s) was not less than content TTFT "
+        f"({response.time_to_first_content_token:.3f}s). Either the model streamed no "
+        f"`reasoning_content`, or it is no longer being detected."
+    )
+
+
+@pytest.mark.integ
+@pytest.mark.skipif(not OPENAI_AVAILABLE, reason="OpenAI SDK not installed")
+def test_completion_streaming_reasoning_type_is_inferred(
+    aws_credentials, aws_region, reasoning_model_id
+):
+    """The Chat Completions schema has no fidelity marker, so this is inferred from the model ID.
+
+    What a live call verifies is the *detection* half: that reasoning content is present in the
+    stream at all under a field name `delta_has_reasoning_content` recognizes. If a provider
+    renamed it, `reasoning_type` would be `None` and TTFT would silently become the first *visible*
+    token again -- the exact regression this whole metric exists to prevent.
+
+    Estimated Cost: ~$0.001 per run
+    """
+    token = provide_token(region=aws_region)
+
+    endpoint = OpenAICompletionStreamEndpoint(
+        model_id=reasoning_model_id,
+        api_key=token,
+        base_url=_mantle_base_url(aws_region),
+    )
+    payload = OpenAICompletionStreamEndpoint.create_payload(
+        user_message=SIMPLE_PROMPT,
+        max_tokens=200,
+    )
+
+    response = endpoint.invoke(payload)
+
+    assert response.error is None, f"Response error: {response.error}"
+    assert response.reasoning_type is not None, (
+        "Reasoning content should have been detected in the stream. `None` means no recognized "
+        "reasoning field was seen -- check whether the provider renamed `reasoning_content`."
+    )
+    # gpt-oss is not an Anthropic model, so the model-ID inference should say "verbatim"
+    assert response.reasoning_type == "verbatim", (
+        f"Non-Anthropic model should infer 'verbatim', got {response.reasoning_type!r}"
+    )
+    assert response.time_to_first_token < response.time_to_first_content_token

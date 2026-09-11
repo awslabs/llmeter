@@ -5,7 +5,7 @@ import io
 import json
 import logging
 import time
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, Iterable, TypeVar
 import warnings
 
 import boto3
@@ -15,12 +15,14 @@ try:
     from mypy_boto3_sagemaker_runtime.type_defs import (
         InvokeEndpointOutputTypeDef,
         InvokeEndpointWithResponseStreamOutputTypeDef,
+        ResponseStreamTypeDef,
     )
 except ImportError:
     InvokeEndpointOutputTypeDef = TypeVar("InvokeEndpointOutputTypeDef")
     InvokeEndpointWithResponseStreamOutputTypeDef = TypeVar(
         "InvokeEndpointWithResponseStreamOutputTypeDef"
     )
+    ResponseStreamTypeDef = TypeVar("ResponseStreamTypeDef")
 
 
 from ..prompt_utils import (
@@ -97,6 +99,8 @@ class SageMakerBase(Endpoint[TSageMakerResponseBase], Generic[TSageMakerResponse
         endpoint_name: str,
         model_id: str,
         # TODO: generated & token count jmespaths not actually used by streaming yet
+        # Wiring these up is part of the streaming-schema refactor described in the TODO above
+        # `TokenIterator` below.
         generated_text_jmespath: str = "generated_text",
         input_text_jmespath: str = "inputs",
         token_count_jmespath: str | None = "details.generated_tokens",
@@ -273,7 +277,13 @@ class SageMakerStreamEndpoint(
 
         token_iterator = TokenIterator(raw_response["Body"])
         first_token = next(token_iterator)
-        response.time_to_first_token = time.perf_counter() - start_t
+        # [`TokenIterator`][llmeter.endpoints.sagemaker.TokenIterator] parses the TGI schema, which
+        # has no reasoning field, so every token it yields is visible content and the two
+        # first-token metrics necessarily coincide. This is a limitation of the parser rather than
+        # of SageMaker: see the `TokenIterator` docstring.
+        time_to_first_token = time.perf_counter() - start_t
+        response.time_to_first_token = time_to_first_token
+        response.time_to_first_content_token = time_to_first_token
 
         response_text_tokens = [first_token] + [k for k in token_iterator]
         response.time_to_last_token = time.perf_counter() - start_t
@@ -345,8 +355,80 @@ class SageMakerStreamEndpoint(
         return payload
 
 
+# TODO: Make the streaming response schema configurable, instead of hard-coding TGI.
+#
+# `TokenIterator` only understands the TGI schema (`data:{"token": {"text": ...}}`), but
+# SageMaker itself is schema-agnostic: `InvokeEndpointWithResponseStream` transports opaque
+# bytes and the payload shape is decided by the deployed container. Consequences today:
+#
+#   1. Containers serving OpenAI Chat Completions cannot be benchmarked at all - the stream is
+#      unparseable, not merely missing fields. This covers the SageMaker LMI container (which
+#      supports Chat Completions, OpenAI Completions and TGI, and which AWS recommends running
+#      in Chat Completions mode for reasoning models) and endpoints invoked over the
+#      OpenAI-compatible `/openai/v1` path.
+#   2. Reasoning tokens can never be distinguished from visible ones, so
+#      `SageMakerStreamEndpoint` always reports `time_to_first_token` ==
+#      `time_to_first_content_token`. That is *correct* for TGI, which has no reasoning field,
+#      but wrong for a reasoning model behind a Chat Completions container.
+#
+# Proposal: follow the precedent already set by `BedrockInvokeStream`, which solves the same
+# problem with `generated_text_jmespath` + `reasoning_text_jmespath`. Reduce `TokenIterator` to
+# an SSE line-splitter that yields parsed dicts, and move field extraction into
+# `SageMakerStreamEndpoint.process_raw_response` behind those JMESPath parameters. Note
+# `SageMakerBase` already accepts `generated_text_jmespath` and `token_count_jmespath` (see the
+# related TODO in `SageMakerBase.__init__`) - streaming just ignores them, so most of the
+# surface already exists.
+#
+# Caveats to settle before doing this:
+#   - It changes `TokenIterator`'s public contract from yielding `str` to yielding `dict`, so it
+#     needs the API-stability discussion described in AGENTS.md.
+#   - TGI must remain the default, so existing users see no behaviour change.
+#   - Update the "Reasoning models" table and SageMaker warning in `docs/user_guide/metrics.md`,
+#     which currently document the limitation and its workaround.
+#
+# Until then, the workaround is to benchmark such endpoints with
+# `OpenAICompletionStreamEndpoint` pointed at the endpoint's OpenAI-compatible URL, which is
+# already reasoning-aware.
 class TokenIterator:
-    def __init__(self, stream):
+    """Parse a SageMaker response stream that uses the TGI streaming schema.
+
+    Yields the `token.text` string from each `data:` line, and exposes the final `details` object
+    (used for the generated-token count) as [`details`][llmeter.endpoints.sagemaker.TokenIterator].
+
+    !!! warning "This parser is schema-specific; SageMaker is not"
+        `InvokeEndpointWithResponseStream` transports opaque bytes — the payload schema is decided
+        entirely by the *container* you deploy, not by SageMaker. This iterator implements only the
+        Text Generation Inference (TGI) schema, i.e. lines shaped
+        `data:{"token": {"text": "..."}, "details": ...}`.
+
+        Notably, the [SageMaker LMI container](https://docs.aws.amazon.com/sagemaker/latest/dg/large-model-inference-container-docs.html)
+        supports three request/response schemas — OpenAI Chat Completions, OpenAI Completions, and
+        TGI — and AWS recommends Chat Completions for reasoning models. SageMaker endpoints can
+        also expose an
+        [OpenAI-compatible path](https://docs.aws.amazon.com/sagemaker/latest/dg/realtime-endpoints-openai-compatible.html)
+        directly. Against any of those, this iterator raises `KeyError: 'token'`, because chunks are
+        shaped `{"choices": [{"delta": {"content": ...}}]}` instead.
+
+        Consequences:
+
+        * Reasoning tokens are invisible here — but only because the TGI schema has no field for
+          them, so [`SageMakerStreamEndpoint`][llmeter.endpoints.sagemaker.SageMakerStreamEndpoint]
+          reports `time_to_first_token` and `time_to_first_content_token` as equal.
+        * To benchmark a Chat Completions container today, point
+          [`OpenAICompletionStreamEndpoint`][llmeter.endpoints.openai.OpenAICompletionStreamEndpoint]
+          at the endpoint's OpenAI-compatible URL instead. That connector already distinguishes
+          reasoning from visible tokens.
+
+    Args:
+        stream: An iterable of SageMaker response-stream events, each a dict carrying a
+            `PayloadPart` (or an error member). In normal use this is the `Body` of an
+            `invoke_endpoint_with_response_stream` response, which botocore returns as an
+            `EventStream`. Typed as a plain `Iterable` rather than `EventStream` because any
+            iterable of the same events works - which is what makes the parser testable with
+            hand-built event lists.
+    """
+
+    def __init__(self, stream: Iterable[ResponseStreamTypeDef]):
         self.byte_iterator = iter(stream)
         self.buffer = io.BytesIO()
         self.read_pos = 0
@@ -368,9 +450,19 @@ class TokenIterator:
                     continue
                 if line_data.get("error"):
                     raise RuntimeError(line_data["error"])
-                    break
                 self.details = line_data.get("details")
-                return line_data["token"]["text"]
+                try:
+                    return line_data["token"]["text"]
+                except (KeyError, TypeError):
+                    # Most likely a container serving a schema other than TGI. Raised instead of
+                    # letting a bare `KeyError: 'token'` surface, which gives no clue why.
+                    raise ValueError(
+                        "Streamed chunk does not match the TGI schema that TokenIterator "
+                        f"expects (`token.text`). Chunk keys: {sorted(line_data)}. If this "
+                        "endpoint serves the OpenAI Chat Completions schema (as SageMaker LMI "
+                        "and the /openai/v1 endpoint path do), benchmark it with "
+                        "OpenAICompletionStreamEndpoint instead of SageMakerStreamEndpoint."
+                    ) from None
             try:
                 chunk = next(self.byte_iterator)
             except StopIteration:

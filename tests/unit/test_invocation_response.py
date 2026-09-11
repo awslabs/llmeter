@@ -19,6 +19,7 @@ class TestToJson:
             input_payload={"messages": [{"role": "user", "content": "What is 6*7?"}]},
             input_prompt="What is 6*7?",
             time_to_first_token=0.15,
+            time_to_first_content_token=0.42,
             time_to_last_token=0.85,
             num_tokens_input=12,
             num_tokens_output=5,
@@ -39,6 +40,7 @@ class TestToJson:
         assert isinstance(parsed["input_payload"], dict)
         assert parsed["input_prompt"] == "What is 6*7?"
         assert parsed["time_to_first_token"] == 0.15
+        assert parsed["time_to_first_content_token"] == 0.42
         assert parsed["time_to_last_token"] == 0.85
         assert parsed["num_tokens_input"] == 12
         assert parsed["num_tokens_output"] == 5
@@ -115,6 +117,7 @@ class TestFromJson:
             input_payload={"messages": [{"role": "user", "content": "What is 6*7?"}]},
             input_prompt="What is 6*7?",
             time_to_first_token=0.15,
+            time_to_first_content_token=0.42,
             time_to_last_token=0.85,
             num_tokens_input=12,
             num_tokens_output=5,
@@ -132,6 +135,9 @@ class TestFromJson:
         assert restored.input_payload == original.input_payload
         assert restored.input_prompt == original.input_prompt
         assert restored.time_to_first_token == original.time_to_first_token
+        assert (
+            restored.time_to_first_content_token == original.time_to_first_content_token
+        )
         assert restored.time_to_last_token == original.time_to_last_token
         assert restored.num_tokens_input == original.num_tokens_input
         assert restored.num_tokens_output == original.num_tokens_output
@@ -190,3 +196,22 @@ class TestFromJson:
         )
         restored = InvocationResponse.from_json(original.to_json())
         assert restored.input_payload == {"prompt": "hello"}
+
+
+class TestLegacyResponseCompatibility:
+    def test_response_without_content_ttft_loads(self):
+        """Responses recorded before `time_to_first_content_token` existed must still load."""
+        json_str = json.dumps(
+            {
+                "response_text": "hi",
+                "time_to_first_token": 0.2,
+                "time_to_last_token": 0.9,
+                "num_tokens_output": 5,
+            }
+        )
+        restored = InvocationResponse.from_json(json_str)
+
+        assert restored.time_to_first_token == 0.2
+        assert restored.time_to_first_content_token is None
+        # The missing field must not be misrouted into `annotations`
+        assert "time_to_first_content_token" not in restored.annotations

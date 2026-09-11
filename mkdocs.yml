@@ -76,6 +76,7 @@ nav:
     - serialization: reference/serialization.md
     - tokenizers: reference/tokenizers.md
     - utils: reference/utils.md
+    - warnings: reference/warnings.md
 repo_url: https://github.com/awslabs/llmeter
 repo_name: awslabs/llmeter
 markdown_extensions:

@@ -3,6 +3,7 @@
 
 import json
 import logging
+import warnings
 from collections.abc import Callable, Sequence
 from dataclasses import asdict, dataclass
 from datetime import datetime
@@ -15,8 +16,56 @@ from upath.types import ReadablePathLike, WritablePathLike
 from .endpoints import InvocationResponse
 from .serialization import json_default, restore_dataclass_types
 from .utils import ensure_path, summary_stats_from_list
+from .warnings import LegacyResultFormatWarning
 
 logger = logging.getLogger(__name__)
+
+
+_STANDARD_AGGREGATION_METRICS = [
+    "num_tokens_input",
+    "num_tokens_input_cached",
+    "num_tokens_output",
+    "time_per_output_token",
+    "time_to_last_token",
+    "time_to_first_token",
+    "time_to_first_content_token",
+]
+"""
+Set of metrics for which Result-level aggregations are calculated by default
+
+There are two independent producers of `{metric}-{aggregation}` stats, depending how a
+[`Result`][llmeter.results.Result] is obtained - so both draw from this list for consistency:
+
+* [`RunningStats`][llmeter.utils.RunningStats] (configured in
+    `llmeter.runner._Run._prepare_run`) accumulates stats online during a live run, and is what
+    gets written to `stats.json`. It is therefore also authoritative when a `Result` is loaded
+    with `load_responses=False`.
+* `Result._compute_stats` recalculates them from the individual responses. This is *not* merely a
+    fallback for a missing `stats.json`: it runs on every `Result.load()` where responses are
+    populated (the default, where it overrides the saved values), and on any `Result` constructed
+    directly in code, on first access to `Result.stats`.
+
+The divergence is not symmetric, because `Result._resolve_stats` merges in any `stats.json` keys
+that `_compute_stats` did not produce. A metric tracked *only* by `RunningStats` therefore survives
+a normal load, and goes missing only for a directly-constructed `Result` (or a load with no
+`stats.json`). A metric tracked only by `_compute_stats` is missing from live runs entirely - the
+more damaging direction, since that is what users see during and immediately after a run.
+
+`tests.unit.test_runner.TestStatsKeyParityAcrossAccessPaths` enforces the invariant.
+
+Note also that adding extra metrics has a significant performance impact on long-running tests:
+`RunningStats` keeps a sorted list of values for every metric (to compute quantiles) and inserting
+each new response's value with `bisect.insort` is O(n). Fields only ever reported as a *total* are
+therefore kept out of this list - see
+[`RunningStats._SUM_ONLY_STATS`][llmeter.utils.RunningStats].
+
+Measured, the marginal cost of including `time_to_first_content_token` here (a 6th metric) is small
+relative to a run's wall-clock: +0.5s over a 100k-request run, +19s over 400k, i.e. under 0.4% of
+the run duration at a realistic 5k requests/minute. The superlinear *baseline* is ~56s of CPU for
+400k responses even without this metric.
+
+TODO: Explore improving metric performance on long runs via a streaming quantile estimator.
+"""
 
 
 @dataclass
@@ -356,9 +405,56 @@ class Result:
             )
             return []
         with responses_path.open("r") as f:
-            responses = [InvocationResponse.from_json(line) for line in f if line]
+            raw_records = [json.loads(line) for line in f if line.strip()]
+        cls._warn_if_legacy_ttft_semantics(raw_records, responses_path)
+        responses = [
+            InvocationResponse.from_json(json.dumps(record)) for record in raw_records
+        ]
         logger.info("Loaded %d responses from %s", len(responses), responses_path)
         return responses
+
+    @staticmethod
+    def _warn_if_legacy_ttft_semantics(raw_records: list[dict], responses_path) -> None:
+        """Warn when a file predates the current `time_to_first_token` definition.
+
+        In LLMeter 0.2.0 and earlier, `time_to_first_token` on the reasoning-capable streaming
+        endpoints defaulted to measuring the first *visible* token (the old
+        `ttft_visible_tokens_only=True`), which is what `time_to_first_content_token` means today.
+        Such files therefore report a TTFT that is not comparable with current runs, and a
+        `time_per_output_token` that is understated for reasoning models (it divided the
+        post-reasoning window by a reasoning-inclusive token count).
+
+        Detection relies on the **absence of the `time_to_first_content_token` key**, which is why
+        this inspects raw records: after `InvocationResponse.from_json`, an absent key and an
+        explicit `null` are indistinguishable. A non-null `time_to_first_token` is also required, so
+        that non-streaming runs (where both metrics are legitimately unset) are not flagged.
+
+        LLMeter deliberately does not rewrite the values. The old default was applied whether or not
+        a model actually reasoned, and for Bedrock Converse and Anthropic endpoints no reasoning
+        token count was recorded, so there is generally no way to tell whether a given file needs
+        correcting - let alone to reconstruct the true first-token time.
+
+        Args:
+            raw_records: Response records as parsed from JSON, before dataclass conversion.
+            responses_path: Path used to identify the file in the warning message.
+        """
+        if not any(
+            record.get("time_to_first_token") is not None
+            and "time_to_first_content_token" not in record
+            for record in raw_records
+        ):
+            return
+
+        warnings.warn(
+            f"'{responses_path}' was saved by an LLMeter version that predates "
+            "`time_to_first_content_token`. In these files `time_to_first_token` measures the "
+            "first *visible* token (what is now called `time_to_first_content_token`), so it is "
+            "not comparable with TTFT from current runs, and `time_per_output_token` may be "
+            "understated if the model used reasoning tokens. Values have been loaded unchanged; "
+            "see the 'Reasoning models' section of the LLMeter metrics guide.",
+            LegacyResultFormatWarning,
+            stacklevel=4,
+        )
 
     @classmethod
     def _resolve_stats(cls, result: "Result", stats_path) -> None:
@@ -422,14 +518,7 @@ class Result:
             stats = Result._compute_stats(result)
             stats["time_to_first_token-p90"]  # 0.485
         """
-        aggregation_metrics = [
-            "time_to_last_token",
-            "time_to_first_token",
-            "num_tokens_output",
-            "num_tokens_input",
-            "num_tokens_input_cached",
-        ]
-        results_stats = _get_stats_from_results(result, aggregation_metrics)
+        results_stats = _get_stats_from_results(result, _STANDARD_AGGREGATION_METRICS)
         return {
             **result.to_dict(),
             **_get_run_stats(result),
@@ -444,9 +533,9 @@ class Result:
 
         * Basic run information (from ``to_dict()``).
         * Aggregated statistics (``average``, ``p50``, ``p90``, ``p99``) for
-          ``time_to_last_token``, ``time_to_first_token``, ``num_tokens_output``,
-          and ``num_tokens_input``.  Keys use the format
-          ``"{metric}-{aggregation}"``.
+          ``time_to_last_token``, ``time_to_first_token``,
+          ``time_to_first_content_token``, ``num_tokens_output``, and
+          ``num_tokens_input``.  Keys use the format ``"{metric}-{aggregation}"``.
         * Run-level throughput metrics (``requests_per_minute``,
           ``total_input_tokens``, etc.).
         * Any additional stats contributed by callbacks via

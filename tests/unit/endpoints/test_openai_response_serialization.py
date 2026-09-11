@@ -336,7 +336,6 @@ class TestOpenAIResponseEndpointSerialization:
                 max_retries=4,
                 default_headers={"X-Stream": "yes"},
                 provider="test-stream",
-                ttft_visible_tokens_only=False,
             )
             output_path = Path(tmpdir) / "endpoint.json"
             original.save(output_path)
@@ -351,7 +350,46 @@ class TestOpenAIResponseEndpointSerialization:
             assert loaded._client.max_retries == 4
             assert loaded._client._custom_headers == {"X-Stream": "yes"}
             assert loaded.provider == "test-stream"
-            assert loaded.ttft_visible_tokens_only is False
+
+    def test_saved_config_omits_deprecated_ttft_flag(self):
+        """Newly-saved configs should not carry the retired flag forward."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            endpoint = OpenAIResponseStreamEndpoint(
+                model_id="gpt-4", api_key="test_key"
+            )
+            output_path = Path(tmpdir) / "endpoint.json"
+            endpoint.save_to_file(output_path)
+
+            state = json.loads(output_path.read_text())["__llmeter_state__"]
+
+        assert state.get("ttft_visible_tokens_only") is None
+
+    def test_legacy_config_with_ttft_flag_still_loads(self):
+        """A config saved by an older LLMeter version must still load, with a warning."""
+        import pytest
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            output_path = Path(tmpdir) / "endpoint.json"
+            output_path.write_text(
+                json.dumps(
+                    {
+                        "__llmeter_class__": "llmeter.endpoints.openai_response.OpenAIResponseStreamEndpoint",
+                        "__llmeter_state__": {
+                            "model_id": "gpt-4",
+                            "endpoint_name": "openai-response-stream",
+                            "api_key": "test_key",
+                            "provider": "openai",
+                            "ttft_visible_tokens_only": True,
+                        },
+                    }
+                )
+            )
+
+            with pytest.warns(DeprecationWarning, match="ttft_visible_tokens_only"):
+                loaded = Endpoint.load_from_file(output_path)
+
+        assert isinstance(loaded, OpenAIResponseStreamEndpoint)
+        assert loaded.model_id == "gpt-4"
 
     def test_round_trip_with_granular_timeout(self):
         """Test httpx.Timeout round-trips correctly through dict serialization."""

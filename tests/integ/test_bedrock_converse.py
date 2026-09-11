@@ -389,7 +389,6 @@ def test_bedrock_converse_streaming_prompt_caching(
     # We used to assert that num_tokens_input_cached should be present (even if 0)
     # here, but seems like on newer models it can be missing.
 
-
     # Brief pause to allow cache propagation
     time.sleep(1)
 

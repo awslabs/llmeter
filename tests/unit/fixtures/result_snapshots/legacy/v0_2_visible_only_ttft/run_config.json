@@ -1,0 +1,17 @@
+{
+    "endpoint": {
+        "__llmeter_class__": "llmeter.endpoints.bedrock.BedrockConverseStream",
+        "__llmeter_state__": {
+            "model_id": "synthetic.reasoning-model-v1",
+            "endpoint_name": "synthetic-visible-only-endpoint",
+            "region": "us-east-1",
+            "inference_config": null,
+            "max_attempts": 3,
+            "ttft_visible_tokens_only": true
+        }
+    },
+    "output_path": "stale/visible-only-ttft/path",
+    "clients": 2,
+    "n_requests": 4,
+    "run_name": "synthetic-visible-only-ttft"
+}

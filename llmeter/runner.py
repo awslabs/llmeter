@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 
 from .endpoints.base import Endpoint, InvocationResponse
 from .prompt_utils import load_payloads, save_payloads
-from .results import Result
+from .results import Result, _STANDARD_AGGREGATION_METRICS
 from .tokenizers import DummyTokenizer, Tokenizer
 
 logger = logging.getLogger(__name__)
@@ -275,15 +275,7 @@ class _Run(_RunConfig):
                 "(responses must be written to disk)"
             )
 
-        self._running_stats = RunningStats(
-            metrics=[
-                "time_to_last_token",
-                "time_to_first_token",
-                "time_per_output_token",
-                "num_tokens_output",
-                "num_tokens_input",
-            ]
-        )
+        self._running_stats = RunningStats(metrics=_STANDARD_AGGREGATION_METRICS)
 
     def _validate_and_prepare_payload(self):
         """Validate and prepare the payload for the test run.
@@ -330,19 +322,59 @@ class _Run(_RunConfig):
         """
         Compute the time per output token for the given response.
 
+        TPOT is the mean decode interval, so the elapsed time in the numerator and the token count
+        in the denominator must cover the *same* tokens. Two pairings satisfy that, and are tried
+        in order:
+
+        1. **All tokens.** `(time_to_last_token - time_to_first_token) / (num_tokens_output - 1)`.
+           `time_to_first_token` marks the first token of any kind and `num_tokens_output` counts
+           every generated token (reasoning included), so the two agree - *provided* the reasoning
+           reached us as it was generated. Used when
+           [`reasoning_type`][llmeter.endpoints.base.InvocationResponse] is `None` (no reasoning) or
+           `"verbatim"` (the reasoning itself was streamed as text).
+        2. **Content tokens only.** Used when `time_to_first_token` is unavailable, or when
+           `reasoning_type` is `"summary"`, `"redacted"` or `"unknown"` - in those cases some
+           reasoning decode may have happened before anything reached us, so the window understates
+           it.
+           Requires the provider to report how many output tokens were reasoning, letting us
+           subtract them:
+           `(time_to_last_token - time_to_first_content_token) / (num_visible_tokens - 1)`.
+
+        Mixing the two - for instance dividing the post-reasoning decode window by a token count
+        that still includes reasoning tokens - understates TPOT, so when neither pairing is
+        available `time_per_output_token` is left as `None` rather than approximated.
+
         Args:
             response (InvocationResponse): The response to compute time per output token for.
         """
-        if response.time_per_output_token is None:
-            if (
-                response.time_to_last_token
-                and response.num_tokens_output
-                and response.num_tokens_output > 1
-                and response.time_to_first_token
-            ):
-                response.time_per_output_token = (
-                    response.time_to_last_token - response.time_to_first_token
-                ) / (response.num_tokens_output - 1)
+        if response.time_per_output_token is not None:
+            return  # Endpoint already calculated it
+        if not response.time_to_last_token or not response.num_tokens_output:
+            return  # Required data points not available
+
+        # The full-output pairing is only valid when every counted output token reached us *as it
+        # was generated*, so that the measured window contains its decode time. Only plainly
+        # streamed reasoning ("verbatim") is known to satisfy that. Summarized reasoning provably
+        # does not, and for redacted reasoning it is undocumented and appears to vary by API - so
+        # those, and anything unclassified, fall through to the answer-only pairing.
+        reasoning_accounted_for = response.reasoning_type in (None, "verbatim")
+
+        if response.time_to_first_token and reasoning_accounted_for:
+            start = response.time_to_first_token
+            n_tokens = response.num_tokens_output
+        elif (
+            response.time_to_first_content_token
+            and response.num_tokens_output_reasoning is not None
+        ):
+            start = response.time_to_first_content_token
+            n_tokens = response.num_tokens_output - response.num_tokens_output_reasoning
+        else:
+            return  # No internally-consistent combination of data points available
+
+        if n_tokens > 1:
+            response.time_per_output_token = (response.time_to_last_token - start) / (
+                n_tokens - 1
+            )
 
     @staticmethod
     async def _update_token_counts(tokenizer: Tokenizer, response: InvocationResponse):

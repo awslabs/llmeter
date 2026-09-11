@@ -34,7 +34,14 @@ from ..prompt_utils import (
     MediaContent,
     VideoContent,
 )
-from .base import Endpoint, InvocationResponse
+from .base import (
+    Endpoint,
+    InvocationResponse,
+    ReasoningType,
+    infer_reasoning_visibility_from_model_id,
+    warn_if_ttft_visible_tokens_only_set,
+    validate_reasoning_type,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -143,7 +150,22 @@ class BedrockBase(
         inference_config (dict | None, optional): Configuration for inference. Defaults to None.
         bedrock_boto3_client (boto3.client, optional): Pre-configured boto3 client. Defaults to None.
         max_attempts (int, optional): Maximum number of retry attempts. Defaults to 3.
+        default_reasoning_visibility: What to record as
+            [`reasoning_type`][llmeter.endpoints.base.InvocationResponse] when reasoning content is
+            present in the stream. Defaults to a guess from `model_id` via
+            [`infer_reasoning_visibility_from_model_id`][llmeter.endpoints.base.infer_reasoning_visibility_from_model_id]
+            - `"summary"` for Anthropic models, `"verbatim"` otherwise. **Pass `"verbatim"`
+            explicitly for Claude models before version 4**, which stream their full thinking
+            output. Pass `"unknown"` to decline guessing.
+
+            Note the Converse API reports no reasoning-token breakdown, so
+            `num_tokens_output_reasoning` is always `None` and any `reasoning_type` other than
+            `"verbatim"` leaves [`time_per_output_token`][llmeter.endpoints.base.InvocationResponse]
+            unset.
     """
+
+    # Explicit typing to keep pyright happy:
+    default_reasoning_visibility: ReasoningType | None
 
     def __init__(
         self,
@@ -153,12 +175,17 @@ class BedrockBase(
         inference_config: dict | None = None,
         bedrock_boto3_client=None,
         max_attempts: int = 3,
+        default_reasoning_visibility: ReasoningType | None = None,
     ):
         super().__init__(
             model_id=model_id,
             endpoint_name=endpoint_name or "amazon bedrock",
             provider="bedrock",
         )
+
+        self.default_reasoning_visibility = validate_reasoning_type(
+            default_reasoning_visibility
+        ) or infer_reasoning_visibility_from_model_id(model_id)
 
         self.region = region or boto3.session.Session().region_name
         # Persist extra config on the class just so de/serialization catches it:
@@ -317,6 +344,15 @@ class BedrockBase(
 
 
 class BedrockConverse(BedrockBase[ConverseResponseTypeDef]):
+    """Non-streaming endpoint for the Bedrock Converse API.
+
+    Although neither first-token metric is measurable without streaming, reasoning content that the
+    response *does* carry is still recorded on
+    [`reasoning_type`][llmeter.endpoints.base.ReasoningType], informationally: with no
+    `time_to_first_token` there is no TPOT pairing for it to select, but reporting `None` for a
+    model that demonstrably reasoned would be misleading.
+    """
+
     @BedrockBase.llmeter_invoke
     def invoke(self, payload: dict) -> ConverseResponseTypeDef:
         """Invoke the Bedrock converse API with the given payload."""
@@ -339,12 +375,25 @@ class BedrockConverse(BedrockBase[ConverseResponseTypeDef]):
         response.id = resp_meta.get("RequestId")
         response.retries = resp_meta.get("RetryAttempts")
 
-        text_parts = [
-            part["text"]
-            for part in raw_response["output"]["message"]["content"]
-            if "text" in part
-        ]
+        content_parts = raw_response["output"]["message"]["content"]
+        text_parts = [part["text"] for part in content_parts if "text" in part]
         response.response_text = "".join(text_parts)
+
+        # `reasoningContent` blocks are not part of the answer, but do record whether the model
+        # reasoned and how that reasoning was disclosed. There are no first-token timings on a
+        # non-streaming response, so this is informational rather than feeding TPOT.
+        reasoning_parts = [
+            part["reasoningContent"]
+            for part in content_parts
+            if isinstance(part, dict) and "reasoningContent" in part
+        ]
+        if reasoning_parts:
+            if any("redactedContent" in part for part in reasoning_parts):
+                # Encrypted reasoning present. Takes precedence even alongside readable reasoning,
+                # matching the streaming path and `AnthropicMessages`.
+                response.reasoning_type = "redacted"
+            else:
+                response.reasoning_type = self.default_reasoning_visibility or "unknown"
 
         usage = raw_response.get("usage", {})
         response.num_tokens_input = usage.get("inputTokens")
@@ -355,13 +404,9 @@ class BedrockConverse(BedrockBase[ConverseResponseTypeDef]):
 class BedrockConverseStream(BedrockBase[ConverseStreamResponseTypeDef]):
     """Streaming endpoint for the Bedrock Converse API.
 
-    When extended thinking is enabled, the stream contains `reasoningContent` deltas before the
-    visible `text` deltas.  The `ttft_visible_tokens_only` parameter controls which delta sets
-    `time_to_first_token`:
-
-    * `True` (default) - TTFT is set on the first `text` delta. Reasoning deltas are ignored for
-      timing.
-    * `False` - TTFT is set on the first delta of any kind, including reasoning content.
+    Supports collecting both [`time_to_first_token`][llmeter.endpoints.base.InvocationResponse] and
+    [`time_to_first_content_token`][llmeter.endpoints.base.InvocationResponse] where reasoning is
+    emitted by the model.
 
     Args:
         model_id: Bedrock model identifier.
@@ -370,8 +415,23 @@ class BedrockConverseStream(BedrockBase[ConverseStreamResponseTypeDef]):
         inference_config: Default inference configuration.
         bedrock_boto3_client: Pre-configured boto3 client.
         max_attempts: Maximum retry attempts.  Defaults to 3.
-        ttft_visible_tokens_only: When `True` (default), TTFT measures time to first visible text
-            token.  When `False`, TTFT includes reasoning content deltas.
+        default_reasoning_visibility: What to record as
+            [`reasoning_type`][llmeter.endpoints.base.InvocationResponse] when reasoning content is
+            present in the stream. Defaults to a guess from `model_id` via
+            [`infer_reasoning_visibility_from_model_id`][llmeter.endpoints.base.infer_reasoning_visibility_from_model_id]
+            - `"summary"` for Anthropic models, `"verbatim"` otherwise. **Pass `"verbatim"`
+            explicitly for Claude models before version 4**, which stream their full thinking
+            output. Pass `"unknown"` to decline guessing.
+
+            Note the Converse API reports no reasoning-token breakdown, so
+            `num_tokens_output_reasoning` is always `None` and any `reasoning_type` other than
+            `"verbatim"` leaves [`time_per_output_token`][llmeter.endpoints.base.InvocationResponse]
+            unset.
+        ttft_visible_tokens_only: **Deprecated and ignored.**  In current LLMeter,
+            [`time_to_first_token`][llmeter.endpoints.base.InvocationResponse] is recorded when
+            *any* token is received (including internal thinking/reasoning), and
+            [`time_to_first_content_token`][llmeter.endpoints.base.InvocationResponse] when an
+            actual output token is received. Since both are now recorded this param is ignored.
     """
 
     def __init__(
@@ -382,7 +442,8 @@ class BedrockConverseStream(BedrockBase[ConverseStreamResponseTypeDef]):
         inference_config: dict | None = None,
         bedrock_boto3_client=None,
         max_attempts: int = 3,
-        ttft_visible_tokens_only: bool = True,
+        default_reasoning_visibility: ReasoningType | None = None,
+        ttft_visible_tokens_only: bool | None = None,
     ):
         super().__init__(
             model_id=model_id,
@@ -391,8 +452,9 @@ class BedrockConverseStream(BedrockBase[ConverseStreamResponseTypeDef]):
             inference_config=inference_config,
             bedrock_boto3_client=bedrock_boto3_client,
             max_attempts=max_attempts,
+            default_reasoning_visibility=default_reasoning_visibility,
         )
-        self.ttft_visible_tokens_only = ttft_visible_tokens_only
+        warn_if_ttft_visible_tokens_only_set(ttft_visible_tokens_only)
 
     @Endpoint.llmeter_invoke
     def invoke(self, payload: dict):
@@ -404,8 +466,8 @@ class BedrockConverseStream(BedrockBase[ConverseStreamResponseTypeDef]):
     ) -> None:
         """Parse the streaming response from a Bedrock ConverseStream API call.
 
-        Only `text` deltas contribute to `response_text`. `reasoningContent` deltas are used solely
-        for TTFT measurement when `ttft_visible_tokens_only` is `False`.
+        Only `text` deltas contribute to `response_text`. `reasoningContent` deltas are timed (they
+        can set `time_to_first_token`) but their content is discarded.
 
         Args:
             raw_response: The raw response from the Bedrock API.
@@ -415,6 +477,9 @@ class BedrockConverseStream(BedrockBase[ConverseStreamResponseTypeDef]):
         response.id = raw_response["ResponseMetadata"].get("RequestId")
         response.retries = raw_response["ResponseMetadata"]["RetryAttempts"]
 
+        saw_reasoning_text = False
+        saw_redacted_reasoning = False
+
         for chunk in raw_response["stream"]:
             now = time.perf_counter()
 
@@ -422,13 +487,17 @@ class BedrockConverseStream(BedrockBase[ConverseStreamResponseTypeDef]):
                 delta = chunk["contentBlockDelta"]["delta"]
 
                 if "reasoningContent" in delta:
-                    # Reasoning delta -- only counts for TTFT when
-                    # ttft_visible_tokens_only is False.
-                    if (
-                        not self.ttft_visible_tokens_only
-                        and response.time_to_first_token is None
-                    ):
+                    # Reasoning deltas count as output tokens for TTFT, but are not visible
+                    # content and never contribute to `response_text`.
+                    if response.time_to_first_token is None:
                         response.time_to_first_token = now - start_t
+                    reasoning_delta = delta["reasoningContent"]
+                    if "text" in reasoning_delta:
+                        # Readable reasoning content: disclosure level is whatever was declared or
+                        # inferred, since the stream looks identical for verbatim and summarized.
+                        saw_reasoning_text = True
+                    elif "redactedContent" in reasoning_delta:
+                        saw_redacted_reasoning = True
 
                 elif "text" in delta:
                     delta_text = delta["text"]
@@ -437,6 +506,8 @@ class BedrockConverseStream(BedrockBase[ConverseStreamResponseTypeDef]):
                     if delta_text:
                         if response.time_to_first_token is None:
                             response.time_to_first_token = now - start_t
+                        if response.time_to_first_content_token is None:
+                            response.time_to_first_content_token = now - start_t
                         if response.response_text is None:
                             response.response_text = delta_text
                         else:
@@ -474,3 +545,17 @@ class BedrockConverseStream(BedrockBase[ConverseStreamResponseTypeDef]):
                     raise RuntimeError(
                         f"Bedrock {error_type}: {chunk[error_type]['message']}"
                     )
+
+        if saw_redacted_reasoning:
+            # Encrypted reasoning is observable, so it overrides any declared default -- and it takes
+            # precedence over readable reasoning in the same response, because partial redaction
+            # still means some reasoning was not delivered as plain text. The answer-only pairing is
+            # valid either way, so preferring it is the conservative choice. (Matches
+            # `AnthropicMessagesStream`, which sees the same situation via `redacted_thinking`.)
+            response.reasoning_type = "redacted"
+        elif saw_reasoning_text:
+            # Readable reasoning only. The schema is identical for verbatim and summarized reasoning,
+            # so fall back to what was declared or inferred from the model ID. `"unknown"` records
+            # that reasoning happened without claiming how it was disclosed, which is distinct from
+            # `None` (no reasoning at all).
+            response.reasoning_type = self.default_reasoning_visibility or "unknown"

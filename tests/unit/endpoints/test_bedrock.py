@@ -116,6 +116,7 @@ class TestBedrock:
         assert result.response_text is None
         assert result.time_to_last_token is not None
         assert result.time_to_first_token is None
+        assert result.time_to_first_content_token is None
         assert result.num_tokens_input == 10
         assert result.num_tokens_output == 20
         assert result.time_per_output_token is None
@@ -224,6 +225,7 @@ class TestBedrock:
         assert isinstance(result, InvocationResponse)
         assert result.response_text is None
         assert result.time_to_first_token is None
+        assert result.time_to_first_content_token is None
         assert result.time_to_last_token is None
 
     def test__parse_conversation_stream_incorrect_type(self):
@@ -616,6 +618,7 @@ class TestBedrock:
         assert isinstance(response, InvocationResponse)
         assert response.response_text is None
         assert response.time_to_first_token is None
+        assert response.time_to_first_content_token is None
         assert response.time_to_last_token is None
 
     def test_invoke_error_when_inference_config_is_none(self):
@@ -779,6 +782,9 @@ class TestBedrock:
         assert result.num_tokens_input == 10
         assert result.num_tokens_output == 20
         assert result.retries == 1
+        # Non-streaming: neither first-token metric is measurable
+        assert result.time_to_first_token is None
+        assert result.time_to_first_content_token is None
 
     def test_invoke_stream_mid_stream_timeout(self):
         """Verify that a timeout during stream consumption is caught by the

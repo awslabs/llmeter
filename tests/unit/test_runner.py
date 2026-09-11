@@ -10,7 +10,6 @@ from unittest.mock import AsyncMock, MagicMock, call, patch
 import pytest
 from upath import UPath as Path
 
-import llmeter.endpoints
 from llmeter.endpoints.base import Endpoint, InvocationResponse
 from llmeter.runner import Runner, _Run, _RunConfig
 from llmeter.tokenizers import DummyTokenizer
@@ -1209,4 +1208,423 @@ def test_prepare_run_duration_and_n_requests_conflict(runner: Runner):
             n_requests=10,
             run_duration=30,
             clients=2,
+        )
+
+
+# ---------------------------------------------------------------------------
+# Tests: time-per-output-token derivation
+# ---------------------------------------------------------------------------
+
+
+class TestComputeTimePerOutputToken:
+    """TPOT selection logic: which time/token pairing is used, and when neither is valid.
+
+    Four independent inputs decide the outcome, so the cases are organised by factor rather than by
+    scenario:
+
+    1. `reasoning_type` - whether the reasoning was accounted for in the measured window
+    2. `time_to_first_token` - present or not
+    3. `time_to_first_content_token` - present or not
+    4. `num_tokens_output_reasoning` - reported or not, which is what makes the answer-only
+       pairing computable
+
+    Provider-specific narratives (e.g. Anthropic thinking modes) live with their endpoint tests;
+    this suite is only about the arithmetic selection.
+    """
+
+    #: Baseline where the two pairings give *different* answers, so which one ran is observable:
+    #:   whole-output  = (5.0 - 1.0) / (11 - 1)       = 0.4
+    #:   answer-only   = (5.0 - 3.0) / ((11 - 6) - 1) = 0.5
+    BASE = {
+        "response_text": "x",
+        "time_to_first_token": 1.0,
+        "time_to_first_content_token": 3.0,
+        "time_to_last_token": 5.0,
+        "num_tokens_output": 11,
+        "num_tokens_output_reasoning": 6,
+    }
+    WHOLE_OUTPUT = pytest.approx(0.4)
+    ANSWER_ONLY = pytest.approx(0.5)
+
+    @classmethod
+    def _response(cls, **overrides) -> InvocationResponse:
+        return InvocationResponse(**{**cls.BASE, **overrides})
+
+    # -- Factor 1: reasoning_type selects the pairing ---------------------------------------------
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "reasoning_type,expected",
+        [
+            # Nothing to account for, or the reasoning itself was streamed: the measured window
+            # contains all the decode that `num_tokens_output` counts.
+            (None, WHOLE_OUTPUT),
+            ("verbatim", WHOLE_OUTPUT),
+            # Reasoning reached us late, partially, or unclassifiably, so some counted tokens were
+            # generated before the window began.
+            ("summary", ANSWER_ONLY),
+            ("redacted", ANSWER_ONLY),
+            ("unknown", ANSWER_ONLY),
+        ],
+    )
+    async def test_pairing_selected_by_reasoning_type(self, reasoning_type, expected):
+        response = self._response(reasoning_type=reasoning_type)
+
+        await _Run._compute_time_per_output_token(response)
+
+        assert response.time_per_output_token == expected
+
+    @pytest.mark.asyncio
+    async def test_unknown_is_not_treated_as_none(self):
+        """The two must not collapse: `None` means no reasoning, `"unknown"` means unclassified.
+
+        Conflating them would apply the whole-output pairing to a response it is not valid for.
+        """
+        unknown = self._response(reasoning_type="unknown")
+        absent = self._response(reasoning_type=None)
+
+        await _Run._compute_time_per_output_token(unknown)
+        await _Run._compute_time_per_output_token(absent)
+
+        assert unknown.time_per_output_token != absent.time_per_output_token
+
+    # -- Factor 2/3/4: which pairings the available data points permit ----------------------------
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "reasoning_type,overrides,expected,why",
+        [
+            # Whole-output needs TTFT *and* accounted-for reasoning. Without TTFT it falls through
+            # to the answer-only pairing even when reasoning was accounted for.
+            (None, {"time_to_first_token": None}, ANSWER_ONLY, "no TTFT falls back"),
+            (
+                "verbatim",
+                {"time_to_first_token": None},
+                ANSWER_ONLY,
+                "no TTFT falls back",
+            ),
+            # Answer-only needs the content TTFT *and* a reasoning-token count. Missing either
+            # leaves nothing internally consistent.
+            (
+                "summary",
+                {"num_tokens_output_reasoning": None},
+                None,
+                "withheld reasoning, no breakdown to subtract",
+            ),
+            (
+                "summary",
+                {"time_to_first_content_token": None},
+                None,
+                "withheld reasoning, no content TTFT",
+            ),
+            (
+                None,
+                {"time_to_first_token": None, "num_tokens_output_reasoning": None},
+                None,
+                "neither pairing available",
+            ),
+            (
+                None,
+                {"time_to_first_token": None, "time_to_first_content_token": None},
+                None,
+                "neither pairing available",
+            ),
+            # A reported count of *zero* is still a report: the provider confirmed there were no
+            # reasoning tokens, so the answer-only pairing is computable (and equals the whole
+            # output). Distinguishes `is not None` from a truthiness check.
+            (
+                "summary",
+                {"num_tokens_output_reasoning": 0},
+                pytest.approx((5.0 - 3.0) / (11 - 0 - 1)),
+                "zero is a reported breakdown, not a missing one",
+            ),
+        ],
+    )
+    async def test_pairing_selected_by_available_data(
+        self, reasoning_type, overrides, expected, why
+    ):
+        response = self._response(reasoning_type=reasoning_type, **overrides)
+
+        await _Run._compute_time_per_output_token(response)
+
+        assert response.time_per_output_token == expected, why
+
+    # -- Guards: inputs that must short-circuit before any pairing is attempted -------------------
+
+    @pytest.mark.asyncio
+    async def test_existing_value_is_never_overwritten(self):
+        """An endpoint that reports TPOT itself must win over any derivation."""
+        response = self._response(time_per_output_token=0.123)
+
+        await _Run._compute_time_per_output_token(response)
+
+        assert response.time_per_output_token == 0.123
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "overrides,why",
+        [
+            ({"time_to_last_token": None}, "no end timestamp"),
+            ({"time_to_last_token": 0.0}, "zero end timestamp is not usable"),
+            ({"num_tokens_output": None}, "no output token count"),
+            ({"num_tokens_output": 0}, "zero output tokens"),
+        ],
+    )
+    async def test_missing_required_inputs_yield_none(self, overrides, why):
+        response = self._response(**overrides)
+
+        await _Run._compute_time_per_output_token(response)
+
+        assert response.time_per_output_token is None, why
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "overrides,why",
+        [
+            # Whole-output pairing: a single output token gives no decode interval to average
+            ({"num_tokens_output": 1, "reasoning_type": None}, "1 output token"),
+            # Answer-only pairing: same, once reasoning tokens are subtracted
+            (
+                {
+                    "num_tokens_output": 11,
+                    "num_tokens_output_reasoning": 10,
+                    "reasoning_type": "summary",
+                },
+                "1 visible token",
+            ),
+            (
+                {
+                    "num_tokens_output": 11,
+                    "num_tokens_output_reasoning": 11,
+                    "reasoning_type": "summary",
+                },
+                "0 visible tokens",
+            ),
+            # Inconsistent provider data must not produce a negative-denominator result
+            (
+                {
+                    "num_tokens_output": 11,
+                    "num_tokens_output_reasoning": 20,
+                    "reasoning_type": "summary",
+                },
+                "more reasoning tokens than total output",
+            ),
+        ],
+    )
+    async def test_too_few_tokens_to_average_yields_none(self, overrides, why):
+        response = self._response(**overrides)
+
+        await _Run._compute_time_per_output_token(response)
+
+        assert response.time_per_output_token is None, why
+
+
+class TestStatsKeyParityAcrossAccessPaths:
+    """The same run must report the same stat keys however its `Result` was obtained.
+
+    `Result.stats` has two independent producers:
+      * `RunningStats`, accumulated live during the run and saved to `stats.json`
+      * `Result._compute_stats`, recalculated from the individual responses -- which runs on any
+        `Result.load()` with responses populated (the default) and on any directly-constructed
+        `Result`
+
+    They are kept in step by `llmeter.results._STANDARD_AGGREGATION_METRICS` (per-metric
+    aggregations) and by matching run-level totals. Nothing enforced that before, and the two had
+    silently drifted in both directions -- `time_per_output_token` was live-only, while
+    `num_tokens_input_cached` / the token totals were recompute-only. This pins the invariant so a
+    metric added to one producer and not the other fails here rather than in a user's dashboard.
+    """
+
+    #: Keys legitimately present only on a live run. `output_tps` needs the run's wall-clock end
+    #: time, which `_compute_stats` has no equivalent of.
+    LIVE_ONLY_KEYS = {"output_tps"}
+
+    class _Endpoint(Endpoint[dict]):
+        """Reports every token count, so no metric is skipped for want of data."""
+
+        def __init__(self):
+            super().__init__(
+                endpoint_name="parity", model_id="test-model", provider="test"
+            )
+
+        @Endpoint.llmeter_invoke
+        def invoke(self, payload: dict) -> dict:
+            return payload
+
+        def process_raw_response(self, raw_response, start_t, response) -> None:
+            response.response_text = "hello world"
+            response.time_to_first_token = 0.1
+            response.time_to_first_content_token = 0.2
+            response.time_to_last_token = 0.5
+            response.num_tokens_input = 10
+            response.num_tokens_output = 20
+            response.num_tokens_input_cached = 4
+            response.num_tokens_output_reasoning = 3
+
+    @pytest.fixture
+    def live_result(self, tmp_path: Path):
+        return asyncio.run(
+            Runner(
+                self._Endpoint(),
+                output_path=str(tmp_path),
+                disable_per_client_progress_bar=True,
+                disable_clients_progress_bar=True,
+            ).run(payload=[{"prompt": "hi"}] * 3)
+        )
+
+    def test_live_and_recomputed_keys_match(self, live_result):
+        """A `Result` rebuilt from the same responses must expose the same keys."""
+        from llmeter.results import Result
+
+        recomputed = Result(
+            responses=live_result.responses,
+            total_requests=live_result.total_requests,
+            clients=live_result.clients,
+            n_requests=live_result.n_requests,
+            total_test_time=live_result.total_test_time,
+            model_id=live_result.model_id,
+            endpoint_name=live_result.endpoint_name,
+            provider=live_result.provider,
+        )
+
+        live_keys = set(live_result.stats)
+        recomputed_keys = set(recomputed.stats)
+
+        assert recomputed_keys - live_keys == set(), (
+            "recompute produces keys the live run does not: these would be missing from "
+            "`stats.json` and from any `load_responses=False` load"
+        )
+        assert live_keys - recomputed_keys == self.LIVE_ONLY_KEYS, (
+            "live run produces unexpected extra keys: these would be missing from a "
+            "directly-constructed Result, or a load with no stats.json"
+        )
+
+    @pytest.mark.parametrize(
+        "metric",
+        [
+            "time_to_last_token",
+            "time_to_first_token",
+            "time_to_first_content_token",
+            "time_per_output_token",
+            "num_tokens_output",
+            "num_tokens_input",
+            "num_tokens_input_cached",
+        ],
+    )
+    @pytest.mark.parametrize("aggregation", ["average", "p50", "p90", "p99"])
+    def test_standard_aggregations_present_on_live_run(
+        self, live_result, metric, aggregation
+    ):
+        """Spelled out so a dropped metric names itself in the failure."""
+        assert f"{metric}-{aggregation}" in live_result.stats
+
+    def test_default_progress_bar_stat_keys_all_resolve(self, live_result):
+        """Every `DEFAULT_DISPLAY_STATS` key must exist, or its tile silently renders as '—'.
+
+        `time_per_output_token-p50` in particular backs the `p50_tps` tile, so dropping that metric
+        blanks part of the live display without any error.
+        """
+        from llmeter.live_display import DEFAULT_DISPLAY_STATS
+
+        missing = [
+            spec[0] if isinstance(spec, tuple) else spec
+            for spec in DEFAULT_DISPLAY_STATS.values()
+            if (spec[0] if isinstance(spec, tuple) else spec) not in live_result.stats
+        ]
+
+        assert not missing, f"default display stats not produced by a run: {missing}"
+
+    def test_sum_only_totals_are_reported_live(self, live_result):
+        """Totals tracked without a sorted-values list must still reach `Result.stats`."""
+        assert live_result.stats["total_cached_input_tokens"] == 3 * 4
+        assert live_result.stats["total_reasoning_output_tokens"] == 3 * 3
+
+    def test_sum_only_fields_are_not_tracked_as_metrics(self):
+        """Guard the performance intent: no per-response sorted insert for these."""
+        from llmeter.utils import RunningStats
+
+        rs = RunningStats(metrics=["num_tokens_output"])
+
+        assert "num_tokens_output_reasoning" not in rs._values
+        assert "num_tokens_output_reasoning" not in rs._metrics
+
+
+class TestRunningStatsSumOnlyTotals:
+    """`RunningStats._SUM_ONLY_STATS` totals, which share `_sums` with the tracked `metrics`.
+
+    Sharing one sum store keeps the accounting in one place, but means a field listed in *both*
+    `metrics` and `_SUM_ONLY_STATS` is visited by both loops in `update()` -- so the totals must be
+    accumulated exactly once. `num_tokens_input_cached` is currently in both.
+    """
+
+    @staticmethod
+    def _stats(metrics, n=3, **fields):
+        from llmeter.utils import RunningStats
+
+        rs = RunningStats(metrics=metrics)
+        for _ in range(n):
+            rs.update({**fields, "error": None})
+        return rs, rs.to_stats()
+
+    def test_field_in_both_lists_is_counted_once(self):
+        """Regression: double-counting made `total_cached_input_tokens` exactly 2x too large."""
+        from llmeter.results import _STANDARD_AGGREGATION_METRICS
+
+        assert "num_tokens_input_cached" in _STANDARD_AGGREGATION_METRICS, (
+            "guard: this test is only meaningful while the field is in both lists"
+        )
+
+        _, stats = self._stats(
+            _STANDARD_AGGREGATION_METRICS, n=3, num_tokens_input_cached=4
+        )
+
+        assert stats["total_cached_input_tokens"] == 12
+
+    def test_field_in_both_lists_still_gets_aggregations(self):
+        """Sharing the sum must not cost the overlapping field its quantile keys."""
+        from llmeter.results import _STANDARD_AGGREGATION_METRICS
+
+        _, stats = self._stats(
+            _STANDARD_AGGREGATION_METRICS, n=3, num_tokens_input_cached=4
+        )
+
+        assert stats["num_tokens_input_cached-p50"] == 4
+
+    def test_totals_reported_even_when_not_in_metrics(self):
+        """A caller configuring narrow `metrics` must still get these run-level totals."""
+        _, stats = self._stats(
+            ["num_tokens_output"],
+            n=3,
+            num_tokens_output=9,
+            num_tokens_input_cached=5,
+            num_tokens_output_reasoning=2,
+        )
+
+        assert stats["total_cached_input_tokens"] == 15
+        assert stats["total_reasoning_output_tokens"] == 6
+
+    @pytest.mark.parametrize(
+        "fields,why",
+        [
+            ({}, "field absent from the response dict"),
+            ({"num_tokens_output_reasoning": None}, "endpoint reported no breakdown"),
+            (
+                {"num_tokens_output_reasoning": float("nan")},
+                "NaN must not poison the sum",
+            ),
+        ],
+    )
+    def test_absent_none_and_nan_are_skipped(self, fields, why):
+        _, stats = self._stats(["num_tokens_output"], n=2, **fields)
+
+        assert stats["total_reasoning_output_tokens"] == 0, why
+
+    def test_sum_only_field_keeps_no_sorted_values_list(self):
+        """The whole point of the sum-only path: O(1) per response, not O(n) insort."""
+        rs, stats = self._stats(["num_tokens_output"], num_tokens_output_reasoning=3)
+
+        assert "num_tokens_output_reasoning" not in rs._values
+        assert "num_tokens_output_reasoning" not in rs._metrics
+        assert not [k for k in stats if k.startswith("num_tokens_output_reasoning-")], (
+            "must not emit aggregation keys for a sum-only field"
         )

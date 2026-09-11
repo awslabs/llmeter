@@ -118,6 +118,9 @@ def test_sagemaker_endpoint_invoke(sagemaker_endpoint: SageMakerEndpoint):
     assert response.num_tokens_output == 10
     assert isinstance(response.id, str)
     assert len(response.id) > 0
+    # Non-streaming: neither first-token metric is measurable
+    assert response.time_to_first_token is None
+    assert response.time_to_first_content_token is None
 
 
 @patch("time.perf_counter")
@@ -151,41 +154,90 @@ def test_sagemaker_endpoint_time_to_last_token_is_elapsed(
     assert abs(response.time_to_last_token - 0.25) < 1e-5
 
 
-# @patch("boto3.client")
-# def test_sagemaker_stream_endpoint_invoke(mock_boto3_client, sagemaker_stream_endpoint: SageMakerStreamEndpoint):
-#     mock_client = Mock()
-#     mock_boto3_client.return_value = mock_client
+def _tgi_stream(*texts, details=None):
+    """A SageMaker `Body` event stream in the TGI schema `TokenIterator` parses."""
+    lines = [json.dumps({"token": {"text": t}}).encode() for t in texts]
+    if details is not None:
+        lines.append(json.dumps({"token": {"text": ""}, "details": details}).encode())
+    return [{"PayloadPart": {"Bytes": b"data:" + line + b"\n"}} for line in lines]
 
-#     class MockStream:
-#         def __init__(self):
-#             self.content = [
-#                 b'data: {"token": {"text": "Hello"}}\n',
-#                 b'data: {"token": {"text": " World"}}\n',
-#                 b'data: {"token": {"text": "!"}}\n',
-#             ]
-#             self.index = 0
 
-#         def __iter__(self):
-#             return self
+class TestSageMakerStreamEndpointProcessing:
+    """Covers `SageMakerStreamEndpoint.process_raw_response`, previously untested.
 
-#         def __next__(self):
-#             if self.index < len(self.content):
-#                 result = self.content[self.index]
-#                 self.index += 1
-#                 return result
-#             raise StopIteration
+    The suite this replaces was commented out (predating this branch), which left the whole method
+    uncovered - including the two first-token metrics it now records.
+    """
 
-#     mock_response = {"Body": MockStream()}
-#     mock_client.invoke_endpoint_with_response_stream.return_value = mock_response
+    @staticmethod
+    def _invoke(endpoint, events):
+        with patch.object(endpoint, "_sagemaker_runtime") as runtime:
+            runtime.invoke_endpoint_with_response_stream.return_value = {
+                "ResponseMetadata": {"RequestId": "req-123", "RetryAttempts": 0},
+                "Body": events,
+            }
+            return endpoint.invoke({"inputs": "Test input"})
 
-#     payload = {"inputs": "Test input"}
-#     response = sagemaker_stream_endpoint.invoke(payload)
+    def test_assembles_text_and_metadata(self, sagemaker_stream_endpoint):
+        response = self._invoke(
+            sagemaker_stream_endpoint, _tgi_stream("Hello", " World", "!")
+        )
 
-#     assert isinstance(response, InvocationResponse)
-#     assert response.response_text == "Hello World!"
-#     assert response.num_tokens_output == 3
-#     assert isinstance(response.id, str)
-#     assert UUID(response.id, version=4)
+        assert response.error is None, response.error
+        assert response.response_text == "Hello World!"
+        assert response.id == "req-123"
+        assert response.retries == 0
+
+    def test_first_token_metrics_are_equal(self, sagemaker_stream_endpoint):
+        """`TokenIterator` parses TGI, which has no reasoning field.
+
+        Every token it yields is therefore visible content, so the two first-token metrics coincide
+        by construction - not by coincidence. A future schema refactor that distinguished reasoning
+        would have to change this deliberately.
+        """
+        response = self._invoke(sagemaker_stream_endpoint, _tgi_stream("Hi", " there"))
+
+        assert response.time_to_first_token is not None
+        assert response.time_to_first_content_token == response.time_to_first_token
+        assert response.time_to_last_token >= response.time_to_first_token
+
+    def test_no_reasoning_is_reported(self, sagemaker_stream_endpoint):
+        """TGI cannot express reasoning, so `reasoning_type` must stay unset.
+
+        It must specifically not pick up the token-count backfill either, since this endpoint reports
+        no reasoning-token count for it to act on.
+        """
+        response = self._invoke(sagemaker_stream_endpoint, _tgi_stream("Hi"))
+
+        assert response.reasoning_type is None
+        assert response.num_tokens_output_reasoning is None
+
+    def test_token_count_prefers_reported_details(self, sagemaker_stream_endpoint):
+        response = self._invoke(
+            sagemaker_stream_endpoint,
+            _tgi_stream("a", "b", details={"generated_tokens": 42}),
+        )
+
+        assert response.num_tokens_output == 42
+
+    def test_token_count_falls_back_to_counting_chunks(self, sagemaker_stream_endpoint):
+        """Without a `details` payload, the yielded token count is the best available."""
+        response = self._invoke(sagemaker_stream_endpoint, _tgi_stream("a", "b", "c"))
+
+        assert response.num_tokens_output == 3
+
+
+class TestSageMakerEndpointNullResponse:
+    def test_null_response_is_reported_as_an_error(self, sagemaker_endpoint):
+        """Guards the branch reached when the runtime hands back `None`."""
+        response = InvocationResponse(response_text=None)
+
+        sagemaker_endpoint.process_raw_response(None, 0.0, response)
+
+        assert response.error == "Null response from SageMaker endpoint"
+        assert response.time_to_last_token is not None, (
+            "elapsed time should still be recorded for a failed call"
+        )
 
 
 def test_sagemaker_endpoint_error_handling(sagemaker_endpoint: SageMakerEndpoint):
@@ -248,3 +300,49 @@ def test_token_iterator_error_handling():
         next(iterator)
 
     assert str(exc_info.value) == "Test error"
+
+
+def _payload_stream(lines: list[str]):
+    """Wrap raw SSE lines as SageMaker `PayloadPart` events."""
+    return [{"PayloadPart": {"Bytes": (ln + "\n").encode("utf-8")}} for ln in lines]
+
+
+def test_token_iterator_rejects_chat_completions_schema_with_actionable_error():
+    """A non-TGI chunk must fail with an explanation, not a bare `KeyError: 'token'`.
+
+    SageMaker only transports bytes -- the schema is the container's. LMI and the `/openai/v1`
+    endpoint path both serve OpenAI Chat Completions, which this parser cannot read.
+    """
+    chunk = json.dumps({"choices": [{"delta": {"content": "Hi"}}]})
+    iterator = TokenIterator(_payload_stream([f"data:{chunk}"]))
+
+    with pytest.raises(ValueError) as exc_info:
+        next(iterator)
+
+    message = str(exc_info.value)
+    assert "TGI schema" in message
+    assert "choices" in message, "Error should report the keys actually present"
+    assert "OpenAICompletionStreamEndpoint" in message, (
+        "Error should point at the connector that can read this schema"
+    )
+
+
+def test_token_iterator_reasoning_chunk_also_reports_clearly():
+    """A reasoning-carrying Chat Completions chunk fails the same diagnosable way."""
+    chunk = json.dumps({"choices": [{"delta": {"reasoning_content": "thinking"}}]})
+    iterator = TokenIterator(_payload_stream([f"data:{chunk}"]))
+
+    with pytest.raises(ValueError, match="TGI schema"):
+        next(iterator)
+
+
+def test_token_iterator_still_parses_tgi_schema():
+    """The supported schema must keep working unchanged."""
+    lines = [
+        'data:{"token": {"text": "Hello"}}',
+        'data:{"token": {"text": " world"}, "details": {"generated_tokens": 2}}',
+    ]
+    iterator = TokenIterator(_payload_stream(lines))
+
+    assert list(iterator) == ["Hello", " world"]
+    assert iterator.details == {"generated_tokens": 2}
