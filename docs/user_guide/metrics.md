@@ -34,7 +34,7 @@ Since it includes the time taken to process your input prompt, comparing TTFT be
 !!! warning "Important differences between reasoning models"
     For models that generate reasoning or "thinking" before their final answer but **don't expose** this raw reasoning to clients in the response stream, TTFT will also include reasoning time - and therefore vary depending on both your configured reasoning effort and the amount of thinking required for each input prompt: Making it less useful as a comparison metric.
 
-    Some models expose thinking only indirectly - summarized or redacted instead of raw. Anthropic Claude 4 and later return *summarized* thinking, while Claude 3.7 Sonnet returns original thinking but occasionally redacts parts of it. Other models emit only the reasoning token count. LLMeter tracks the reasoning
+    Some models expose thinking only indirectly - summarized or redacted instead of raw. Anthropic Claude 4 and later return *summarized* thinking, while Claude 3.7 Sonnet returns its original thinking but [occasionally encrypts parts of it](https://docs.aws.amazon.com/bedrock/latest/userguide/claude-messages-thinking-encryption.html). Other models emit only the reasoning token count. LLMeter tracks the reasoning
     disclosure level on [`InvocationResponse.reasoning_type`][llmeter.endpoints.base.InvocationResponse], and users should:
 
     1. Ensure your LLMeter Endpoints are configured to correctly declare the reasoning type where it cannot be detected from the response, and
@@ -70,7 +70,7 @@ For models that directly expose their reasoning stream, or go straight to answer
 TPOT = (TTLT - TTFT) / (output_tokens - 1)
 ```
 
-Some models do reason but **don't output the raw reasoning stream** - either redacting it (like Claude Sonnet 3.7), providing only a summary (like Claude 4+ with `thinking.display="summary"`), or omitting it altogether (default for Claude 4+). This would skew the TPOT calculation above because the observed time window no longer aligns with the total number of output tokens being generated. The inferred reasoning visibility for each response is stored on [`InvocationResponse.reasoning_type`][llmeter.endpoints.base.InvocationResponse].
+Some models do reason but **don't output the raw reasoning stream** - providing only a summary (Claude 4+ with `thinking.display="summarized"`), omitting it altogether (the default on Claude Opus 4.7 and Mythos), or redacting it (as Claude 3.7 Sonnet does sometimes). This would skew the TPOT calculation above because the observed time window no longer aligns with the total number of output tokens being generated. The inferred reasoning visibility for each response is stored on [`InvocationResponse.reasoning_type`][llmeter.endpoints.base.InvocationResponse].
 
 Where possible in these cases, LLMeter will instead calculate TPOT based only on the answer content - excluding reasoning:
 

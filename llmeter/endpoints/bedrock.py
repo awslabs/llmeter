@@ -156,6 +156,11 @@ class BedrockBase(
             - `"summary"` for Anthropic models, `"verbatim"` otherwise. **Pass `"verbatim"`
             explicitly for Claude models before version 4**, which stream their full thinking
             output. Pass `"unknown"` to decline guessing.
+
+            Note the Converse API reports no reasoning-token breakdown, so
+            `num_tokens_output_reasoning` is always `None` and any `reasoning_type` other than
+            `"verbatim"` leaves [`time_per_output_token`][llmeter.endpoints.base.InvocationResponse]
+            unset.
     """
 
     # Explicit typing to keep pyright happy:
@@ -417,6 +422,11 @@ class BedrockConverseStream(BedrockBase[ConverseStreamResponseTypeDef]):
             - `"summary"` for Anthropic models, `"verbatim"` otherwise. **Pass `"verbatim"`
             explicitly for Claude models before version 4**, which stream their full thinking
             output. Pass `"unknown"` to decline guessing.
+
+            Note the Converse API reports no reasoning-token breakdown, so
+            `num_tokens_output_reasoning` is always `None` and any `reasoning_type` other than
+            `"verbatim"` leaves [`time_per_output_token`][llmeter.endpoints.base.InvocationResponse]
+            unset.
         ttft_visible_tokens_only: **Deprecated and ignored.**  In current LLMeter,
             [`time_to_first_token`][llmeter.endpoints.base.InvocationResponse] is recorded when
             *any* token is received (including internal thinking/reasoning), and

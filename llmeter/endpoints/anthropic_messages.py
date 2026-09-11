@@ -515,10 +515,12 @@ class AnthropicMessagesStream(
       whole measured window. TPOT is still available, from the answer-only pairing that
       `num_tokens_output_reasoning` makes possible.
 
-    A `redacted_thinking` block is treated the same way: it arrives whole (the Messages API has no
-    redacted-thinking *delta* type), so it too sets `time_to_first_token` and yields `"redacted"`.
-    Partial redaction - readable thinking *and* a redacted block - also resolves to `"redacted"`,
-    conservatively, because some of the reasoning was not delivered as plain text.
+    A `redacted_thinking` block (generated occasionally by
+    [Claude 3.7 Sonnet](https://docs.aws.amazon.com/bedrock/latest/userguide/claude-messages-thinking-encryption.html))
+    is treated the same way: it arrives whole (the Messages API has no redacted-thinking *delta*
+    type), so it too sets `time_to_first_token` and yields `"redacted"`. Partial redaction -
+    readable thinking *and* a redacted block - also resolves to `"redacted"`, conservatively,
+    because some of the reasoning was not delivered as plain text.
 
     !!! note
         To measure first-token latency on a model that defaults to `display: "omitted"`, request

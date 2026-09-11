@@ -98,13 +98,17 @@ def bedrock_test_model():
 @pytest.fixture(scope="session")
 def bedrock_caching_test_model():
     """
-    Get test model ID for Converse/Invoke tests.
+    Get test model ID for *prompt caching* tests.
+
+    Distinct from `bedrock_test_model` because the standard test model is a Nova model, and Nova
+    doesn't support prompt caching at the time of writing - so caching tests need a model that
+    reports `cacheReadInputTokens`.
 
     The model ID can be overridden via the BEDROCK_CACHING_TEST_MODEL environment variable.
-    Defaults to Claude Haiku 4.5, since Nova models don't yet support caching at writing.
+    Defaults to Claude Sonnet 5.
 
     Returns:
-        str: Bedrock model ID for testing.
+        str: Bedrock model ID for prompt caching tests.
     """
     return os.environ.get("BEDROCK_CACHING_TEST_MODEL", "us.anthropic.claude-sonnet-5")
 

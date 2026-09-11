@@ -338,7 +338,8 @@ def infer_reasoning_visibility_from_model_id(model_id: str) -> ReasoningType | N
     `openai.gpt-oss-120b-1:0`.
 
     * **Anthropic models** return *summarized* thinking on Claude 4 and later, so `"summary"` is
-      assumed. This is wrong for Claude 3.7 Sonnet, which returns its full thinking output; declare
+      assumed. This is wrong for Claude 3.7 Sonnet, which returns its full thinking output except
+      where safety checks occasionally redact it; declare
       `default_reasoning_visibility="verbatim"` explicitly for that model (or older ones).
     * **Everything else** (`gpt-oss`, Qwen, DeepSeek, ...) streams the reasoning tokens themselves,
       so `"verbatim"` is assumed.
